@@ -1,0 +1,67 @@
+<?php
+/**
+ * Guarda la pestania Identificacion del detalle del paciente.
+ */
+require_once __DIR__ . '/../_endpoint.php';
+endpoint('paciente.editar');
+
+$idPersona    = paramInt('id_persona');
+$idExpediente = paramInt('id_registro_paciente');
+$nombres = nombreLimpio('nombres');
+$paterno = nombreLimpio('ap_paterno');
+$materno = nombreLimpio('ap_materno');
+$nacim   = trim((string) param('fecha_nacim', '')) ?: null;
+$genero  = paramInt('id_genero');
+$rfc     = paramMayus('rfc');
+$idOcupacion = paramInt('id_ocupacion');
+
+$errores = [];
+if (!$idPersona)      { Respuesta::error('Falta el identificador del paciente.'); }
+if ($nombres === null) { $errores['nombres']    = 'Captura el nombre.'; }
+if ($paterno === null) { $errores['ap_paterno'] = 'Captura el apellido paterno.'; }
+
+if ($nacim !== null) {
+    $d = DateTime::createFromFormat('Y-m-d', $nacim);
+    if (!$d || $d > new DateTime('today')) {
+        $errores['fecha_nacim'] = 'Fecha invalida.';
+    }
+}
+if ($rfc !== null && !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
+    $errores['rfc'] = 'El RFC no tiene el formato correcto.';
+}
+if ($errores) {
+    Respuesta::validacion($errores);
+}
+
+$pdo = bd();
+try {
+    $pdo->beginTransaction();
+
+    // Si no mandaron ocupacion y la edad la define sola, se pone aqui.
+    if ($idOcupacion === null) {
+        $idOcupacion = ocupacionPorEdad($nacim);
+    }
+
+    Conexion::consulta(
+        'UPDATE persona
+            SET nombres = :n, ap_paterno = :ap, ap_materno = :am,
+                fecha_nacim = :fn, id_genero = :g, rfc = :rfc,
+                id_ocupacion = :ocu
+          WHERE id_persona = :id',
+        [':n' => $nombres, ':ap' => $paterno, ':am' => $materno,
+         ':fn' => $nacim, ':g' => $genero, ':rfc' => $rfc,
+         ':ocu' => $idOcupacion, ':id' => $idPersona]
+    );
+
+    $pdo->commit();
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) { $pdo->rollBack(); }
+    error_log('[PACIENTE/IDENTIFICACION] ' . $e->getMessage());
+    Respuesta::error('No se pudieron guardar los cambios.', 500);
+}
+
+Bitacora::registrar('paciente', 'CAMBIO', 'persona', (string) $idPersona, [
+    'nombre' => nombreCompleto($nombres, $paterno, $materno),
+]);
+
+Respuesta::ok(null, 'Datos actualizados.');

@@ -1,0 +1,432 @@
+<?php
+/**
+ * Pestania Historia clinica.
+ *
+ * Sigue el orden de las dos hojas que usa el consultorio en papel, para
+ * que quien captura vaya leyendo del formato impreso sin brincar de un
+ * lado a otro de la pantalla.
+ */
+$secciones = Conexion::todos(
+    'SELECT seccion, clave, nombre, pide_detalle
+       FROM catalogo_clinico WHERE estatus = 1
+      ORDER BY seccion, orden'
+);
+
+$porSeccion = [];
+foreach ($secciones as $sc) {
+    $porSeccion[$sc['seccion']][] = $sc;
+}
+
+/** Grupo de botones si / no. */
+function siNo(string $campo, string $etiqueta = ''): string
+{
+    $html = $etiqueta !== ''
+        ? '<label class="form-label">' . $etiqueta . '</label>' : '';
+    return $html . '
+      <div class="grupo-sino" data-campo="' . e($campo) . '">
+        <button type="button" class="opcion-sino" data-valor="1">S&iacute;</button>
+        <button type="button" class="opcion-sino" data-valor="0">No</button>
+        <input type="hidden" name="' . e($campo) . '">
+      </div>';
+}
+
+/** Grupo de opciones numeradas. */
+function opciones(string $campo, array $lista, string $etiqueta = ''): string
+{
+    $html = $etiqueta !== ''
+        ? '<label class="form-label">' . $etiqueta . '</label>' : '';
+    $html .= '<div class="grupo-sino" data-campo="' . e($campo) . '">';
+    foreach ($lista as $valor => $texto) {
+        $html .= '<button type="button" class="opcion-sino" data-valor="'
+              . (int) $valor . '">' . $texto . '</button>';
+    }
+    return $html . '<input type="hidden" name="' . e($campo) . '"></div>';
+}
+
+/** Bloque de casillas de una seccion del catalogo. */
+function casillas(array $lista, string $titulo): string
+{
+    $html = '<p class="form-label mt-2">' . $titulo . '</p><div class="rejilla-casillas">';
+    foreach ($lista as $c) {
+        $html .= '
+          <label class="casilla-clinica">
+            <input type="checkbox" class="marca-clinica" value="' . e($c['clave']) . '"
+                   data-detalle="' . (int) $c['pide_detalle'] . '">
+            <span>' . e($c['nombre']) . '</span>
+          </label>';
+        if ((int) $c['pide_detalle'] === 1) {
+            $html .= '<input type="text" class="form-control form-control-sm detalle-marca d-none"
+                             data-de="' . e($c['clave']) . '" placeholder="Especifique"
+                             maxlength="255">';
+        }
+    }
+    return $html . '</div>';
+}
+?>
+
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <p class="form-label mb-0">Historia cl&iacute;nica</p>
+        <p class="text-secondary mb-0" style="font-size:12px" id="hcCaptura">
+            Sigue el orden de la hoja impresa del consultorio.
+        </p>
+    </div>
+    <?php if (Auth::puede('paciente.historia')): ?>
+    <button type="submit" form="formHistoria" class="btn btn-morado">
+        <i class="bi bi-check-lg me-1"></i> Guardar historia cl&iacute;nica
+    </button>
+    <?php endif; ?>
+</div>
+
+<!-- Alertas que ya vienen del expediente -->
+<div class="aviso-almacen mb-3 d-none" id="hcAlertas">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <div>
+        <b>Antecedentes registrados que requieren atenci&oacute;n</b>
+        <div class="mt-1" id="hcAlertasLista"></div>
+    </div>
+</div>
+
+<form id="formHistoria" autocomplete="off">
+
+    <!-- ============ Ficha de identificacion ============ -->
+    <div class="card mb-3">
+        <div class="card-header"><i class="bi bi-person-badge me-2"></i>Ficha de identificaci&oacute;n</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-3">
+                    <label class="form-label">Le gusta que le llamen</label>
+                    <input type="text" class="form-control" name="apodo" maxlength="60">
+                </div>
+                <div class="col-2">
+                    <label class="form-label">N&uacute;mero de hijo</label>
+                    <input type="number" class="form-control" name="numero_hijo" min="1" max="20">
+                </div>
+                <div class="col-2">
+                    <label class="form-label">Estatura (cm)</label>
+                    <input type="number" class="form-control" name="estatura_cm" min="20" max="230">
+                </div>
+                <div class="col-2">
+                    <label class="form-label">Peso (kg)</label>
+                    <input type="number" class="form-control" name="peso_kg"
+                           step="0.1" min="1" max="200">
+                </div>
+                <div class="col-3">
+                    <label class="form-label">Personaje favorito</label>
+                    <input type="text" class="form-control" name="personaje_favorito" maxlength="80">
+                </div>
+
+                <div class="col-5">
+                    <label class="form-label">Escuela</label>
+                    <input type="text" class="form-control" name="escuela" maxlength="120">
+                </div>
+                <div class="col-3">
+                    <label class="form-label">Grado escolar</label>
+                    <input type="text" class="form-control" name="grado_escolar" maxlength="40">
+                </div>
+                <div class="col-4">
+                    <label class="form-label">&iquest;Qui&eacute;n nos recomend&oacute;?</label>
+                    <input type="text" class="form-control" name="quien_recomendo" maxlength="120">
+                </div>
+
+                <div class="col-3">
+                    <?= siNo('primera_visita_dentista', '&iquest;Es la primera visita al dentista?') ?>
+                </div>
+                <div class="col-4">
+                    <label class="form-label">&iquest;Cu&aacute;ndo fue la &uacute;ltima vez?</label>
+                    <input type="text" class="form-control" name="ultima_visita_dentista"
+                           maxlength="120" placeholder="HACE 6 MESES, NUNCA...">
+                </div>
+                <div class="col-5">
+                    <label class="form-label">&iquest;Cu&aacute;l es el motivo de la consulta?</label>
+                    <input type="text" class="form-control" name="motivo_consulta" maxlength="255">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- ============ Antecedentes no patologicos ============ -->
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-heart me-2"></i>Antecedentes no patol&oacute;gicos
+                </div>
+                <div class="card-body">
+
+                    <p class="form-label">Embarazo y nacimiento</p>
+                    <div class="row g-3 mb-2">
+                        <div class="col-6"><?= siNo('embarazo_normal', 'Embarazo normal') ?></div>
+                        <div class="col-6">
+                            <?= opciones('tipo_nacimiento', [
+                                1 => 'A t&eacute;rmino', 2 => 'Prematuro', 3 => 'Post-t&eacute;rmino',
+                            ], 'Nacimiento') ?>
+                        </div>
+                        <div class="col-6">
+                            <?= opciones('tipo_parto', [1 => 'Natural', 2 => 'Ces&aacute;rea'], 'Parto') ?>
+                        </div>
+                        <div class="col-6"><?= siNo('complicaciones_parto', 'Complicaciones') ?></div>
+                        <div class="col-12">
+                            <input type="text" class="form-control form-control-sm"
+                                   name="complicaciones_detalle" maxlength="255"
+                                   placeholder="Especifique las complicaciones">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <p class="form-label">Alimentaci&oacute;n del reci&eacute;n nacido</p>
+                    <div class="row g-3 mb-2">
+                        <div class="col-6"><?= siNo('lactancia_materna', 'Lactancia materna') ?></div>
+                        <div class="col-6">
+                            <label class="form-label">&iquest;Hasta cu&aacute;ndo?</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="lactancia_hasta" maxlength="60">
+                        </div>
+                        <div class="col-6"><?= siNo('formula', 'F&oacute;rmula') ?></div>
+                        <div class="col-6">
+                            <label class="form-label">&iquest;Hasta cu&aacute;ndo?</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="formula_hasta" maxlength="60">
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <p class="form-label">Nutrici&oacute;n y dieta</p>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Comienzo de la alimentaci&oacute;n complementaria</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="inicio_alimentacion_complementaria" maxlength="60"
+                                   placeholder="A LOS 6 MESES...">
+                        </div>
+                        <div class="col-6">
+                            <?= opciones('dieta_completa', [1 => 'Completa', 0 => 'Incompleta'], 'Dieta actual') ?>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">&iquest;Por qu&eacute;?</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="dieta_porque" maxlength="255">
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label">Momentos de az&uacute;car al d&iacute;a</label>
+                            <input type="number" class="form-control" name="momentos_azucar_dia"
+                                   min="0" max="20">
+                            <div class="form-text">
+                                Cu&aacute;ntas veces consume az&uacute;car libre o a&ntilde;adida.
+                            </div>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">&iquest;Qu&eacute; alimentos o bebidas con az&uacute;car?</label>
+                            <textarea class="form-control" name="alimentos_azucar" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ Antecedentes patologicos ============ -->
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-clipboard2-pulse me-2"></i>Antecedentes patol&oacute;gicos
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <?= opciones('estado_salud', [
+                                1 => 'Bueno', 2 => 'Regular', 3 => 'Malo',
+                            ], '&iquest;C&oacute;mo considera el estado de salud del paciente?') ?>
+                        </div>
+
+                        <div class="col-5">
+                            <?= siNo('enfermedad_cronica',
+                                '&iquest;Enfermedad cr&oacute;nica o alteraci&oacute;n gen&eacute;tica?') ?>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="enfermedad_detalle" maxlength="255">
+                        </div>
+
+                        <div class="col-5">
+                            <?= siNo('discapacidad', '&iquest;Tiene alguna discapacidad?') ?>
+                            <div class="form-text">Visual, auditiva, motora, sensitiva.</div>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="discapacidad_detalle" maxlength="255">
+                        </div>
+
+                        <div class="col-5">
+                            <?= siNo('alergia', '&iquest;Es al&eacute;rgico a alg&uacute;n alimento o medicamento?') ?>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm is-alergia"
+                                   name="alergia_detalle" maxlength="255">
+                        </div>
+
+                        <div class="col-5">
+                            <?= siNo('tratamiento_medico', '&iquest;Est&aacute; bajo tratamiento m&eacute;dico?') ?>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="tratamiento_detalle" maxlength="255">
+                        </div>
+
+                        <div class="col-5">
+                            <?= siNo('cirugias', '&iquest;Ha tenido cirug&iacute;as?') ?>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="cirugias_detalle" maxlength="255">
+                        </div>
+
+                        <div class="col-7">
+                            <label class="form-label">Nombre del m&eacute;dico</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="medico_nombre" maxlength="120">
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label">Tel&eacute;fono del m&eacute;dico</label>
+                            <input type="tel" class="form-control form-control-sm"
+                                   name="medico_telefono" maxlength="20">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-0">
+        <!-- ============ Antecedentes odontologicos ============ -->
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-emoji-smile me-2"></i>Antecedentes odontol&oacute;gicos
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <?= siNo('experiencia_previa',
+                                '&iquest;Experiencia odontol&oacute;gica previa?') ?>
+                        </div>
+                        <div class="col-6">
+                            <?= siNo('recibio_prevencion',
+                                '&iquest;Recibi&oacute; informaci&oacute;n de medidas preventivas?') ?>
+                        </div>
+                        <div class="col-6"><?= siNo('usa_pasta_dental', '&iquest;Usa pasta dental?') ?></div>
+                        <div class="col-6">
+                            <label class="form-label">Cepillados al d&iacute;a</label>
+                            <input type="number" class="form-control" name="cepillados_dia"
+                                   min="0" max="10">
+                        </div>
+                        <div class="col-5">
+                            <?= siNo('otro_higiene', '&iquest;Usa otro elemento de higiene?') ?>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Especifique</label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="otro_higiene_detalle" maxlength="255"
+                                   placeholder="HILO DENTAL, ENJUAGUE...">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ Habitos ============ -->
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-repeat me-2"></i>H&aacute;bitos</div>
+                <div class="card-body">
+                    <?= casillas($porSeccion['HABITO'] ?? [], 'Marca los que apliquen') ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Examen bucal ============ -->
+    <div class="card mt-3">
+        <div class="card-header"><i class="bi bi-search me-2"></i>Examen bucal</div>
+        <div class="card-body">
+
+            <p class="form-label">Tejidos blandos</p>
+            <div class="row g-3 mb-3">
+                <div class="col-3">
+                    <?= opciones('labios', [1 => 'Competentes', 2 => 'Incompetentes'], 'Labios') ?>
+                </div>
+                <div class="col-3">
+                    <label class="form-label">Lesiones en labios</label>
+                    <input type="text" class="form-control form-control-sm"
+                           name="labios_lesiones" maxlength="255">
+                </div>
+                <div class="col-3">
+                    <?= opciones('frenillos', [1 => 'Normales', 2 => 'Anormales'], 'Frenillos') ?>
+                </div>
+                <div class="col-3">
+                    <?= opciones('lengua', [
+                        1 => 'Normal', 2 => 'Macroglosia', 3 => 'Geogr&aacute;fica', 4 => 'Escrotal',
+                    ], 'Lengua') ?>
+                </div>
+
+                <div class="col-4">
+                    <label class="form-label">Mucosa</label>
+                    <input type="text" class="form-control form-control-sm" name="mucosa" maxlength="255">
+                </div>
+                <div class="col-4">
+                    <label class="form-label">Lesiones en tejido gingival</label>
+                    <input type="text" class="form-control form-control-sm"
+                           name="lesiones_gingival" maxlength="255">
+                </div>
+                <div class="col-4">
+                    <label class="form-label">Observaciones</label>
+                    <input type="text" class="form-control form-control-sm"
+                           name="observaciones_blandos" maxlength="255">
+                </div>
+            </div>
+
+            <hr>
+
+            <p class="form-label">Tejidos duros</p>
+            <div class="row g-3">
+                <div class="col-4">
+                    <?= opciones('tipo_denticion', [
+                        1 => 'Temporal', 2 => 'Mixta', 3 => 'Permanente',
+                    ], 'Tipo de dentici&oacute;n') ?>
+                </div>
+                <div class="col-8">
+                    <label class="form-label">Observaciones</label>
+                    <input type="text" class="form-control form-control-sm"
+                           name="observaciones_duros" maxlength="255">
+                </div>
+
+                <div class="col-3">
+                    <?= casillas($porSeccion['ANOM_NUMERO'] ?? [], 'Anomal&iacute;as de n&uacute;mero') ?>
+                </div>
+                <div class="col-3">
+                    <?= casillas($porSeccion['ANOM_TAMANO'] ?? [], 'Anomal&iacute;as de tama&ntilde;o') ?>
+                </div>
+                <div class="col-3">
+                    <?= casillas($porSeccion['ANOM_ESTRUCTURA'] ?? [], 'Anomal&iacute;as de estructura') ?>
+                </div>
+                <div class="col-3">
+                    <?= casillas($porSeccion['ANOM_FORMA'] ?? [], 'Anomal&iacute;as de forma') ?>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="text-end mt-3">
+        <?php if (Auth::puede('paciente.historia')): ?>
+        <button type="submit" class="btn btn-morado">
+            <i class="bi bi-check-lg me-1"></i> Guardar historia cl&iacute;nica
+        </button>
+        <?php endif; ?>
+    </div>
+</form>

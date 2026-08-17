@@ -1,0 +1,5 @@
+# Respaldo por si AllowOverride cambia: nada de este arbol se sirve
+# directamente EXCEPTO los endpoints AJAX de cada modulo.
+<FilesMatch "\.(php)$">
+    Require all granted
+</FilesMatch>

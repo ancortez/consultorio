@@ -1,0 +1,605 @@
+/* =====================================================================
+   Modulo Configuracion: usuarios, roles, permisos y colonias
+   ===================================================================== */
+
+document.addEventListener('DOMContentLoaded', () => {
+  moduloUsuarios();
+  moduloPermisos();
+  moduloColonias();
+});
+
+/* ---------------------------------------------------------------------
+   Usuarios
+   --------------------------------------------------------------------- */
+function moduloUsuarios() {
+  const tabla = document.getElementById('tablaUsuarios');
+  if (!tabla) return;
+
+  const filtro  = document.getElementById('filtroUsuario');
+  const estatus = document.getElementById('filtroEstatusUsuario');
+  const modal   = document.getElementById('modalUsuario');
+  const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
+  const form    = document.getElementById('formUsuario');
+
+  async function cargar() {
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="6">
+        <div class="spinner-border spinner-border-sm me-2"
+             style="color:var(--morado-600)"></div>Cargando...</td></tr>`;
+    try {
+      const r = await App.api('configuracion/usuarios_listar.php', {
+        q: filtro.value.trim(), estatus: estatus.value,
+      });
+      pintar(r.datos);
+    } catch (e) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="6">
+          No se pudo cargar la lista.</td></tr>`;
+    }
+  }
+
+  function pintar(lista) {
+    if (!lista.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="6">
+          Sin usuarios con ese criterio.</td></tr>`;
+      return;
+    }
+
+    tabla.innerHTML = lista.map((u) => {
+      const bloqueado = Number(u.bloqueado) === 1;
+      const activo    = Number(u.estatus) === 1;
+
+      return `
+      <tr data-usuario='${App.esc(JSON.stringify(u))}'>
+        <td>
+          <div class="fw-semibold">${App.esc(u.nombre_completo)}</div>
+          <div class="text-secondary sin-mayusculas" style="font-size:11px">
+            ${App.esc(u.nombre_usuario)}
+            ${Number(u.es_dentista) === 1
+              ? '<span class="badge badge-suave ms-1">Atiende pacientes</span>' : ''}
+          </div>
+        </td>
+        <td><span class="badge badge-suave">${App.esc(u.nombre_rol)}</span></td>
+        <td class="text-secondary sin-mayusculas" style="font-size:12.5px">
+          ${u.correo ? App.esc(u.correo) : '-'}</td>
+        <td class="text-secondary" style="font-size:12.5px">
+          ${u.ultimo_acceso ? App.esc(formatoFecha(u.ultimo_acceso)) : 'Nunca'}</td>
+        <td>
+          ${activo
+            ? '<span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ACTIVO</span>'
+            : '<span class="chip-estado" style="background:#eee;color:#777">INACTIVO</span>'}
+          ${bloqueado
+            ? '<div><span class="chip-estado chip-alerta-clinica mt-1">BLOQUEADO</span></div>' : ''}
+        </td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" data-accion="editar-usuario">
+                <i class="bi bi-pencil me-2"></i>Modificar datos</a></li>
+              <li><a class="dropdown-item" href="#" data-accion="pass-usuario">
+                <i class="bi bi-key me-2"></i>Cambiar contraseña</a></li>
+              ${bloqueado ? `
+              <li><a class="dropdown-item" href="#" data-accion="desbloquear-usuario">
+                <i class="bi bi-unlock me-2"></i>Desbloquear acceso</a></li>` : ''}
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item ${activo ? 'text-danger' : ''}" href="#"
+                     data-accion="estatus-usuario" data-estatus="${activo ? 0 : 1}">
+                <i class="bi bi-${activo ? 'person-dash' : 'person-check'} me-2"></i>
+                ${activo ? 'Desactivar' : 'Activar'}</a></li>
+            </ul>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  const formatoFecha = (f) => {
+    const d = new Date(f.replace(' ', 'T'));
+    return Number.isNaN(d.getTime()) ? f
+      : d.toLocaleString('es-MX', { day: '2-digit', month: '2-digit',
+                                    year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  /* ---------- Abrir en blanco ---------- */
+  document.getElementById('btnNuevoUsuario').addEventListener('click', () => {
+    form.reset();
+    document.getElementById('usuarioId').value = '';
+    document.getElementById('tituloModalUsuario').textContent = 'Nuevo usuario';
+    document.getElementById('reqPass').classList.remove('d-none');
+    document.getElementById('usuarioActivo').checked = true;
+    document.getElementById('avisoContrasena').querySelector('span').textContent =
+      'Al guardar, el usuario deberá cambiar su contraseña la primera vez que entre.';
+    bsModal.show();
+  });
+
+  /* ---------- Acciones por renglon ---------- */
+  tabla.addEventListener('click', async (ev) => {
+    const opcion = ev.target.closest('[data-accion]');
+    if (!opcion) return;
+    ev.preventDefault();
+
+    const fila = opcion.closest('tr');
+    const u = JSON.parse(fila.dataset.usuario);
+
+    if (opcion.dataset.accion === 'editar-usuario') {
+      form.reset();
+      document.getElementById('usuarioId').value = u.id_usuario;
+      document.getElementById('tituloModalUsuario').textContent = 'Modificar usuario';
+      document.getElementById('reqPass').classList.add('d-none');
+      form.querySelector('[name="nombre_completo"]').value = u.nombre_completo;
+      form.querySelector('[name="nombre_usuario"]').value  = u.nombre_usuario;
+      form.querySelector('[name="correo"]').value          = u.correo ?? '';
+      form.querySelector('[name="id_rol"]').value          = u.id_rol;
+      form.querySelector('[name="cedula_prof"]').value     = u.cedula_prof ?? '';
+      document.getElementById('usuarioEsDentista').checked = Number(u.es_dentista) === 1;
+      document.getElementById('usuarioActivo').checked     = Number(u.estatus) === 1;
+      document.getElementById('avisoContrasena').querySelector('span').textContent =
+        'Deja la contraseña vacía para conservar la actual.';
+      bsModal.show();
+    }
+
+    if (opcion.dataset.accion === 'pass-usuario') {
+      const { value: datos } = await Swal.fire({
+        title: 'Nueva contraseña',
+        html: `<p class="text-secondary small mb-3">${App.esc(u.nombre_completo)}</p>
+               <input id="sw1" type="password" class="swal2-input" placeholder="Contraseña">
+               <input id="sw2" type="password" class="swal2-input" placeholder="Confirmar">`,
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Cambiar',
+        confirmButtonColor: '#7b2d8e',
+        cancelButtonText: 'Cancelar',
+        preConfirm: () => {
+          const a = document.getElementById('sw1').value;
+          const b = document.getElementById('sw2').value;
+          if (a.length < 8) { Swal.showValidationMessage('Mínimo 8 caracteres.'); return false; }
+          if (!/[A-Za-z]/.test(a) || !/\d/.test(a)) {
+            Swal.showValidationMessage('Debe combinar letras y números.'); return false;
+          }
+          if (a !== b) { Swal.showValidationMessage('No coinciden.'); return false; }
+          return { a, b };
+        },
+      });
+      if (!datos) return;
+
+      try {
+        await App.api('configuracion/usuario_guardar.php', {
+          id_usuario: u.id_usuario,
+          nombre_usuario: u.nombre_usuario,
+          nombre_completo: u.nombre_completo,
+          correo: u.correo ?? '',
+          id_rol: u.id_rol,
+          cedula_prof: u.cedula_prof ?? '',
+          es_dentista: Number(u.es_dentista) === 1 ? 1 : '',
+          estatus: u.estatus,
+          contrasena: datos.a,
+          contrasena_confirmar: datos.b,
+        });
+        App.alerta.toast('Contraseña actualizada');
+        cargar();
+      } catch (e) { /* ya se mostro */ }
+    }
+
+    if (opcion.dataset.accion === 'desbloquear-usuario') {
+      await App.api('configuracion/usuario_desbloquear.php', { id_usuario: u.id_usuario });
+      App.alerta.toast('Usuario desbloqueado');
+      cargar();
+    }
+
+    if (opcion.dataset.accion === 'estatus-usuario') {
+      const nuevo = opcion.dataset.estatus;
+      const ok = await App.alerta.confirmar(
+        Number(nuevo) === 1 ? '¿Activar este usuario?' : '¿Desactivar este usuario?',
+        Number(nuevo) === 1
+          ? 'Podrá volver a entrar al sistema.'
+          : 'Dejará de poder entrar, pero se conserva todo lo que registró.',
+        'Sí, continuar');
+      if (!ok) return;
+
+      try {
+        await App.api('configuracion/usuario_estatus.php', {
+          id_usuario: u.id_usuario, estatus: nuevo,
+        });
+        App.alerta.toast('Estatus actualizado');
+        cargar();
+      } catch (e) { /* ya se mostro */ }
+    }
+  });
+
+  /* ---------- Guardar ---------- */
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const datos = App.formADatos(form);
+    // Las casillas sin marcar no viajan en el FormData: se explicitan.
+    datos.es_dentista = document.getElementById('usuarioEsDentista').checked ? 1 : '';
+    datos.estatus     = document.getElementById('usuarioActivo').checked ? 1 : 0;
+
+    try {
+      await App.api('configuracion/usuario_guardar.php', datos);
+      bsModal.hide();
+      App.alerta.toast('Usuario guardado');
+      cargar();
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  });
+
+  filtro.addEventListener('input', App.debounce(cargar, 350));
+  estatus.addEventListener('change', cargar);
+  cargar();
+}
+
+/* ---------------------------------------------------------------------
+   Roles y permisos
+   --------------------------------------------------------------------- */
+function moduloPermisos() {
+  const lista = document.getElementById('listaRoles');
+  if (!lista) return;
+
+  const matriz   = document.getElementById('matrizPermisos');
+  const titulo   = document.getElementById('tituloPermisos');
+  const btnGuard = document.getElementById('btnGuardarPermisos');
+  const modalRol = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalRol'));
+  const formRol  = document.getElementById('formRol');
+
+  let rolActual = null;
+
+  async function cargarRoles() {
+    const r = await App.api('configuracion/roles_listar.php');
+    lista.innerHTML = r.datos.map((rol) => `
+      <div class="opcion ${rolActual === rol.id_rol ? 'seleccionada' : ''}"
+           data-rol="${rol.id_rol}" style="cursor:pointer">
+        <div>
+          <div class="fw-semibold">${App.esc(rol.nombre_rol)}</div>
+          <div class="text-secondary" style="font-size:11px">
+            ${rol.usuarios} usuario(s) · ${rol.permisos} permiso(s)
+          </div>
+        </div>
+        <i class="bi bi-chevron-right"></i>
+      </div>`).join('');
+    lista.classList.add('lista-seleccion');
+  }
+
+  async function cargarPermisos(idRol) {
+    rolActual = Number(idRol);
+    matriz.innerHTML = `<div class="cargando">
+        <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
+        Cargando permisos...</div>`;
+
+    const r = await App.api('configuracion/permisos_listar.php', { id_rol: idRol });
+    const { rol, es_admin: esAdmin, por_modulo: porModulo } = r.datos;
+
+    titulo.textContent = `Permisos de ${rol.nombre_rol}`;
+    btnGuard.classList.toggle('d-none', esAdmin);
+
+    if (esAdmin) {
+      matriz.innerHTML = `
+        <div class="card"><div class="card-body text-center py-5">
+          <i class="bi bi-shield-fill-check fs-1 d-block mb-2" style="color:var(--morado-500)"></i>
+          <p class="fw-semibold mb-1" style="color:var(--morado-800)">Acceso total</p>
+          <p class="text-secondary small mb-0" style="max-width:420px;margin:0 auto">
+            El rol Administrador tiene todos los permisos por definición, incluidas
+            las citas y la configuración. No se edita para que nadie pueda dejar
+            al sistema sin administrador por accidente.
+          </p>
+        </div></div>`;
+      cargarRoles();
+      return;
+    }
+
+    matriz.innerHTML = Object.entries(porModulo).map(([modulo, datos]) => `
+      <div class="card mb-2">
+        <div class="card-header d-flex align-items-center justify-content-between py-2">
+          <span><i class="bi ${App.esc(datos.icono || 'bi-folder')} me-2"></i>${App.esc(modulo)}</span>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" data-modulo="${App.esc(modulo)}"
+                   ${datos.permisos.every((p) => Number(p.asignado) === 1) ? 'checked' : ''}>
+          </div>
+        </div>
+        <div class="card-body py-2">
+          <div class="row g-2">
+            ${datos.permisos.map((p) => `
+              <div class="col-6">
+                <div class="form-check">
+                  <input class="form-check-input permiso" type="checkbox"
+                         value="${p.id_permiso}" id="perm${p.id_permiso}"
+                         data-grupo="${App.esc(modulo)}"
+                         ${Number(p.asignado) === 1 ? 'checked' : ''}>
+                  <label class="form-check-label" for="perm${p.id_permiso}">
+                    ${App.esc(p.nombre)}
+                    <div class="text-secondary sin-mayusculas" style="font-size:10.5px">
+                      ${App.esc(p.clave)}</div>
+                  </label>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`).join('');
+
+    cargarRoles();
+  }
+
+  lista.addEventListener('click', (ev) => {
+    const opcion = ev.target.closest('[data-rol]');
+    if (opcion) cargarPermisos(opcion.dataset.rol);
+  });
+
+  // Interruptor de modulo: marca o desmarca todo el bloque
+  matriz.addEventListener('change', (ev) => {
+    const maestro = ev.target.closest('[data-modulo]');
+    if (!maestro) return;
+    matriz.querySelectorAll(`.permiso[data-grupo="${maestro.dataset.modulo}"]`)
+      .forEach((c) => { c.checked = maestro.checked; });
+  });
+
+  btnGuard.addEventListener('click', async () => {
+    const ids = [...matriz.querySelectorAll('.permiso:checked')].map((c) => c.value);
+    try {
+      await App.api('configuracion/permisos_guardar.php', {
+        id_rol: rolActual, permisos: ids.join(','),
+      });
+      App.alerta.toast('Permisos actualizados');
+      cargarRoles();
+    } catch (e) { /* ya se mostro */ }
+  });
+
+  document.getElementById('btnNuevoRol').addEventListener('click', () => {
+    formRol.reset();
+    document.getElementById('rolId').value = '';
+    document.getElementById('tituloModalRol').textContent = 'Nuevo rol';
+    modalRol.show();
+  });
+
+  formRol.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      await App.api('configuracion/rol_guardar.php', App.formADatos(formRol));
+      modalRol.hide();
+      App.alerta.toast('Rol guardado');
+      cargarRoles();
+    } catch (e) {
+      App.marcarErrores(formRol, e.errores);
+    }
+  });
+
+  cargarRoles();
+}
+
+/* ---------------------------------------------------------------------
+   Colonias
+   --------------------------------------------------------------------- */
+function moduloColonias() {
+  const tabla = document.getElementById('tablaColonias');
+  if (!tabla) return;
+
+  const estado    = document.getElementById('colEstado');
+  const municipio = document.getElementById('colMunicipio');
+  const filtro    = document.getElementById('colFiltro');
+  const contador  = document.getElementById('colContador');
+  const btnNueva  = document.getElementById('btnNuevaColonia');
+  const modal     = bootstrap.Modal.getOrCreateInstance(document.getElementById('modalColonia'));
+  const form      = document.getElementById('formColonia');
+  const barra     = document.getElementById('colPaginacion');
+  const rango     = document.getElementById('colRango');
+  const controles = document.getElementById('colControles');
+
+  // Tepic solo tiene casi 400 colonias: se traen todas de una vez y se
+  // pagina en el navegador. Asi cambiar de pagina es instantaneo y no
+  // hay que ir al servidor por cada una.
+  const POR_PAGINA = 50;
+  let todas   = [];
+  let pagina  = 1;
+
+  async function cargarMunicipios() {
+    municipio.innerHTML = '<option value="">Cargando...</option>';
+    const r = await App.api('geo/municipios.php', { id_estado: estado.value });
+    municipio.innerHTML = '<option value="">Selecciona municipio</option>' +
+      r.datos.map((m) => `<option value="${m.id_municipio}">
+        ${App.esc(m.nombre_municipio)}</option>`).join('');
+    vaciar();
+  }
+
+  function vaciar() {
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="7">
+        <i class="bi bi-geo-alt fs-3 d-block mb-2 opacity-50"></i>
+        Selecciona un municipio para ver sus colonias.</td></tr>`;
+    contador.textContent = '';
+    filtro.disabled  = true;
+    btnNueva.disabled = true;
+    barra.classList.add('d-none');
+    todas = [];
+  }
+
+  async function cargar() {
+    if (!municipio.value) { vaciar(); return; }
+
+    filtro.disabled  = false;
+    btnNueva.disabled = false;
+
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="7">
+        <div class="spinner-border spinner-border-sm me-2"
+             style="color:var(--morado-600)"></div>Cargando...</td></tr>`;
+
+    const r = await App.api('configuracion/colonias_listar.php', {
+      id_municipio: municipio.value, q: filtro.value.trim(),
+    });
+
+    todas  = r.datos;
+    pagina = 1;
+    pintar();
+  }
+
+  function pintar() {
+    contador.textContent = todas.length
+      ? `${todas.length} colonia${todas.length === 1 ? '' : 's'}` : '';
+
+    if (!todas.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="7">
+          Sin colonias con ese criterio.</td></tr>`;
+      barra.classList.add('d-none');
+      return;
+    }
+
+    const paginas = Math.ceil(todas.length / POR_PAGINA);
+    if (pagina > paginas) pagina = paginas;
+
+    const desde = (pagina - 1) * POR_PAGINA;
+    const hasta = Math.min(desde + POR_PAGINA, todas.length);
+
+    // El consecutivo sigue la paginacion: en la pagina 2 empieza en 51,
+    // no vuelve a 1. Asi el numero identifica al renglon dentro de todo
+    // el resultado y no solo dentro de la pagina que se ve.
+    tabla.innerHTML = todas.slice(desde, hasta).map((c, i) => `
+      <tr data-colonia='${App.esc(JSON.stringify(c))}'>
+        <td class="text-secondary">${desde + i + 1}</td>
+        <td class="fw-semibold">${App.esc(c.nombre_colonia)}</td>
+        <td class="text-secondary">${App.esc(c.tipo_asenta ?? '-')}</td>
+        <td><span class="badge badge-suave">${App.esc(c.codigo_postal)}</span></td>
+        <td>${App.esc(c.nombre_municipio ?? '-')}</td>
+        <td class="text-secondary">
+          ${Number(c.domicilios) > 0
+            ? `${c.domicilios} registrado(s)`
+            : '<span class="opacity-50">Ninguno</span>'}
+        </td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" data-accion="editar-colonia">
+                <i class="bi bi-pencil me-2"></i>Modificar</a></li>
+              <li><a class="dropdown-item text-danger" href="#" data-accion="eliminar-colonia">
+                <i class="bi bi-trash me-2"></i>Eliminar</a></li>
+            </ul>
+          </div>
+        </td>
+      </tr>`).join('');
+
+    rango.textContent =
+      `Mostrando ${desde + 1} a ${hasta} de ${todas.length}`;
+    barra.classList.remove('d-none');
+    pintarControles(paginas);
+  }
+
+  /**
+   * Botones de pagina. Con muchas paginas no se pintan todas: se
+   * muestran la primera, la ultima, la actual y sus vecinas, y el resto
+   * se resume con puntos suspensivos.
+   */
+  function pintarControles(paginas) {
+    if (paginas <= 1) {
+      controles.innerHTML = '';
+      return;
+    }
+
+    const numeros = [];
+    for (let i = 1; i <= paginas; i++) {
+      if (i === 1 || i === paginas || Math.abs(i - pagina) <= 1) {
+        numeros.push(i);
+      } else if (numeros[numeros.length - 1] !== '...') {
+        numeros.push('...');
+      }
+    }
+
+    controles.innerHTML = `
+      <button type="button" class="pagina" data-ir="${pagina - 1}"
+              ${pagina === 1 ? 'disabled' : ''} title="Anterior">
+        <i class="bi bi-chevron-left"></i>
+      </button>
+      ${numeros.map((n) => n === '...'
+        ? '<span class="puntos">…</span>'
+        : `<button type="button" class="pagina ${n === pagina ? 'activa' : ''}"
+                   data-ir="${n}">${n}</button>`).join('')}
+      <button type="button" class="pagina" data-ir="${pagina + 1}"
+              ${pagina === paginas ? 'disabled' : ''} title="Siguiente">
+        <i class="bi bi-chevron-right"></i>
+      </button>`;
+  }
+
+  controles.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-ir]');
+    if (!btn || btn.disabled) return;
+    pagina = Number(btn.dataset.ir);
+    pintar();
+    tabla.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  function textoUbicacion() {
+    const est = estado.selectedOptions[0]?.textContent.trim() ?? '';
+    const mun = municipio.selectedOptions[0]?.textContent.trim() ?? '';
+    return `${mun}, ${est}`;
+  }
+
+  btnNueva.addEventListener('click', () => {
+    form.reset();
+    document.getElementById('coloniaId').value = '';
+    document.getElementById('coloniaMunicipio').value = municipio.value;
+    document.getElementById('tituloModalColonia').textContent = 'Nueva colonia';
+    document.querySelector('#coloniaUbicacion span').textContent = textoUbicacion();
+
+    const combo = document.getElementById('coloniaTipo');
+    combo.value = combo.dataset.default || '';
+    modal.show();
+  });
+
+  tabla.addEventListener('click', async (ev) => {
+    const opcion = ev.target.closest('[data-accion]');
+    if (!opcion) return;
+    ev.preventDefault();
+
+    const c = JSON.parse(opcion.closest('tr').dataset.colonia);
+
+    if (opcion.dataset.accion === 'editar-colonia') {
+      form.reset();
+      document.getElementById('coloniaId').value = c.id_colonia;
+      document.getElementById('coloniaMunicipio').value = c.id_municipio;
+      document.getElementById('tituloModalColonia').textContent = 'Modificar colonia';
+      document.querySelector('#coloniaUbicacion span').textContent = textoUbicacion();
+      form.querySelector('[name="nombre_colonia"]').value = c.nombre_colonia;
+      form.querySelector('[name="codigo_postal"]').value  = c.codigo_postal;
+
+      const combo = document.getElementById('coloniaTipo');
+      combo.value = c.id_tipo_asenta ?? combo.dataset.default ?? '';
+      modal.show();
+    }
+
+    if (opcion.dataset.accion === 'eliminar-colonia') {
+      if (Number(c.domicilios) > 0) {
+        App.alerta.error(
+          'No se puede eliminar',
+          `Hay ${c.domicilios} domicilio(s) registrados en esta colonia. ` +
+          'Si el nombre está mal, corrígelo en lugar de borrarla.');
+        return;
+      }
+      const ok = await App.alerta.confirmar(
+        '¿Eliminar esta colonia?',
+        `${c.nombre_colonia} · CP ${c.codigo_postal}`,
+        'Sí, eliminar');
+      if (!ok) return;
+
+      try {
+        await App.api('configuracion/colonia_eliminar.php', { id_colonia: c.id_colonia });
+        App.alerta.toast('Colonia eliminada');
+        cargar();
+      } catch (e) { /* ya se mostro */ }
+    }
+  });
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    try {
+      await App.api('configuracion/colonia_guardar.php', App.formADatos(form));
+      modal.hide();
+      App.alerta.toast('Colonia guardada');
+      cargar();
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  });
+
+  estado.addEventListener('change', cargarMunicipios);
+  municipio.addEventListener('change', cargar);
+  filtro.addEventListener('input', App.debounce(cargar, 350));
+
+  cargarMunicipios();
+}
