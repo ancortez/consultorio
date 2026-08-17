@@ -17,5 +17,6 @@ require_once __DIR__ . '/bitacora.php';
 require_once __DIR__ . '/almacen.php';
 require_once __DIR__ . '/imagen.php';
 require_once __DIR__ . '/documentos.php';
+require_once __DIR__ . '/agenda.php';
 
 Sesion::iniciar();

@@ -7,8 +7,12 @@ $opciones = [
      'vista' => 'usuarios',  'permiso' => 'config.usuarios'],
     ['texto' => 'Colonias', 'icono' => 'bi-geo-alt',
      'vista' => 'colonias',  'permiso' => 'config.colonias'],
+    ['texto' => 'Procedimientos dentales', 'icono' => 'bi-clipboard2-plus',
+     'vista' => 'procedimientos', 'permiso' => 'config.procedimientos'],
     ['texto' => 'Tarifario', 'icono' => 'bi-tags',
      'vista' => 'tarifas',   'permiso' => 'config.tarifas'],
+    ['texto' => 'Datos del consultorio', 'icono' => 'bi-shop',
+     'vista' => 'consultorio', 'permiso' => 'config.consultorio'],
 ];
 ?>
 <aside class="menu-lateral">

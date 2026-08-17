@@ -42,7 +42,7 @@ $rutas = [
         'titulo'  => 'Detalle del paciente',
     ],
     'consultas/agenda' => [
-        'archivo' => 'en_construccion.php',
+        'archivo' => 'consultas/agenda.php',
         'permiso' => 'consultas.ver',
         'titulo'  => 'Agenda',
     ],
@@ -52,7 +52,7 @@ $rutas = [
         'titulo'  => 'Nueva consulta',
     ],
     'consultas/nuevo_plan_tratamiento' => [
-        'archivo' => 'en_construccion.php',
+        'archivo' => 'consultas/nuevo_plan_tratamiento.php',
         'permiso' => 'consultas.plan',
         'titulo'  => 'Nuevo plan de tratamiento',
     ],
@@ -80,6 +80,16 @@ $rutas = [
         'archivo' => 'configuracion/colonias.php',
         'permiso' => 'config.colonias',
         'titulo'  => 'Colonias',
+    ],
+    'configuracion/procedimientos' => [
+        'archivo' => 'configuracion/procedimientos.php',
+        'permiso' => 'config.procedimientos',
+        'titulo'  => 'Procedimientos dentales',
+    ],
+    'configuracion/consultorio' => [
+        'archivo' => 'configuracion/consultorio.php',
+        'permiso' => 'config.consultorio',
+        'titulo'  => 'Datos del consultorio',
     ],
     'configuracion/tarifas' => [
         'archivo' => 'en_construccion.php',

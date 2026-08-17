@@ -6,6 +6,8 @@ document.addEventListener('DOMContentLoaded', () => {
   moduloUsuarios();
   moduloPermisos();
   moduloColonias();
+  moduloProcedimientos();
+  moduloConsultorio();
 });
 
 /* ---------------------------------------------------------------------
@@ -602,4 +604,289 @@ function moduloColonias() {
   filtro.addEventListener('input', App.debounce(cargar, 350));
 
   cargarMunicipios();
+}
+
+
+/* ---------------------------------------------------------------------
+   Procedimientos dentales
+   --------------------------------------------------------------------- */
+function moduloProcedimientos() {
+  const tabla = document.getElementById('tablaProcedimientos');
+  if (!tabla) return;
+
+  const filtro    = document.getElementById('procFiltro');
+  const categoria = document.getElementById('procCategoria');
+  const estatus   = document.getElementById('procEstatus');
+  const contador  = document.getElementById('procContador');
+  const modal     = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalProcedimiento'));
+  const form      = document.getElementById('formProcedimiento');
+
+  async function cargar() {
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="8">
+        <div class="spinner-border spinner-border-sm me-2"
+             style="color:var(--morado-600)"></div>Cargando...</td></tr>`;
+
+    const r = await App.api('configuracion/procedimientos_listar.php', {
+      q: filtro.value.trim(),
+      id_categoria: categoria.value,
+      estatus: estatus.value,
+    });
+
+    contador.textContent = r.datos.length
+      ? `${r.datos.length} procedimiento${r.datos.length === 1 ? '' : 's'}` : '';
+
+    if (!r.datos.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="8">
+          Sin procedimientos con ese criterio.</td></tr>`;
+      return;
+    }
+
+    tabla.innerHTML = r.datos.map((p, i) => {
+      const activo = Number(p.estatus) === 1;
+      return `
+      <tr data-proc='${App.esc(JSON.stringify(p))}'>
+        <td class="text-secondary">${i + 1}</td>
+        <td>
+          <div class="fw-semibold">${App.esc(p.nombre_procedimiento)}</div>
+          ${p.clave ? `<div class="text-secondary" style="font-size:11px">
+                         ${App.esc(p.clave)}</div>` : ''}
+          ${Number(p.usos) > 0 ? `<div class="text-secondary" style="font-size:11px">
+                         Usado en ${p.usos} plan(es)</div>` : ''}
+        </td>
+        <td class="text-secondary">${App.esc(p.nombre_categoria ?? '-')}</td>
+        <td class="fw-semibold">${App.esc(App.money(p.costo_sugerido))}</td>
+        <td class="text-secondary">${p.duracion_min ? p.duracion_min + ' min' : '-'}</td>
+        <td>
+          ${Number(p.aplica_por_diente) === 1
+            ? '<span class="chip-estado badge-suave">POR DIENTE</span> ' : ''}
+          ${Number(p.requiere_anestesia) === 1
+            ? '<span class="chip-estado chip-alerta-clinica">ANESTESIA</span>' : ''}
+        </td>
+        <td>
+          ${activo
+            ? '<span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ACTIVO</span>'
+            : '<span class="chip-estado" style="background:#eee;color:#777">INACTIVO</span>'}
+        </td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" data-accion="editar-proc">
+                <i class="bi bi-pencil me-2"></i>Modificar</a></li>
+              <li><a class="dropdown-item ${activo ? 'text-danger' : ''}" href="#"
+                     data-accion="estatus-proc" data-estatus="${activo ? 0 : 1}">
+                <i class="bi bi-${activo ? 'slash-circle' : 'check-circle'} me-2"></i>
+                ${activo ? 'Desactivar' : 'Activar'}</a></li>
+            </ul>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  /* Al ligar un tratamiento, el precio se copia solo: tener dos precios
+     distintos para lo mismo es la forma mas rapida de cobrar mal. */
+  document.getElementById('procTratamiento').addEventListener('change', (ev) => {
+    const precio = ev.target.selectedOptions[0]?.dataset.precio;
+    if (precio) document.getElementById('procCosto').value = Number(precio).toFixed(2);
+  });
+
+  document.getElementById('btnNuevoProcedimiento').addEventListener('click', () => {
+    form.reset();
+    document.getElementById('procId').value = '';
+    document.getElementById('tituloModalProc').textContent = 'Nuevo procedimiento';
+    document.getElementById('procPorDiente').checked = true;
+    document.getElementById('procActivo').checked = true;
+    document.getElementById('procCosto').value = '0.00';
+    modal.show();
+  });
+
+  tabla.addEventListener('click', async (ev) => {
+    const opcion = ev.target.closest('[data-accion]');
+    if (!opcion) return;
+    ev.preventDefault();
+
+    const p = JSON.parse(opcion.closest('tr').dataset.proc);
+
+    if (opcion.dataset.accion === 'editar-proc') {
+      form.reset();
+      document.getElementById('procId').value = p.id_procedimiento;
+      document.getElementById('tituloModalProc').textContent = 'Modificar procedimiento';
+      form.querySelector('[name="nombre_procedimiento"]').value = p.nombre_procedimiento;
+      form.querySelector('[name="clave"]').value        = p.clave ?? '';
+      form.querySelector('[name="id_categoria"]').value = p.id_categoria ?? '';
+      form.querySelector('[name="id_tratamiento"]').value = p.id_tratamiento ?? '';
+      form.querySelector('[name="costo_sugerido"]').value = Number(p.costo_sugerido).toFixed(2);
+      form.querySelector('[name="duracion_min"]').value = p.duracion_min ?? '';
+      form.querySelector('[name="descripcion"]').value  = p.descripcion ?? '';
+      document.getElementById('procPorDiente').checked = Number(p.aplica_por_diente) === 1;
+      document.getElementById('procAnestesia').checked = Number(p.requiere_anestesia) === 1;
+      document.getElementById('procActivo').checked    = Number(p.estatus) === 1;
+      modal.show();
+    }
+
+    if (opcion.dataset.accion === 'estatus-proc') {
+      const nuevo = opcion.dataset.estatus;
+      if (Number(nuevo) === 0 && Number(p.usos) > 0) {
+        const ok = await App.alerta.confirmar(
+          '¿Desactivar este procedimiento?',
+          `Está usado en ${p.usos} plan(es). Los planes viejos lo conservan, `
+          + 'pero ya no se podrá elegir en planes nuevos.',
+          'Sí, desactivar');
+        if (!ok) return;
+      }
+
+      await App.api('configuracion/procedimiento_estatus.php', {
+        id_procedimiento: p.id_procedimiento, estatus: nuevo,
+      });
+      App.alerta.toast('Estatus actualizado');
+      cargar();
+    }
+  });
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const datos = App.formADatos(form);
+    datos.aplica_por_diente  = document.getElementById('procPorDiente').checked ? 1 : '';
+    datos.requiere_anestesia = document.getElementById('procAnestesia').checked ? 1 : '';
+    datos.estatus            = document.getElementById('procActivo').checked ? 1 : 0;
+
+    try {
+      await App.api('configuracion/procedimiento_guardar.php', datos);
+      modal.hide();
+      App.alerta.toast('Procedimiento guardado');
+      cargar();
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  });
+
+  filtro.addEventListener('input', App.debounce(cargar, 350));
+  categoria.addEventListener('change', cargar);
+  estatus.addEventListener('change', cargar);
+  cargar();
+}
+
+/* ---------------------------------------------------------------------
+   Datos del consultorio
+   --------------------------------------------------------------------- */
+function moduloConsultorio() {
+  const form = document.getElementById('formConsultorio');
+  if (!form) return;
+
+  const estado    = document.getElementById('cnsEstado');
+  const municipio = document.getElementById('cnsMunicipio');
+  const colonia   = document.getElementById('cnsColonia');
+  const coloniaTx = document.getElementById('cnsColoniaTexto');
+  const cp        = document.getElementById('cnsCp');
+  const aviso     = document.getElementById('cnsAvisoDomicilio');
+
+  /* ---------- Cascada del domicilio ---------- */
+  async function cargarMunicipios(preseleccion = 0) {
+    municipio.innerHTML = '<option value="">Cargando...</option>';
+    const r = await App.api('geo/municipios.php', { id_estado: estado.value });
+    municipio.innerHTML = '<option value="">Selecciona municipio</option>' +
+      r.datos.map((m) => `<option value="${m.id_municipio}"
+        ${Number(preseleccion) === Number(m.id_municipio) ? 'selected' : ''}>
+        ${App.esc(m.nombre_municipio)}</option>`).join('');
+
+    coloniaTx.placeholder = municipio.value
+      ? 'Da clic para buscar la colonia'
+      : 'Selecciona el municipio primero';
+    actualizarBloqueo();
+  }
+
+  function actualizarBloqueo() {
+    const listo = !!colonia.value;
+    form.querySelectorAll('.cns-campo-domicilio').forEach((el) => {
+      el.disabled = !listo;
+      el.classList.toggle('campo-bloqueado', !listo);
+    });
+    aviso.classList.toggle('d-none', listo);
+  }
+
+  estado.addEventListener('change', () => {
+    colonia.value = ''; coloniaTx.value = ''; cp.value = '';
+    cargarMunicipios();
+  });
+  municipio.addEventListener('change', () => {
+    colonia.value = ''; coloniaTx.value = ''; cp.value = '';
+    coloniaTx.placeholder = municipio.value
+      ? 'Da clic para buscar la colonia'
+      : 'Selecciona el municipio primero';
+    actualizarBloqueo();
+  });
+  coloniaTx.addEventListener('change', () => { actualizarBloqueo(); vistaPrevia(); });
+
+  /* ---------- Vista previa en vivo ---------- */
+  function vistaPrevia() {
+    const d = App.formADatos(form);
+
+    document.getElementById('vistaNombre').textContent =
+      d.nombre_comercial || 'Consultorio Dental';
+    document.getElementById('vistaTelefono').textContent =
+      d.telefono ? 'TEL. ' + d.telefono : '';
+
+    const linea = [
+      [d.calle, d.num_ext].filter(Boolean).join(' '),
+      coloniaTx.value,
+      cp.value ? 'C.P. ' + cp.value : '',
+      municipio.selectedOptions[0]?.value ? municipio.selectedOptions[0].textContent.trim() : '',
+      estado.selectedOptions[0]?.textContent.trim(),
+    ].filter(Boolean).join(', ');
+
+    const texto = linea || 'Domicilio por definir';
+    document.getElementById('vistaDomicilio').textContent = texto;
+    document.getElementById('vistaPie').textContent = texto;
+  }
+
+  form.addEventListener('input', App.debounce(vistaPrevia, 200));
+  municipio.addEventListener('change', vistaPrevia);
+  estado.addEventListener('change', vistaPrevia);
+
+  /* ---------- Carga ---------- */
+  (async () => {
+    const r = await App.api('configuracion/consultorio_obtener.php');
+    const d = r.datos ?? {};
+
+    ['nombre_comercial', 'razon_social', 'rfc', 'telefono', 'correo',
+     'calle', 'num_ext', 'num_int', 'entre_calle_1', 'entre_calle_2', 'referencia']
+      .forEach((c) => {
+        const el = form.querySelector(`[name="${c}"]`);
+        if (el && d[c] != null) el.value = d[c];
+      });
+
+    if (d.id_estado) estado.value = d.id_estado;
+    await cargarMunicipios(d.id_municipio);
+
+    colonia.value   = d.id_colonia ?? '';
+    coloniaTx.value = d.nombre_colonia ?? '';
+    cp.value        = d.codigo_postal ?? '';
+
+    actualizarBloqueo();
+    vistaPrevia();
+  })();
+
+  /* ---------- Guardar ---------- */
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+
+    // Los campos deshabilitados no viajan en el FormData.
+    const datos = App.formADatos(form);
+    form.querySelectorAll('.cns-campo-domicilio').forEach((el) => {
+      if (el.name && datos[el.name] === undefined) datos[el.name] = el.value;
+    });
+    datos.id_colonia = colonia.value;
+
+    try {
+      await App.api('configuracion/consultorio_guardar.php', datos);
+      App.alerta.toast('Datos guardados');
+      // El pie de pagina los lee al cargar, asi que se recarga.
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  });
 }

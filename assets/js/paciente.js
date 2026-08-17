@@ -1468,3 +1468,79 @@ function tutorEditar() {
     }
   });
 }
+
+/* ---------------------------------------------------------------------
+   Pestania de planes de tratamiento
+   Solo lista: la captura vive en su propia pantalla, que necesita mas
+   espacio del que cabe en una pestania.
+   --------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  const tabla = document.getElementById('tablaPlanes');
+  if (!tabla) return;
+
+  const contenedor = document.querySelector('.tab-content[data-id-expediente]');
+  const idExpediente = contenedor?.dataset.idExpediente;
+  let cargado = false;
+
+  async function cargar() {
+    const r = await App.api('consultas/planes_listar.php', {
+      id_registro_paciente: idExpediente,
+    });
+
+    if (!r.datos.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="9">
+          <i class="bi bi-list-check fs-3 d-block mb-2 opacity-50"></i>
+          Este paciente no tiene planes de tratamiento.</td></tr>`;
+      return;
+    }
+
+    tabla.innerHTML = r.datos.map((p, i) => {
+      const avance = Number(p.conceptos) > 0
+        ? Math.round((Number(p.terminados) / Number(p.conceptos)) * 100) : 0;
+      const saldo = Number(p.saldo_actual ?? p.total);
+
+      return `
+      <tr>
+        <td class="text-secondary">${i + 1}</td>
+        <td class="fw-semibold">${App.esc(p.folio)}</td>
+        <td>${App.esc(p.fecha.split('-').reverse().join('/'))}</td>
+        <td class="text-secondary" style="font-size:12.5px">
+          ${p.diagnostico ? App.esc(p.diagnostico.substring(0, 90)) : '—'}
+          <div style="font-size:11px">${App.esc(p.dentista)}</div>
+        </td>
+        <td>
+          <div style="background:var(--gris-100);border-radius:999px;height:6px;
+                      overflow:hidden;margin-bottom:3px">
+            <div style="width:${avance}%;height:100%;background:var(--exito)"></div>
+          </div>
+          <span style="font-size:11px" class="text-secondary">
+            ${p.terminados} de ${p.conceptos} · ${avance}%
+          </span>
+        </td>
+        <td class="fw-semibold">${App.money(p.total)}</td>
+        <td class="fw-semibold" style="color:${saldo > 0 ? 'var(--error)' : 'var(--exito)'}">
+          ${App.money(saldo)}
+        </td>
+        <td><span class="badge badge-suave">${App.esc(p.nombre_estado)}</span></td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item"
+                     href="${App.URL_BASE}/index.php?modulo=consultas&vista=nuevo_plan_tratamiento&id=${idExpediente}&plan=${p.id_plan_tratamiento}">
+                <i class="bi bi-pencil me-2"></i>Ver o modificar</a></li>
+            </ul>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.querySelector('[data-bs-target="#tab-planes"]')
+    ?.addEventListener('shown.bs.tab', () => {
+      if (!cargado) { cargado = true; cargar(); }
+    });
+
+  if (location.hash === '#tab-planes') { cargado = true; cargar(); }
+});

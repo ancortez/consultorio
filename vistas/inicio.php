@@ -68,6 +68,34 @@ $porCobrar = Conexion::todos(
       LIMIT 6'
 );
 
+/**
+ * Citas por confirmar.
+ *
+ * Nacen en Pendiente y se quedan asi hasta que alguien le llama al
+ * paciente. Sin este tablero ese paso se olvida y el consultorio se
+ * entera de que nadie va a llegar hasta que la silla esta vacia.
+ *
+ * Se listan desde hoy hacia adelante: confirmar una cita de ayer no
+ * sirve de nada.
+ */
+$sqlPorConfirmar = 'SELECT c.id_cita, c.fecha_inicio, c.motivo,
+            vp.nombre_completo, vp.telefono, vp.id_registro_paciente,
+            u.nombre_completo AS dentista
+       FROM cita c
+       JOIN v_paciente vp ON vp.id_registro_paciente = c.id_registro_paciente
+       JOIN usuario u ON u.id_usuario = c.id_usuario_dentista
+      WHERE c.id_estado_cita = 1
+        AND c.fecha_inicio >= NOW()';
+
+$paramsPorConfirmar = [];
+if ($soloMisCitas) {
+    $sqlPorConfirmar .= ' AND c.id_usuario_dentista = :yo';
+    $paramsPorConfirmar[':yo'] = Auth::id();
+}
+$sqlPorConfirmar .= ' ORDER BY c.fecha_inicio LIMIT 12';
+
+$porConfirmar = Conexion::todos($sqlPorConfirmar, $paramsPorConfirmar);
+
 $cajaAbierta = Conexion::uno(
     'SELECT cc.*, u.nombre_completo AS abrio
        FROM corte_caja cc
@@ -204,6 +232,61 @@ $tarjetas = [
                     <p class="text-secondary small mb-2">No hay una caja abierta.</p>
                     <button class="btn btn-sm btn-morado w-100">Abrir caja</button>
                 <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if (Auth::puede('consultas.ver')): ?>
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-telephone me-2"></i>Citas por confirmar
+                    <?php if ($porConfirmar): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($porConfirmar) ?></span>
+                    <?php endif; ?>
+                </span>
+                <a class="btn btn-sm btn-outline-morado"
+                   href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=agenda">Agenda</a>
+            </div>
+            <div id="listaPorConfirmar">
+                <?php if (!$porConfirmar): ?>
+                    <div class="p-4 text-center text-secondary small">
+                        <i class="bi bi-check2-circle fs-4 d-block mb-1" style="color:var(--exito)"></i>
+                        Todas las citas est&aacute;n confirmadas.
+                    </div>
+                <?php else: foreach ($porConfirmar as $pc): ?>
+                    <div class="cita-pendiente" data-cita="<?= (int) $pc['id_cita'] ?>">
+                        <div class="cuando">
+                            <b><?= e(fecha($pc['fecha_inicio'], 'd/m')) ?></b>
+                            <?= e(fecha($pc['fecha_inicio'], 'H:i')) ?>
+                        </div>
+                        <div class="flex-grow-1" style="min-width:0">
+                            <a class="fw-semibold text-decoration-none d-block text-truncate"
+                               style="font-size:13px"
+                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $pc['id_registro_paciente'] ?>">
+                                <?= e($pc['nombre_completo']) ?>
+                            </a>
+                            <div class="text-secondary text-truncate" style="font-size:11px">
+                                <?php if (!empty($pc['telefono'])): ?>
+                                    <i class="bi bi-telephone"></i> <?= e($pc['telefono']) ?> &middot;
+                                <?php endif; ?>
+                                <?= e($pc['dentista']) ?>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-morado"
+                                    data-confirmar="<?= (int) $pc['id_cita'] ?>"
+                                    title="Confirmar cita">
+                                <i class="bi bi-check-lg"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-light text-danger"
+                                    data-cancelar="<?= (int) $pc['id_cita'] ?>"
+                                    title="Cancelar cita">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                <?php endforeach; endif; ?>
             </div>
         </div>
         <?php endif; ?>

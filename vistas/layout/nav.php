@@ -43,8 +43,12 @@ $menu = [
          'url' => '?modulo=configuracion&vista=usuarios', 'permiso' => 'config.usuarios'],
         ['texto' => 'Colonias', 'icono' => 'bi-geo-alt',
          'url' => '?modulo=configuracion&vista=colonias', 'permiso' => 'config.colonias'],
+        ['texto' => 'Procedimientos dentales', 'icono' => 'bi-clipboard2-plus',
+         'url' => '?modulo=configuracion&vista=procedimientos', 'permiso' => 'config.procedimientos'],
         ['texto' => 'Tarifario', 'icono' => 'bi-tags',
          'url' => '?modulo=configuracion&vista=tarifas', 'permiso' => 'config.tarifas'],
+        ['texto' => 'Datos del consultorio', 'icono' => 'bi-shop',
+         'url' => '?modulo=configuracion&vista=consultorio', 'permiso' => 'config.consultorio'],
      ]],
 
     ['clave' => 'facturacion', 'texto' => 'Facturaci&oacute;n', 'icono' => 'bi-receipt',

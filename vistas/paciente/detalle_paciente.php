@@ -231,6 +231,12 @@ $domPre = $domicilios[0] ?? null;
                             </li>
                             <li class="nav-item">
                                 <button class="nav-link" data-bs-toggle="tab"
+                                        data-bs-target="#tab-planes" type="button">
+                                    <i class="bi bi-list-check me-1"></i> Planes de tratamiento
+                                </button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-bs-toggle="tab"
                                         data-bs-target="#tab-historia" type="button">
                                     <i class="bi bi-clipboard2-pulse me-1"></i> Historia cl&iacute;nica
                                 </button>
@@ -629,6 +635,46 @@ $domPre = $domicilios[0] ?? null;
                                             </td>
                                         </tr>
                                     <?php endforeach; endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- ---------- Pestania: Planes de tratamiento ---------- -->
+                        <div class="tab-pane fade" id="tab-planes">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <p class="form-label mb-0">Planes de tratamiento</p>
+                                    <p class="text-secondary mb-0" style="font-size:12px">
+                                        Historial completo con su avance y su saldo.
+                                    </p>
+                                </div>
+                                <?php if (Auth::puede('consultas.plan')): ?>
+                                <a class="btn btn-sm btn-rosa"
+                                   href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=nuevo_plan_tratamiento&id=<?= $idExpediente ?>">
+                                    <i class="bi bi-plus-lg me-1"></i> Nuevo plan
+                                </a>
+                                <?php endif; ?>
+                            </div>
+
+                            <div class="border rounded tabla-con-menu">
+                                <table class="table tabla-sistema mb-0">
+                                    <thead><tr>
+                                        <th style="width:50px">#</th>
+                                        <th style="width:110px">Folio</th>
+                                        <th style="width:100px">Fecha</th>
+                                        <th>Diagn&oacute;stico</th>
+                                        <th style="width:130px">Avance</th>
+                                        <th style="width:110px">Total</th>
+                                        <th style="width:110px">Saldo</th>
+                                        <th style="width:110px">Estatus</th>
+                                        <th class="col-acciones"></th>
+                                    </tr></thead>
+                                    <tbody id="tablaPlanes">
+                                        <tr class="fila-vacia"><td colspan="9">
+                                            <div class="spinner-border spinner-border-sm me-2"
+                                                 style="color:var(--morado-600)"></div>Cargando...
+                                        </td></tr>
                                     </tbody>
                                 </table>
                             </div>

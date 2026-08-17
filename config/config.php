@@ -11,7 +11,7 @@ declare(strict_types=1);
 // ---------------------------------------------------------------------
 define('APP_ENV',    getenv('APP_ENV') ?: 'desarrollo');
 define('APP_NOMBRE', 'Sistema Consultorio Dental');
-define('APP_VERSION', '1.4.0');
+define('APP_VERSION', '1.5.0');
 define('APP_TZ',     getenv('APP_TZ') ?: 'America/Mazatlan');
 
 date_default_timezone_set(APP_TZ);
