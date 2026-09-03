@@ -1,51 +1,29 @@
-* El campo 'usuario' en el login.php si debe permitir escritura en mayusculas.
-* Efecto Cargando... cuando abrimos una vista. La pantalla debe dar unos 0.3 segundos para cargar con un mensajito en medio de la pantalla.
-* Quitar el autocompletar de los formularios
+Algunas correcciones:
 
-VISTA PACIENTE>DETALLE DEL PACIENTE
-    Pestaña Expediente Físico *Nuevo
-        Este módulo guardará el expediente físico del paciente, tales como:
-            * Consentimiento Bajo Información. Que debe imprimirse, firmarse y escanearse.
-            * Plan de tratamiento
-            * Historial Clínico
-            * Imagen de Perfil del paciente
-    
-    Pestaña Historial Clínico
-        Solicitar datos que vienen en las imagenes adjuntas con nombre 'historial-clinico1.jpeg' y 'historial-clinico2.jpeg'
-        Modificar las tablas necesarias con los datos solicitados.
-    
-    Agendar Cita
-        Generar Modulo de Citas.
-        Debe buscar espacios entre citas por lapsos de media hora.
-        El admin y recepcion pueden generar citas para cualquier doctor, eligiendolo al momento de crearla.
-        El dentista solo puede generar citas con él mismo.
-        Las citas nacen con estatus 'Pendiente' (agregar este estatus a la tabla 'estado-cita').
-        Agregar modulo 'Citas pendientes de Confirmar' en la vista inicio para poder cambiar el estatus cuando se contacte al paciente.
+VISTA CONFIGURACION>DATOS DEL CONSULTORIO
+    * No abre el modal de la colonia. Su comportamiento debe ser igual que en los domicilios del paciente y del tutor.
 
-    Nueva Plan de tratamiento
-        Generar Modulo Plan de tratamiento
-        Este plan debe registrar el procedimiento que se va a realizar. Para esto requiero una tabla que tenga los procedimientos mas usuales.
-        En las observaciones se agregará informacion adicional a lo que es el tratamiento.
+VISTA PACIENTE>DETALLE DEL PACIENTE.
+    Pestaña Historial medico
+        * Para evitar tener un formulario gigante haremos un Journey de 5 pasos:
+            1. Ficha de identificación
+            2. Antecedentes no patológicos
+            3. Antecedentes patológicos
+            4. Antecedentes odontológicos y Hábitos
+            5. Examen bucal
+        
+        * Al final nos permitirá imprimir el Historial para tener una copia física firmada por el dr y el tutor.
+        * Cuando el historial ya existe, aparecerán estos mismos elementos en forma de colapsables para abrir cada uno y poder modificar por partes.
     
-    Pestaña Planes de tratamiento
-        Muestra el historial de los planes de tratamiento con su estatus.
-        Te adjunto dos imagenes de los documentos de un plan de tratamiento 'plan-de-tratamiento1.jpeg' y 'plan-de-tratamiento2.jpeg'
-    
-    Botón Imprimir Consentimiento Bajo Información
-        Una vez llena la información del paciente y del tutor se podrá visualizar un documento PDF prellenado
-        Los datos prellenado son:
-            Fecha y hora actual
-            Yo (nombre del tutor)
-            domicilio del tutor
-            Representante legal de (nombre del paciente)
-            Nomre del doctor
-            Nombre y firma del padre o tutor
-            Nombre y firma del doctor
-        Los datos deben coincidir con e documento adjunto 'consentimiento-bajo-informacion.jpeg'
+    Nuevo plan de tratamiento
+        * Para evitar tener un formulario gigante haremos un Journey de 5 pasos:
+            1. Generales (Paciente, dentista, fecha, estatus)
+            2. Diagnóstico
+            3. Procedimientos
+            4. Observaciones
+            5. Resumen
 
-VISTA CONFIGURACIÓN>DATOS DEL CONSULTORIO
-    Agregar modulo para registrar o modificar los datos del consultorio guardados en la tabla 'consultorio'.
-    Para el domicilio usar misma lógica que con los pacientes.
+        * Al final nos permitirá imprimir el Tratamiento para tener una copia física firmada por el dr y el tutor.
+        * Cuando el tratamiento ya existe, mostrará la tabla de cada uno de ellos y al seleccionar 'ver o modificar', nos llevará al detalle donde aparecerán estos mismos elementos en forma de colapsables para abrir cada uno y poder modificar por partes.
 
-VISTA CONFIGURACION>PROCEDIMIENTOS DETALES
-    Agregar modulo de registrar y modificar Procedimientos Dentales
+    * El consentimiento es único. no debe crear un pendiente de digitalización cada vez que lo consultemo.sDDGFDGD

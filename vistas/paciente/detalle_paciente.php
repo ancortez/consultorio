@@ -700,8 +700,6 @@ $domPre = $domicilios[0] ?? null;
 
 <?php require __DIR__ . '/_modales.php'; ?>
 <?php require __DIR__ . '/_modal_tutor.php'; ?>
-<?php require __DIR__ . '/_modal_ocupacion.php'; ?>
-<?php require __DIR__ . '/_modal_colonia.php'; ?>
 <?php require __DIR__ . '/_modal_contacto.php'; ?>
 <?php require __DIR__ . '/_modal_tutor_editar.php'; ?>
 <?php require __DIR__ . '/_modal_consentimiento.php'; ?>

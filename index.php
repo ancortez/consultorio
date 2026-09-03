@@ -157,11 +157,19 @@ $usuarioSesion = Auth::usuario();
     ?>
 </main>
 
+<?php
+/* Modales compartidos: los usan varias pantallas, asi que viven en el
+   layout y no en cada vista. Antes estaban dentro del detalle del
+   paciente y por eso no se podian abrir desde Configuracion. */
+require RUTA_VISTAS . '/layout/_modales_comunes.php';
+?>
+
 <?php require RUTA_VISTAS . '/layout/footer.php'; ?>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 <script src="<?= URL_BASE ?>/assets/js/app.js?v=<?= e(APP_VERSION) ?>"></script>
+<script src="<?= URL_BASE ?>/assets/js/comun.js?v=<?= e(APP_VERSION) ?>"></script>
 <?php
 // Cada modulo carga solo su archivo de JavaScript.
 $jsModulo = RUTA_BASE . '/assets/js/' . $modulo . '.js';

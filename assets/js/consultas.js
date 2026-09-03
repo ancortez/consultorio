@@ -414,6 +414,7 @@ function moduloPlan() {
   // Es mas simple que ir parchando celdas sueltas del HTML.
   let renglones = [];
   let procedimientos = [];
+  let pasos = null;
 
   /* -------------------------------------------------------------------
      Pintado
@@ -480,6 +481,27 @@ function moduloPlan() {
     totalizar();
   }
 
+  /** Tabla de solo lectura del ultimo paso, para revisar antes de guardar. */
+  function pintarResumen() {
+    const caja = document.getElementById('planResumen');
+    if (!caja) return;
+
+    caja.innerHTML = renglones.length
+      ? renglones.map((r, i) => `
+          <tr>
+            <td class="text-secondary">${i + 1}</td>
+            <td>
+              <div class="fw-semibold">${App.esc(r.nombre_procedimiento)}</div>
+              ${r.notas ? `<div class="text-secondary" style="font-size:11px">
+                             ${App.esc(r.notas)}</div>` : ''}
+            </td>
+            <td class="text-secondary">${r.id_diente ?? '—'}</td>
+            <td class="text-center">${r.cantidad}</td>
+            <td class="text-end fw-semibold">${App.money(r.importe)}</td>
+          </tr>`).join('')
+      : `<tr class="fila-vacia"><td colspan="5">Sin procedimientos.</td></tr>`;
+  }
+
   function totalizar() {
     const subtotal = renglones.reduce((s, r) => s + Number(r.importe), 0);
     const desc = Number(descuento.value) || 0;
@@ -487,6 +509,7 @@ function moduloPlan() {
 
     document.getElementById('planSubtotal').textContent = App.money(subtotal);
     document.getElementById('planTotal').textContent = App.money(total);
+    pintarResumen();
   }
 
   /** Recalcula el importe de un renglon con sus valores actuales. */
@@ -604,9 +627,35 @@ function moduloPlan() {
   });
 
   /* -------------------------------------------------------------------
-     Carga de un plan existente
+     Pasos
      ------------------------------------------------------------------- */
   const idPlan = document.getElementById('planId').value;
+
+  pasos = Pasos.crear({
+    contenedor: 'pasosPlan',
+    // Un plan que ya existe se abre para corregir una parte, no para
+    // recorrerlo de nuevo desde el principio.
+    modo: idPlan ? 'colapsable' : 'pasos',
+    textoFinal: 'Guardar plan',
+    alTerminar: () => form.requestSubmit(),
+
+    validar(indice) {
+      if (indice === 2 && !renglones.length) {
+        return 'Agrega al menos un procedimiento antes de continuar.';
+      }
+      return true;
+    },
+  });
+
+  document.getElementById('planImprimir')?.addEventListener('click', () => {
+    const id = document.getElementById('planId').value;
+    if (!id) return;
+    App.abrirVentana(`${App.URL_BASE}/plan_imprimir.php?id=${id}`, 880, 1020, 'plan');
+  });
+
+  /* -------------------------------------------------------------------
+     Carga de un plan existente
+     ------------------------------------------------------------------- */
   if (idPlan) {
     (async () => {
       const r = await App.api('consultas/plan_obtener.php', {
@@ -659,7 +708,12 @@ function moduloPlan() {
     try {
       const r = await App.api('consultas/plan_guardar.php', App.formADatos(form));
 
-      await Swal.fire({
+      // Se deja el id para que el boton de imprimir sepa cual es.
+      document.getElementById('planId').value = r.datos.id_plan_tratamiento;
+      document.getElementById('planImprimir').classList.remove('d-none');
+      pasos?.aplicarModo('colapsable');
+
+      const decision = await Swal.fire({
         icon: 'success',
         title: 'Plan guardado',
         html: `<div style="font-size:14px;line-height:1.6">
@@ -668,13 +722,24 @@ function moduloPlan() {
                    <div style="background:#fff6e5;border:1px solid #f0d9a8;
                                border-radius:9px;padding:.7rem .9rem;
                                color:#7a5a12;margin-top:.9rem;font-size:12.5px">
-                     Imprime el plan, recoge la firma del tutor y súbelo
-                     escaneado desde el <b>Expediente electrónico</b>.
+                     Imprímelo, recoge la firma del tutor y súbelo escaneado
+                     desde el <b>Expediente electrónico</b>.
                    </div>` : ''}
                </div>`,
+        showCancelButton: true,
+        confirmButtonText: 'Imprimir ahora',
         confirmButtonColor: '#7b2d8e',
-        confirmButtonText: 'Ir al expediente',
+        cancelButtonText: 'Ir al expediente',
+        cancelButtonColor: '#6c6577',
+        reverseButtons: true,
       });
+
+      if (decision.isConfirmed) {
+        App.abrirVentana(
+          `${App.URL_BASE}/plan_imprimir.php?id=${r.datos.id_plan_tratamiento}`,
+          880, 1020, 'plan');
+        return;
+      }
 
       App.ir(`index.php?modulo=paciente&vista=detalle_paciente`
         + `&id=${form.querySelector('[name="id_registro_paciente"]').value}#tab-planes`);

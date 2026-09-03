@@ -52,9 +52,12 @@ $dientes = Conexion::todos(
             <?= $idPlan ? 'Modificar plan de tratamiento' : 'Nuevo plan de tratamiento' ?>
         </h1>
     </div>
-    <button type="submit" form="formPlan" class="btn btn-morado">
-        <i class="bi bi-check-lg me-1"></i> Guardar plan
-    </button>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-morado <?= $idPlan ? '' : 'd-none' ?>"
+                id="planImprimir">
+            <i class="bi bi-printer me-1"></i> Imprimir para firma
+        </button>
+    </div>
 </div>
 
 <?php if (!empty($paciente['alertas'])): ?>
@@ -75,8 +78,11 @@ $dientes = Conexion::todos(
     <input type="hidden" name="id_registro_paciente" value="<?= $idExpediente ?>">
     <input type="hidden" name="renglones" id="planRenglones">
 
-    <!-- ============ Encabezado ============ -->
-    <div class="card mb-3">
+  <div id="pasosPlan">
+
+    <!-- ============ 1. Generales ============ -->
+    <section class="paso" data-titulo="Generales" data-icono="bi-info-circle">
+    <div class="card">
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-4">
@@ -119,8 +125,11 @@ $dientes = Conexion::todos(
         </div>
     </div>
 
-    <!-- ============ Diagnostico ============ -->
-    <div class="card mb-3">
+    </section>
+
+    <!-- ============ 2. Diagnostico ============ -->
+    <section class="paso" data-titulo="Diagn&oacute;stico" data-icono="bi-clipboard2-pulse">
+    <div class="card">
         <div class="card-header"><i class="bi bi-clipboard2-pulse me-2"></i>Diagn&oacute;stico</div>
         <div class="card-body">
             <div class="row g-3">
@@ -145,8 +154,11 @@ $dientes = Conexion::todos(
         </div>
     </div>
 
-    <!-- ============ Procedimientos ============ -->
-    <div class="card mb-3">
+    </section>
+
+    <!-- ============ 3. Procedimientos ============ -->
+    <section class="paso" data-titulo="Procedimientos" data-icono="bi-list-check">
+    <div class="card">
         <div class="card-header d-flex align-items-center justify-content-between">
             <span><i class="bi bi-list-check me-2"></i>Procedimientos</span>
             <button type="button" class="btn btn-sm btn-rosa" id="planAgregar">
@@ -177,8 +189,12 @@ $dientes = Conexion::todos(
         </div>
     </div>
 
+    </section>
+
+    <!-- ============ 4. Observaciones ============ -->
+    <section class="paso" data-titulo="Observaciones" data-icono="bi-chat-left-text">
     <div class="row g-3">
-        <div class="col-7">
+        <div class="col-12">
             <div class="card h-100">
                 <div class="card-header"><i class="bi bi-chat-left-text me-2"></i>Observaciones</div>
                 <div class="card-body">
@@ -188,6 +204,32 @@ $dientes = Conexion::todos(
                         Lo que no es el procedimiento en s&iacute;: indicaciones,
                         acuerdos con el tutor, condiciones especiales.
                     </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    </section>
+
+    <!-- ============ 5. Resumen ============ -->
+    <section class="paso" data-titulo="Resumen" data-icono="bi-receipt">
+    <div class="row g-3">
+        <div class="col-7">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-list-check me-2"></i>Procedimientos del plan
+                </div>
+                <div class="tabla-con-menu">
+                    <table class="table tabla-sistema">
+                        <thead><tr>
+                            <th style="width:40px">#</th>
+                            <th>Procedimiento</th>
+                            <th style="width:80px">Diente</th>
+                            <th style="width:60px">Cant.</th>
+                            <th style="width:110px" class="text-end">Importe</th>
+                        </tr></thead>
+                        <tbody id="planResumen"></tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -234,11 +276,9 @@ $dientes = Conexion::todos(
         </div>
     </div>
 
-    <div class="text-end mt-3">
-        <button type="submit" class="btn btn-morado">
-            <i class="bi bi-check-lg me-1"></i> Guardar plan
-        </button>
-    </div>
+    </section>
+
+  </div>
 </form>
 
 <!-- ============ Selector de procedimiento ============ -->

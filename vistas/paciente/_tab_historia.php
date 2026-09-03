@@ -71,11 +71,11 @@ function casillas(array $lista, string $titulo): string
             Sigue el orden de la hoja impresa del consultorio.
         </p>
     </div>
-    <?php if (Auth::puede('paciente.historia')): ?>
-    <button type="submit" form="formHistoria" class="btn btn-morado">
-        <i class="bi bi-check-lg me-1"></i> Guardar historia cl&iacute;nica
-    </button>
-    <?php endif; ?>
+    <div class="d-flex gap-2">
+        <button type="button" class="btn btn-outline-morado d-none" id="hcImprimir">
+            <i class="bi bi-printer me-1"></i> Imprimir para firma
+        </button>
+    </div>
 </div>
 
 <!-- Alertas que ya vienen del expediente -->
@@ -88,8 +88,10 @@ function casillas(array $lista, string $titulo): string
 </div>
 
 <form id="formHistoria" autocomplete="off">
+  <div id="pasosHistoria">
 
-    <!-- ============ Ficha de identificacion ============ -->
+    <!-- ============ 1. Ficha de identificacion ============ -->
+    <section class="paso" data-titulo="Identificaci&oacute;n" data-icono="bi-person-badge">
     <div class="card mb-3">
         <div class="card-header"><i class="bi bi-person-badge me-2"></i>Ficha de identificaci&oacute;n</div>
         <div class="card-body">
@@ -145,9 +147,12 @@ function casillas(array $lista, string $titulo): string
         </div>
     </div>
 
+    </section>
+
+    <!-- ============ 2. Antecedentes no patologicos ============ -->
+    <section class="paso" data-titulo="No patol&oacute;gicos" data-icono="bi-heart">
     <div class="row g-3">
-        <!-- ============ Antecedentes no patologicos ============ -->
-        <div class="col-6">
+        <div class="col-12">
             <div class="card h-100">
                 <div class="card-header">
                     <i class="bi bi-heart me-2"></i>Antecedentes no patol&oacute;gicos
@@ -226,8 +231,13 @@ function casillas(array $lista, string $titulo): string
             </div>
         </div>
 
-        <!-- ============ Antecedentes patologicos ============ -->
-        <div class="col-6">
+    </div>
+    </section>
+
+    <!-- ============ 3. Antecedentes patologicos ============ -->
+    <section class="paso" data-titulo="Patol&oacute;gicos" data-icono="bi-clipboard2-pulse">
+    <div class="row g-3">
+        <div class="col-12">
             <div class="card h-100">
                 <div class="card-header">
                     <i class="bi bi-clipboard2-pulse me-2"></i>Antecedentes patol&oacute;gicos
@@ -303,8 +313,11 @@ function casillas(array $lista, string $titulo): string
         </div>
     </div>
 
-    <div class="row g-3 mt-0">
-        <!-- ============ Antecedentes odontologicos ============ -->
+    </section>
+
+    <!-- ============ 4. Odontologicos y habitos ============ -->
+    <section class="paso" data-titulo="Odontol&oacute;gicos y h&aacute;bitos" data-icono="bi-emoji-smile">
+    <div class="row g-3">
         <div class="col-6">
             <div class="card h-100">
                 <div class="card-header">
@@ -351,8 +364,11 @@ function casillas(array $lista, string $titulo): string
         </div>
     </div>
 
-    <!-- ============ Examen bucal ============ -->
-    <div class="card mt-3">
+    </section>
+
+    <!-- ============ 5. Examen bucal ============ -->
+    <section class="paso" data-titulo="Examen bucal" data-icono="bi-search">
+    <div class="card">
         <div class="card-header"><i class="bi bi-search me-2"></i>Examen bucal</div>
         <div class="card-body">
 
@@ -422,11 +438,7 @@ function casillas(array $lista, string $titulo): string
         </div>
     </div>
 
-    <div class="text-end mt-3">
-        <?php if (Auth::puede('paciente.historia')): ?>
-        <button type="submit" class="btn btn-morado">
-            <i class="bi bi-check-lg me-1"></i> Guardar historia cl&iacute;nica
-        </button>
-        <?php endif; ?>
-    </div>
+    </section>
+
+  </div>
 </form>

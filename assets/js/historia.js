@@ -10,6 +10,8 @@ const Historia = (() => {
 
   let idExpediente = null;
   let cargado = false;
+  let pasos = null;
+  let existeHistoria = false;
 
   /* -------------------------------------------------------------------
      Grupos de si/no y de opciones
@@ -78,6 +80,15 @@ const Historia = (() => {
 
   function llenar({ historia, marcas, claves, antecedentes }) {
     const form = document.getElementById('formHistoria');
+
+    existeHistoria = !!historia;
+
+    // Con historia ya capturada, el recorrido de pasos estorba: lo que
+    // se quiere es ir directo a la parte que hay que corregir. Sin
+    // historia, los pasos guian la captura de las dos hojas.
+    pasos?.aplicarModo(existeHistoria ? 'colapsable' : 'pasos');
+
+    document.getElementById('hcImprimir').classList.toggle('d-none', !existeHistoria);
 
     if (historia) {
       Object.entries(historia).forEach(([campo, valor]) => {
@@ -162,7 +173,26 @@ const Historia = (() => {
 
     try {
       await App.api('historia/guardar.php', datos);
-      App.alerta.toast('Historia clínica guardada');
+
+      // Ya capturada, la pantalla cambia a bloques colapsables y se
+      // habilita la impresion para recoger las firmas.
+      const eraNueva = !existeHistoria;
+      existeHistoria = true;
+      pasos?.aplicarModo('colapsable');
+      document.getElementById('hcImprimir').classList.remove('d-none');
+
+      if (eraNueva) {
+        const r = await App.alerta.confirmar(
+          'Historia clínica guardada',
+          '¿Quieres imprimirla ahora para recoger las firmas del tutor y del doctor?',
+          'Sí, imprimir');
+        if (r) {
+          App.abrirVentana(
+            `${App.URL_BASE}/historia_imprimir.php?id=${idExpediente}`, 880, 1020, 'historia');
+        }
+      } else {
+        App.alerta.toast('Historia clínica actualizada');
+      }
 
       // La historia clinica es uno de los pendientes de digitalizacion:
       // se refresca el expediente por si se completo.
@@ -184,6 +214,32 @@ const Historia = (() => {
     engancharGrupos();
     engancharCasillas();
     form.addEventListener('submit', guardar);
+
+    pasos = Pasos.crear({
+      contenedor: 'pasosHistoria',
+      modo: 'pasos',
+      textoFinal: 'Guardar historia clínica',
+      alTerminar: () => form.requestSubmit(),
+
+      /**
+       * Solo se exige lo minimo para que la historia sirva: el motivo de
+       * la consulta. Lo demas puede quedar en blanco porque muchas veces
+       * el tutor no lo recuerda en ese momento, y bloquear la captura
+       * por eso llevaria a inventar datos.
+       */
+      validar(indice) {
+        if (indice === 0) {
+          const motivo = form.querySelector('[name="motivo_consulta"]').value.trim();
+          if (!motivo) return 'Captura el motivo de la consulta.';
+        }
+        return true;
+      },
+    });
+
+    document.getElementById('hcImprimir').addEventListener('click', () => {
+      App.abrirVentana(
+        `${App.URL_BASE}/historia_imprimir.php?id=${idExpediente}`, 880, 1020, 'historia');
+    });
 
     // Se carga al abrir la pestania, no antes: son varias consultas y
     // la mayoria de las veces el usuario entra a otra cosa.

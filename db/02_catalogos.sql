@@ -680,9 +680,11 @@ INSERT INTO tipo_documento
 (2,'HISTORIAL_CLINICO','Historial clinico',
  'Hoja de historia clinica firmada por el tutor',
  'bi-clipboard2-pulse', 1, 0, 'pdf,jpg,jpeg,png', 2),
+-- El consentimiento es unico por expediente: se firma una vez y ahi
+-- queda. Consultarlo o reimprimirlo no debe generar otro faltante.
 (3,'CONSENTIMIENTO','Consentimiento bajo informacion',
  'Se imprime prellenado, se firma y se escanea',
- 'bi-file-earmark-check', 1, 1, 'pdf,jpg,jpeg,png', 3),
+ 'bi-file-earmark-check', 1, 0, 'pdf,jpg,jpeg,png', 3),
 (4,'PLAN_TRATAMIENTO','Plan de tratamiento',
  'Plan firmado por el tutor',
  'bi-list-check', 0, 1, 'pdf,jpg,jpeg,png', 4),

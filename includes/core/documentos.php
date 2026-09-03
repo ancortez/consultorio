@@ -42,12 +42,15 @@ final class Documentos
             return null;
         }
 
+        // Documento unico: existe uno solo por expediente, sin importar
+        // si ya se digitalizo. Antes solo se revisaban los pendientes, y
+        // por eso volver a abrir el consentimiento generaba un faltante
+        // nuevo aunque el firmado ya estuviera guardado.
         if ((int) $tipo['permite_varios'] === 0) {
             $ya = (int) Conexion::valor(
                 'SELECT COUNT(*) FROM documento
                   WHERE id_registro_paciente = :r
                     AND id_tipo_documento = :t
-                    AND estado = ' . self::PENDIENTE . '
                     AND estatus = 1',
                 [':r' => $idExpediente, ':t' => $tipo['id_tipo_documento']]
             );

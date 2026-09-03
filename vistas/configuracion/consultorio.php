@@ -212,4 +212,3 @@ $estadoDef = (int) parametro('estado_default', (string) ESTADO_DEFAULT);
     </div>
 </div>
 
-<?php require RUTA_VISTAS . '/paciente/_modal_colonia.php'; ?>

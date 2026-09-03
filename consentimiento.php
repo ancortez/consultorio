@@ -95,7 +95,10 @@ $negocio = Conexion::uno(
 
 // ---------------------------------------------------------------------
 // Pendiente de digitalizacion
-// Se crea al imprimir, no antes: hasta aqui no habia hoja que escanear.
+//
+// El consentimiento se firma una sola vez por expediente. crearPendiente
+// devuelve null si ya existe uno (pendiente o ya digitalizado), asi que
+// reimprimirlo o volver a consultarlo no acumula faltantes.
 // ---------------------------------------------------------------------
 $pendiente = Documentos::crearPendiente(
     $idExpediente,
@@ -347,6 +350,10 @@ function campo(?string $valor, int $anchoMinimo = 200): string
     <?php if ($pendiente !== null): ?>
         <span class="aviso">
             Se agreg&oacute; el pendiente de escanear este documento al expediente.
+        </span>
+    <?php else: ?>
+        <span class="aviso" style="background:#eef7f2;border-color:#bfe6d1;color:#1f6b48">
+            Este consentimiento ya estaba registrado en el expediente.
         </span>
     <?php endif; ?>
     <?php if ($tutor === null): ?>
