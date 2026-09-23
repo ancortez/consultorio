@@ -18,7 +18,7 @@ final class Sesion
             'path'     => '/',
             'httponly' => true,
             'samesite' => 'Lax',
-            'secure'   => !empty($_SERVER['HTTPS']),
+            'secure'   => self::esHttps(),
         ]);
         session_start();
 
@@ -31,6 +31,34 @@ final class Sesion
             $_SESSION['aviso_sesion'] = 'La sesion expiro por inactividad.';
         }
         $_SESSION['ultima_actividad'] = time();
+    }
+
+    /**
+     * ¿La conexion del usuario viene por HTTPS?
+     *
+     * En produccion el certificado lo maneja Caddy, que le habla a PHP
+     * por HTTP dentro del servidor. Desde aqui $_SERVER['HTTPS'] llega
+     * vacio y la cookie de sesion se marcaria como insegura: el
+     * navegador la mandaria tambien por HTTP y bastaria con una red
+     * wifi ajena para robar la sesion de la doctora.
+     *
+     * Por eso se revisa tambien la cabecera que pone el proxy. Solo se
+     * le hace caso cuando el arranque dice que hay uno enfrente: si se
+     * creyera siempre, cualquiera podria mandar esa cabecera desde
+     * fuera y enganar al sistema.
+     */
+    private static function esHttps(): bool
+    {
+        if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+            return true;
+        }
+
+        $detrasDeProxy = (string) (getenv('HTTPS_DETRAS_DE_PROXY') ?: '0');
+        if ($detrasDeProxy !== '1') {
+            return false;
+        }
+
+        return ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
     }
 
     public static function set(string $clave, $valor): void

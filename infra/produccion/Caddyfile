@@ -1,0 +1,75 @@
+# =====================================================================
+#  Caddy: la puerta de entrada
+#
+#  Caddy pide el certificado HTTPS a Let's Encrypt solo, lo instala y
+#  lo renueva cada 60 dias sin que nadie haga nada. Es la razon de
+#  usarlo en lugar de nginx: con nginx hay que montar certbot aparte y
+#  acordarse de renovar.
+#
+#  Para que funcione, el dominio TIENE que apuntar ya a la IP del
+#  servidor. Let's Encrypt comprueba que eres el dueno entrando por el
+#  puerto 80; si el DNS no apunta todavia, el certificado falla.
+# =====================================================================
+
+{
+	# A donde avisa Let's Encrypt si un certificado esta por vencer y
+	# no se pudo renovar. Es el unico aviso que vas a recibir si algo
+	# se rompe, asi que conviene que sea un correo que si leas.
+	email {$CORREO_CERTIFICADO}
+}
+
+# ---------------------------------------------------------------------
+# El sistema
+# ---------------------------------------------------------------------
+{$DOMINIO} {
+	encode zstd gzip
+
+	# Cabeceras de seguridad. Son cuatro lineas que cierran cuatro
+	# formas conocidas de atacar a quien usa el sistema.
+	header {
+		# El navegador recuerda por un anio que este sitio es HTTPS, asi
+		# que ni siquiera intenta la primera conexion insegura.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+		# Nadie puede meter el sistema dentro de un marco en otra pagina
+		# para enganar al usuario y robarle los clics.
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+
+		# Se quita la firma del servidor: no hay razon para anunciar que
+		# version se esta corriendo.
+		-Server
+	}
+
+	# Archivos que nunca deben salir por HTTP, aunque alguien adivine la
+	# ruta. El .env tiene las contrasenias de la base de datos.
+	@prohibido {
+		path /.env* /.git/* /docker/* /infra/* /db/* /docs/*
+		path /*.md /*.sql /*.command /*.yml
+	}
+	respond @prohibido 404
+
+	reverse_proxy app:80 {
+		# La app necesita saber que del otro lado hubo HTTPS, para
+		# marcar las cookies de sesion como seguras.
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output file /data/acceso.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}
+
+# ---------------------------------------------------------------------
+# Bloques opcionales
+#
+# El instalador escribe aqui la consola de MinIO solo si pediste
+# publicarla. El comodin acepta que no haya ningun archivo, asi que si
+# no la publicaste esta linea simplemente no hace nada.
+# ---------------------------------------------------------------------
+import /etc/caddy/extra/*.caddy

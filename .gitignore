@@ -1,4 +1,13 @@
+# Las contrasenias nunca al repositorio. El patron sin diagonal cubre
+# cualquier nivel, incluido infra/produccion/.env y infra/minio/.env.
 .env
+.env.*
+!.env.example
+
+# Respaldos: traen el expediente clinico completo.
+*.sql.gz
+*.tar.gz.enc
+
 storage/logs/*
 !storage/logs/.gitkeep
 storage/uploads/*

@@ -37,14 +37,15 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Bloques opcionales (la consola de MinIO, si la publicas).
+      - ./extra:/etc/caddy/extra:ro
       # Aqui viven los certificados. Si se pierde este volumen, Caddy
       # los vuelve a pedir, pero Let's Encrypt tiene limites por semana:
       # conviene no borrarlo a la ligera.
       - caddy_data:/data
       - caddy_config:/config
     environment:
-      DOMINIO:        ${DOMINIO:?Falta DOMINIO en el .env}
-      DOMINIO_MINIO:  ${DOMINIO_MINIO:-}
+      DOMINIO:            ${DOMINIO:?Falta DOMINIO en el .env}
       CORREO_CERTIFICADO: ${CORREO_CERTIFICADO:?Falta CORREO_CERTIFICADO en el .env}
     networks:
       - interna

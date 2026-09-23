@@ -1,0 +1,23 @@
+# Consola web de MinIO.
+#
+# El instalador copia este archivo a extra/minio.caddy y reemplaza
+# DOMINIO_MINIO_AQUI, pero solo si pediste publicarla.
+#
+# Piensalo dos veces: la consola deja ver y descargar TODOS los
+# documentos del expediente. Mientras no la necesites desde fuera,
+# es mas seguro llegarle por tunel SSH:
+#     ssh -L 9101:localhost:9101 consultorio@TU_IP
+DOMINIO_MINIO_AQUI {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy minio:9001 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
+	}
+}
