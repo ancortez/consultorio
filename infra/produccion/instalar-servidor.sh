@@ -43,6 +43,12 @@ fi
 USUARIO="${USUARIO_SISTEMA:-consultorio}"
 DESTINO="/opt/consultorio"
 
+# Este guion vive dentro del proyecto, asi que su propia ubicacion dice
+# donde esta el codigo. Es la senial mas confiable que hay: no depende
+# de que exista .git ni de que alguien defina una variable.
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ORIGEN="$(cd "$AQUI/../.." && pwd)"
+
 echo
 echo "${NEGRITA}  Instalador del Sistema Consultorio Dental${FIN}"
 echo "  ----------------------------------------"
@@ -52,7 +58,78 @@ echo "  Carpeta:   $DESTINO"
 echo
 
 # ---------------------------------------------------------------------
-# 1. Datos que hay que preguntar
+# 1. ¿Donde esta el codigo?
+#
+# Esto se revisa ANTES de tocar el sistema. La version anterior lo
+# revisaba al final y fallaba despues de diez minutos de trabajo, con
+# todo a medio instalar. Una revision que puede fallar va primero.
+#
+# El codigo se reconoce por sus archivos, no por .git: la forma normal
+# de subirlo es con rsync excluyendo .git, y exigir .git hacia que el
+# instalador no reconociera un proyecto que estaba perfectamente ahi.
+# ---------------------------------------------------------------------
+paso "Buscando el sistema"
+
+es_el_proyecto() {
+    [[ -f "$1/index.php" && -f "$1/config/config.php" \
+       && -d "$1/infra/produccion" ]]
+}
+
+if es_el_proyecto "$DESTINO"; then
+    # Ya esta donde debe. Da igual como haya llegado.
+    ok "el sistema ya esta en $DESTINO"
+    [[ -d "$DESTINO/.git" ]] && ok "y es un repositorio git (se puede actualizar solo)"
+
+elif es_el_proyecto "$ORIGEN"; then
+    # El instalador se corrio desde una copia en otro lado. Se mueve.
+    ok "el sistema esta en $ORIGEN"
+    echo "    Se va a copiar a $DESTINO, que es donde tiene que vivir."
+    mkdir -p "$DESTINO"
+    cp -a "$ORIGEN/." "$DESTINO/"
+    ok "copiado a $DESTINO"
+
+elif [[ -n ${REPO_GIT:-} ]]; then
+    if [[ -e $DESTINO && -n "$(ls -A "$DESTINO" 2>/dev/null)" ]]; then
+        error "$DESTINO ya tiene archivos, pero no parecen ser el sistema."
+        echo
+        echo "    Ahi dentro hay:"
+        ls -A "$DESTINO" | head -8 | sed 's/^/        /'
+        echo
+        echo "    Revisa que sea, y si no sirve, borralo:"
+        echo "        rm -rf $DESTINO"
+        echo "    Luego vuelve a correr este instalador."
+        exit 1
+    fi
+
+    mkdir -p "$DESTINO"
+    git clone "$REPO_GIT" "$DESTINO" || morir "No se pudo clonar $REPO_GIT"
+    ok "clonado desde $REPO_GIT"
+
+    es_el_proyecto "$DESTINO" \
+        || morir "Lo clonado no parece el sistema. ¿Es el repositorio correcto?"
+
+else
+    error "No encontre el sistema."
+    echo
+    echo "    Se busco en:"
+    echo "        $DESTINO"
+    echo "        $ORIGEN"
+    echo
+    echo "    Sube el proyecto y vuelve a correr el instalador."
+    echo
+    echo "    ${NEGRITA}Con git${FIN} (en el servidor):"
+    echo "        export REPO_GIT=https://github.com/tuusuario/consultorio.git"
+    echo "        bash \$0"
+    echo
+    echo "    ${NEGRITA}Sin git${FIN} (desde tu computadora):"
+    echo "        rsync -avz --exclude '.git' --exclude '.env' \\"
+    echo "              --exclude 'storage/uploads' \\"
+    echo "              ./ root@TU_IP:$DESTINO/"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------
+# 2. Datos que hay que preguntar
 # ---------------------------------------------------------------------
 paso "Datos del sistema"
 
@@ -108,7 +185,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 2. Sistema al dia
+# 3. Sistema al dia
 # ---------------------------------------------------------------------
 paso "Actualizando el sistema"
 export DEBIAN_FRONTEND=noninteractive
@@ -124,7 +201,7 @@ dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
 ok "actualizaciones de seguridad automaticas"
 
 # ---------------------------------------------------------------------
-# 3. Usuario sin privilegios
+# 4. Usuario sin privilegios
 # ---------------------------------------------------------------------
 paso "Usuario de trabajo"
 
@@ -149,7 +226,7 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. Docker
+# 5. Docker
 # ---------------------------------------------------------------------
 paso "Docker"
 
@@ -179,7 +256,7 @@ docker network create sistemas >/dev/null 2>&1 && ok "red 'sistemas' creada" \
     || ok "la red 'sistemas' ya existia"
 
 # ---------------------------------------------------------------------
-# 5. Cortafuegos
+# 6. Cortafuegos
 # ---------------------------------------------------------------------
 paso "Cortafuegos"
 
@@ -204,35 +281,11 @@ aviso "Docker puede saltarse el cortafuegos: nunca publiques un puerto"
 aviso "sin el 127.0.0.1: delante. Revisa el compose antes de cambiarlo."
 
 # ---------------------------------------------------------------------
-# 6. Codigo
-# ---------------------------------------------------------------------
-paso "Bajando el sistema"
-
-if [[ -d $DESTINO/.git ]]; then
-    ok "ya estaba en $DESTINO"
-else
-    mkdir -p "$DESTINO"
-    if [[ -n ${REPO_GIT:-} ]]; then
-        git clone "$REPO_GIT" "$DESTINO"
-        ok "clonado desde $REPO_GIT"
-    else
-        aviso "No hay REPO_GIT definido."
-        echo "    Sube el proyecto a $DESTINO (con git clone o con scp)"
-        echo "    y vuelve a correr este instalador."
-        echo
-        echo "    Desde tu computadora, si no usas git:"
-        echo "      rsync -avz --exclude '.git' --exclude 'storage/uploads' \\"
-        echo "            ./ root@${IP_SERVIDOR:-TU_IP}:$DESTINO/"
-        exit 1
-    fi
-fi
-
-chown -R "$USUARIO:$USUARIO" "$DESTINO"
-
-# ---------------------------------------------------------------------
 # 7. Claves
 # ---------------------------------------------------------------------
 paso "Generando claves"
+
+chown -R "$USUARIO:$USUARIO" "$DESTINO"
 
 # openssl con base64 y sin caracteres raros: las contrasenias van a
 # viajar por archivos .env y lineas de comando, y un '$' o una comilla

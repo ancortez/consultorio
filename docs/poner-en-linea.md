@@ -188,6 +188,14 @@ dig +short consultorio.tudominio.com
 Cuando responda tu IP, sigue. **Si todavía no responde, espera:** el
 certificado HTTPS falla si el dominio no apunta aún.
 
+> **Si compraste un dominio `.dev`** (o `.app`, o `.page`): todo ese
+> grupo de dominios está en la lista de *HSTS preload*, lo que
+> significa que los navegadores **solo** los abren por HTTPS, siempre.
+> Es más seguro, pero tiene una consecuencia: mientras Caddy no haya
+> emitido el certificado, el navegador no va a mostrar un aviso que
+> puedas saltarte — simplemente no va a conectar. No es que algo esté
+> roto; es que todavía no hay certificado. Espera un minuto y recarga.
+
 ---
 
 ## Paso 3 — Entrar al servidor
@@ -423,6 +431,8 @@ y la restauración están hechos para funcionar entre máquinas distintas.
 | Lo que ves | Qué pasa | Qué hacer |
 |---|---|---|
 | "No es seguro" en el navegador | El certificado no se emitió | Revisa que `dig +short tudominio` dé tu IP. Luego `docker compose -f docker-compose.produccion.yml logs caddy` |
+| El navegador ni siquiera conecta (dominio `.dev`) | Ver la nota de abajo | Espera a que Caddy emita el certificado y recarga |
+| "No encontré el sistema" al instalar | El proyecto no está en `/opt/consultorio` | Súbelo con el `rsync` del paso 4 y vuelve a correr el instalador |
 | El sitio no carga | Algo se cayó | `docker compose -f docker-compose.produccion.yml ps`. Lo que no diga "Up", revisa sus logs. |
 | Error 500 | Falla de PHP | `docker compose -f docker-compose.produccion.yml logs --tail 50 app` |
 | No suben documentos | MinIO caído | `cd ../minio && docker compose -f docker-compose.produccion.yml ps` |
