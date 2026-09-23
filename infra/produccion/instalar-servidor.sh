@@ -341,6 +341,19 @@ MINIO_PASSWORD=$MINIO_PASS
 MINIO_BUCKETS=consultorio-dental
 MINIO_PORT_CONSOLA=9101
 MINIO_URL_CONSOLA=$URL_CONSOLA
+
+# De donde sale la imagen.
+#
+# Docker Hub borro minio/minio el 11 de septiembre de 2026. quay.io es
+# el registro que MinIO sigue publicando.
+#
+# Conviene fijar la version en lugar de dejar ":latest": asi un
+# reinicio no trae de golpe una version distinta a la que se probo.
+# Para ver que versiones hay:
+#     curl -s 'https://quay.io/api/v1/repository/minio/minio/tag/?limit=10&onlyActiveTags=true' \
+#       | python3 -c 'import sys,json; [print(t["name"]) for t in json.load(sys.stdin)["tags"]]'
+MINIO_IMAGEN=quay.io/minio/minio:latest
+MINIO_IMAGEN_MC=quay.io/minio/mc:latest
 ENVFIN
 
     chmod 600 "$ENV_APP" "$ENV_MINIO"

@@ -20,9 +20,32 @@
 #     docker compose -f docker-compose.produccion.yml up -d
 # =====================================================================
 
+# =====================================================================
+#  ¿Por que quay.io y no Docker Hub?
+#
+#  El 11 de septiembre de 2026 MinIO borro las imagenes minio/minio y
+#  minio/mc de Docker Hub. Una instalacion que ya las tenia bajadas
+#  sigue funcionando; un servidor nuevo falla con
+#  "pull access denied ... repository does not exist".
+#
+#  quay.io es el registro que MinIO sigue publicando.
+#
+#  Y hay algo de fondo que conviene saber: MinIO archivo la edicion
+#  comunitaria. El repositorio quedo en solo lectura y no habra mas
+#  parches, incluidos los de seguridad. Lo que corre aqui funciona,
+#  pero no va a recibir arreglos.
+#
+#  Para un sistema que va a guardar expedientes clinicos durante anios,
+#  eso es una deuda con fecha. En docs/almacenamiento-de-archivos.md
+#  esta el plan para cambiarlo por Garage, que es mas chico, sigue vivo
+#  y habla el mismo protocolo S3.
+# =====================================================================
+
 services:
   minio:
-    image: minio/minio:latest
+    # La version se fija en el .env. Con ":latest" un reinicio
+    # cualquiera puede traer una version distinta a la probada.
+    image: ${MINIO_IMAGEN:-quay.io/minio/minio:latest}
     container_name: minio_compartido
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -58,7 +81,7 @@ services:
   # Crea los buckets al arrancar y los deja privados. Es un contenedor
   # de un solo uso: hace su trabajo y se apaga.
   crear_buckets:
-    image: minio/mc:latest
+    image: ${MINIO_IMAGEN_MC:-quay.io/minio/mc:latest}
     container_name: minio_buckets
     depends_on:
       minio:

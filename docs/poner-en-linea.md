@@ -436,6 +436,7 @@ y la restauración están hechos para funcionar entre máquinas distintas.
 | El sitio no carga | Algo se cayó | `docker compose -f docker-compose.produccion.yml ps`. Lo que no diga "Up", revisa sus logs. |
 | Error 500 | Falla de PHP | `docker compose -f docker-compose.produccion.yml logs --tail 50 app` |
 | No suben documentos | MinIO caído | `cd ../minio && docker compose -f docker-compose.produccion.yml ps` |
+| `pull access denied for minio/minio` | Docker Hub borró esas imágenes en sept. 2026 | Ya está corregido: el compose apunta a `quay.io`. Ver `docs/almacenamiento-de-archivos.md` |
 | Todo va lento | Poca RAM | `free -h` y `docker stats`. Si la RAM está al tope, sube de plan. |
 
 ### El comando que resuelve la mayoría

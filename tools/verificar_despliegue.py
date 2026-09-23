@@ -270,6 +270,31 @@ if not re.search(r'^\.env$|^\*\*/\.env|^\.env\*', ignore, re.M):
     avisos.append('revisa que .gitignore alcance infra/produccion/.env')
 print('  ok   .gitignore excluye .env')
 
+# ---------- 12. De donde salen las imagenes ----------
+# Docker Hub borro minio/minio el 11 de septiembre de 2026. Un compose
+# que lo siga apuntando funciona en una maquina que ya tenia la imagen
+# bajada y falla en un servidor nuevo, que es el peor tipo de error:
+# el que no se ve hasta el momento de desplegar.
+import glob
+for archivo in glob.glob('infra/minio/docker-compose*.yml'):
+    texto = sin_comentarios(pathlib.Path(archivo).read_text(encoding='utf-8'))
+
+    for linea in texto.splitlines():
+        if 'image:' not in linea: continue
+
+        if re.search(r'image:\s*minio/(minio|mc)', linea):
+            fallos.append(f'{archivo}: apunta a Docker Hub, que ya no tiene MinIO')
+
+        # ":latest" sin variable que permita fijar la version deja el
+        # sistema a merced de lo que haya ese dia en el registro.
+        if ':latest' in linea and '${' not in linea:
+            fallos.append(f'{archivo}: usa :latest sin poder fijar la version')
+
+    if 'quay.io/minio' not in texto:
+        fallos.append(f'{archivo}: no apunta a quay.io')
+
+print('  ok   MinIO sale de quay.io y la version se puede fijar')
+
 print()
 for a in avisos: print('  ~   ', a)
 for f in fallos: print('  !!  ', f)
