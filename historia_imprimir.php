@@ -15,6 +15,10 @@ Auth::exigirLogin();
 Auth::exigirPermiso('paciente.ver');
 
 $idExpediente = (int) ($_GET['id'] ?? 0);
+
+// Quien firma como doctor. No tiene por que ser quien capturo: la
+// historia la escribe muchas veces recepcion y la firma quien atiende.
+$idDentista = (int) ($_GET['dentista'] ?? 0);
 if ($idExpediente <= 0) {
     http_response_code(400);
     exit('Falta el expediente.');
@@ -96,8 +100,24 @@ $negocio = Conexion::uno(
       WHERE c.id_consultorio = 1'
 );
 
+$dentista = $idDentista > 0
+    ? Conexion::uno(
+        'SELECT nombre_completo, cedula_prof FROM usuario
+          WHERE id_usuario = :u AND es_dentista = 1 AND estatus = 1',
+        [':u' => $idDentista])
+    : null;
+
+// Sin eleccion explicita, el unico dentista del consultorio; si hay
+// varios, la linea se deja en blanco para que firme quien atienda.
+if ($dentista === null) {
+    $todos = Conexion::todos(
+        'SELECT nombre_completo, cedula_prof FROM usuario
+          WHERE es_dentista = 1 AND estatus = 1');
+    $dentista = count($todos) === 1 ? $todos[0] : null;
+}
+
 Bitacora::registrar('paciente', 'IMPRIME', 'historia_clinica',
-    (string) $hc['id_historia_clinica']);
+    (string) $hc['id_historia_clinica'], ['dentista' => $idDentista ?: null]);
 
 // ---------------------------------------------------------------------
 // Ayudas de impresion
@@ -530,8 +550,11 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
         </div>
         <div class="firma">
             <div class="linea"></div>
-            <div class="nombre"><?= e($hc['capturo'] ?? '') ?></div>
+            <div class="nombre"><?= e($dentista['nombre_completo'] ?? '') ?></div>
             <div class="cargo">Nombre y firma del doctor/a</div>
+            <?php if (!empty($dentista['cedula_prof'])): ?>
+                <div class="cargo">C&eacute;d. Prof. <?= e($dentista['cedula_prof']) ?></div>
+            <?php endif; ?>
         </div>
     </div>
 

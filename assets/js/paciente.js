@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (contenedor && typeof Historia !== 'undefined') {
     Historia.iniciar(contenedor.dataset.idExpediente);
   }
+  if (contenedor && typeof Consentimiento !== 'undefined') {
+    Consentimiento.iniciar(contenedor.dataset.idExpediente);
+  }
 });
 
 /* ---------------------------------------------------------------------
@@ -61,17 +64,36 @@ function listadoPacientes() {
       return;
     }
 
-    tabla.innerHTML = lista.map((p) => `
+    tabla.innerHTML = lista.map((p) => {
+      const detalle = `${App.URL_BASE}/index.php?modulo=paciente`
+        + `&vista=detalle_paciente&id=${p.id_registro_paciente}`;
+
+      return `
       <tr>
         <td>
-          <div class="fw-semibold">${App.esc(p.nombre_completo)}</div>
-          <div class="text-secondary" style="font-size:11px">
-            ${App.esc(p.num_expediente)}
-            ${Number(p.estatus) === 0 ? '<span class="badge bg-secondary ms-1">BAJA</span>' : ''}
+          <div class="d-flex align-items-center gap-2">
+            <a href="${detalle}" class="avatar-mini" title="Abrir el expediente">
+              ${p.foto
+                ? `<img src="${App.URL_BASE}/avatar.php?p=${p.id_persona}" alt="">`
+                : '<i class="bi bi-person-fill"></i>'}
+            </a>
+            <div style="min-width:0">
+              <a href="${detalle}" class="enlace-paciente">
+                ${App.esc(p.nombre_completo)}
+              </a>
+              <div class="text-secondary" style="font-size:11px">
+                ${App.esc(p.num_expediente)}
+                ${Number(p.estatus) === 0
+                  ? '<span class="badge bg-secondary ms-1">BAJA</span>' : ''}
+              </div>
+            </div>
           </div>
         </td>
-        <td class="text-secondary" style="font-size:12.5px">
-          ${p.domicilio ? App.esc(p.domicilio) : '<span class="opacity-50">Sin domicilio</span>'}
+        <td>
+          ${p.domicilio_calle || p.domicilio_resto ? `
+            <div class="domicilio-calle">${App.esc(p.domicilio_calle || '')}</div>
+            <div class="domicilio-resto">${App.esc(p.domicilio_resto || '')}</div>`
+            : '<span class="text-secondary opacity-50" style="font-size:12.5px">Sin domicilio</span>'}
         </td>
         <td>${p.telefono ? App.esc(p.telefono) : '<span class="text-secondary opacity-50">-</span>'}</td>
         <td class="text-secondary sin-mayusculas">${p.correo ? App.esc(p.correo) : '-'}</td>
@@ -82,16 +104,17 @@ function listadoPacientes() {
               <i class="bi bi-list fs-5"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="${App.URL_BASE}/index.php?modulo=paciente&vista=detalle_paciente&id=${p.id_registro_paciente}">
+              <li><a class="dropdown-item" href="${detalle}">
                 <i class="bi bi-person-vcard me-2"></i>Datos del paciente</a></li>
-              <li><a class="dropdown-item" href="${App.URL_BASE}/index.php?modulo=consultas&vista=nueva_consulta&id=${p.id_registro_paciente}">
+              <li><a class="dropdown-item" href="${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&paciente=${p.id_registro_paciente}">
                 <i class="bi bi-clipboard2-plus me-2"></i>Nueva consulta</a></li>
               <li><a class="dropdown-item" href="${App.URL_BASE}/index.php?modulo=consultas&vista=nuevo_plan_tratamiento&id=${p.id_registro_paciente}">
                 <i class="bi bi-list-check me-2"></i>Nuevo plan de tratamiento</a></li>
             </ul>
           </div>
         </td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }
 
   filtro.addEventListener('input', App.debounce(cargar, 350));
@@ -1028,53 +1051,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (!r.datos.length) {
-      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="9">
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="8">
           <i class="bi bi-list-check fs-3 d-block mb-2 opacity-50"></i>
           Este paciente no tiene planes de tratamiento.</td></tr>`;
       return;
     }
 
-    tabla.innerHTML = r.datos.map((p, i) => {
-      const avance = Number(p.conceptos) > 0
-        ? Math.round((Number(p.terminados) / Number(p.conceptos)) * 100) : 0;
-      const saldo = Number(p.saldo_actual ?? p.total);
-
-      return `
-      <tr>
-        <td class="text-secondary">${i + 1}</td>
-        <td class="fw-semibold">${App.esc(p.folio)}</td>
-        <td>${App.esc(p.fecha.split('-').reverse().join('/'))}</td>
-        <td class="text-secondary" style="font-size:12.5px">
-          ${p.diagnostico ? App.esc(p.diagnostico.substring(0, 90)) : '—'}
-          <div style="font-size:11px">${App.esc(p.dentista)}</div>
-        </td>
-        <td>
-          <div style="background:var(--gris-100);border-radius:999px;height:6px;
-                      overflow:hidden;margin-bottom:3px">
-            <div style="width:${avance}%;height:100%;background:var(--exito)"></div>
-          </div>
-          <span style="font-size:11px" class="text-secondary">
-            ${p.terminados} de ${p.conceptos} · ${avance}%
-          </span>
-        </td>
-        <td class="fw-semibold">${App.money(p.total)}</td>
-        <td class="fw-semibold" style="color:${saldo > 0 ? 'var(--error)' : 'var(--exito)'}">
-          ${App.money(saldo)}
-        </td>
-        <td><span class="badge badge-suave">${App.esc(p.nombre_estado)}</span></td>
-        <td class="col-acciones">
-          <div class="dropdown">
-            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
-                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
-            <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item"
-                     href="${App.URL_BASE}/index.php?modulo=consultas&vista=nuevo_plan_tratamiento&id=${idExpediente}&plan=${p.id_plan_tratamiento}">
-                <i class="bi bi-pencil me-2"></i>Ver o modificar</a></li>
-            </ul>
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
+    tabla.innerHTML = r.datos.map((p, i) => Planes.fila(p, i, idExpediente)).join('');
   }
 
   document.querySelector('[data-bs-target="#tab-planes"]')

@@ -36,6 +36,16 @@ $dentistas = Conexion::todos(
 
 $estadosPlan = Conexion::todos('SELECT * FROM estado_plan ORDER BY id_estado_plan');
 
+// El folio se necesita en el encabezado y en el aviso de nueva consulta.
+// Se lee aqui y no por AJAX porque el titulo no puede aparecer vacio y
+// llenarse un segundo despues.
+$folioPlan = $idPlan
+    ? (string) Conexion::valor(
+        'SELECT folio FROM plan_tratamiento
+          WHERE id_plan_tratamiento = :p AND id_registro_paciente = :r',
+        [':p' => $idPlan, ':r' => $idExpediente])
+    : '';
+
 // Dientes agrupados para el selector: temporales y permanentes.
 $dientes = Conexion::todos(
     'SELECT id_diente, nombre_diente, es_temporal FROM diente ORDER BY id_diente');
@@ -49,10 +59,22 @@ $dientes = Conexion::todos(
             </a>
         </nav>
         <h1 class="titulo-vista">
-            <?= $idPlan ? 'Modificar plan de tratamiento' : 'Nuevo plan de tratamiento' ?>
+            <?= $idPlan
+                ? 'Plan de tratamiento ' . e($folioPlan)
+                : 'Nuevo plan de tratamiento' ?>
         </h1>
     </div>
     <div class="d-flex gap-2">
+        <?php /* Solo tiene sentido en un plan ya guardado: una consulta no
+                 puede colgar de algo que todavia no existe. */ ?>
+        <?php if ($idPlan && Auth::puede('consultas.crear')): ?>
+        <button type="button" class="btn btn-outline-morado" id="planNuevaConsulta"
+                data-plan="<?= $idPlan ?>"
+                data-expediente="<?= $idExpediente ?>"
+                data-folio="<?= e($folioPlan) ?>">
+            <i class="bi bi-clipboard2-plus me-1"></i> Nueva consulta
+        </button>
+        <?php endif; ?>
         <button type="button" class="btn btn-outline-morado <?= $idPlan ? '' : 'd-none' ?>"
                 id="planImprimir">
             <i class="bi bi-printer me-1"></i> Imprimir para firma
@@ -85,6 +107,20 @@ $dientes = Conexion::todos(
     <div class="card">
         <div class="card-body">
             <div class="row g-3">
+                <div class="col-12">
+                    <label class="form-label" for="planDescripcion">
+                        Descripci&oacute;n del plan de tratamiento
+                    </label>
+                    <input type="text" class="form-control campo-titular"
+                           name="descripcion" id="planDescripcion" maxlength="150"
+                           value="PLAN DE TRATAMIENTO <?= strtoupper(fecha(date('Y-m-d'))) ?>">
+                    <div class="form-text">
+                        Con esto se reconoce el plan en las listas y en el
+                        expediente. Puedes cambiarlo por algo m&aacute;s claro,
+                        como ORTOPEDIA ETAPA 1.
+                    </div>
+                </div>
+
                 <div class="col-4">
                     <label class="form-label">Paciente</label>
                     <input type="text" class="form-control" readonly
@@ -170,17 +206,15 @@ $dientes = Conexion::todos(
                 <thead><tr>
                     <th style="width:45px">#</th>
                     <th>Procedimiento</th>
-                    <th style="width:130px">Diente</th>
+                    <th style="width:170px">&Oacute;rgano dentario</th>
                     <th style="width:70px">Cant.</th>
                     <th style="width:120px">Costo unit.</th>
                     <th style="width:110px">Descuento</th>
                     <th style="width:120px">Importe</th>
-                    <th style="width:130px">Fecha</th>
-                    <th style="width:130px">Pr&oacute;x. cita</th>
                     <th class="col-acciones"></th>
                 </tr></thead>
                 <tbody id="planTabla">
-                    <tr class="fila-vacia"><td colspan="10">
+                    <tr class="fila-vacia"><td colspan="8">
                         <i class="bi bi-list-check fs-3 d-block mb-2 opacity-50"></i>
                         Agrega los procedimientos del plan.
                     </td></tr>
@@ -224,7 +258,7 @@ $dientes = Conexion::todos(
                         <thead><tr>
                             <th style="width:40px">#</th>
                             <th>Procedimiento</th>
-                            <th style="width:80px">Diente</th>
+                            <th style="width:110px">&Oacute;rgano dent.</th>
                             <th style="width:60px">Cant.</th>
                             <th style="width:110px" class="text-end">Importe</th>
                         </tr></thead>
@@ -281,45 +315,6 @@ $dientes = Conexion::todos(
   </div>
 </form>
 
-<!-- ============ Selector de procedimiento ============ -->
-<div class="modal fade" id="modalProcSel" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-clipboard2-plus me-2"></i>Agregar procedimiento</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="input-group mb-3">
-          <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-          <input type="text" class="form-control" id="procSelFiltro"
-                 placeholder="Nombre o categor&iacute;a" autocomplete="off">
-        </div>
-        <div class="border rounded lista-seleccion" id="procSelLista">
-          <div class="cargando">
-            <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
-            Cargando...
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
-      </div>
-    </div>
-  </div>
-</div>
+<?php require RUTA_VISTAS . '/consultas/_modal_procedimiento.php'; ?>
 
-<!-- Catalogo de dientes para los selectores de cada renglon -->
-<template id="tplDientes">
-  <option value="">Sin diente</option>
-  <optgroup label="Permanentes">
-    <?php foreach ($dientes as $d): if ((int) $d['es_temporal'] === 1) continue; ?>
-      <option value="<?= (int) $d['id_diente'] ?>"><?= (int) $d['id_diente'] ?></option>
-    <?php endforeach; ?>
-  </optgroup>
-  <optgroup label="Temporales">
-    <?php foreach ($dientes as $d): if ((int) $d['es_temporal'] === 0) continue; ?>
-      <option value="<?= (int) $d['id_diente'] ?>"><?= (int) $d['id_diente'] ?></option>
-    <?php endforeach; ?>
-  </optgroup>
-</template>
+<?php require RUTA_VISTAS . '/consultas/_modal_dientes.php'; ?>

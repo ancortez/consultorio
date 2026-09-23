@@ -72,6 +72,14 @@ $alertas = Conexion::todos(
 // expediente se resalta.
 $pendientes = Documentos::cuantosPendientes($idExpediente);
 
+// El saldo se muestra en la tarjeta: en recepcion es lo primero que se
+// pregunta y no tiene caso mandarlos a otra pantalla por un numero.
+$saldo = Auth::puede('cajas.ver')
+    ? Conexion::uno(
+        'SELECT * FROM v_paciente_saldo WHERE id_registro_paciente = :r',
+        [':r' => $idExpediente])
+    : null;
+
 $tiposIdentificacion = Conexion::todos(
     'SELECT * FROM tipo_identificacion WHERE estatus = 1
       ORDER BY nombre_identificacion');
@@ -104,14 +112,20 @@ $domPre = $domicilios[0] ?? null;
                 <h1 class="titulo-vista">Detalle del paciente</h1>
             </div>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-outline-morado"
-                        id="btnConsentimiento">
-                    <i class="bi bi-file-earmark-text me-1"></i> Consentimiento
-                </button>
+                <?php /* El consentimiento ya no vive aqui: pertenece a un plan
+                         de tratamiento y se pide desde el bloque del plan, en
+                         la pestania Expediente electronico. */ ?>
                 <?php if (Auth::puede('consultas.crear')): ?>
-                <a class="btn btn-outline-morado"
-                   href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=nueva_consulta&id=<?= $idExpediente ?>">
+                <button type="button" class="btn btn-outline-morado"
+                        id="btnNuevaConsulta">
                     <i class="bi bi-clipboard2-plus me-1"></i> Nueva consulta
+                </button>
+                <?php endif; ?>
+                <?php if (Auth::puede('cajas.estado_cuenta')): ?>
+                <a class="btn btn-outline-morado"
+                   href="<?= URL_BASE ?>/estado_cuenta.php?id=<?= $idExpediente ?>"
+                   target="_blank">
+                    <i class="bi bi-cash-coin me-1"></i> Estado de cuenta
                 </a>
                 <?php endif; ?>
                 <?php if (Auth::puede('consultas.plan')): ?>
@@ -170,6 +184,25 @@ $domPre = $domicilios[0] ?? null;
                                 </div>
                             </div>
                         </div>
+
+                        <?php if (Auth::puede('cajas.ver') && $saldo !== null
+                                  && (float) $saldo['saldo'] > 0): ?>
+                        <div class="dato-identidad">
+                            <i class="bi bi-cash-coin" style="color:var(--error)"></i>
+                            <div class="flex-grow-1">
+                                <div class="etiqueta">Saldo pendiente</div>
+                                <div class="valor" style="color:var(--error)">
+                                    <?= e(money($saldo['saldo'])) ?>
+                                </div>
+                            </div>
+                            <?php if (Auth::puede('cajas.cobrar')): ?>
+                            <a class="btn btn-sm btn-morado"
+                               href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=cobrar&paciente=<?= $idExpediente ?>">
+                                Cobrar
+                            </a>
+                            <?php endif; ?>
+                        </div>
+                        <?php endif; ?>
 
                         <?php if ($alertas): ?>
                         <div class="mt-3">
@@ -661,17 +694,16 @@ $domPre = $domicilios[0] ?? null;
                                 <table class="table tabla-sistema mb-0">
                                     <thead><tr>
                                         <th style="width:50px">#</th>
-                                        <th style="width:110px">Folio</th>
+                                        <th style="width:150px">Folio</th>
                                         <th style="width:100px">Fecha</th>
+                                        <th style="width:24%">Descripci&oacute;n</th>
                                         <th>Diagn&oacute;stico</th>
-                                        <th style="width:130px">Avance</th>
-                                        <th style="width:110px">Total</th>
-                                        <th style="width:110px">Saldo</th>
-                                        <th style="width:110px">Estatus</th>
+                                        <th style="width:150px">Avance</th>
+                                        <th style="width:120px">Estatus</th>
                                         <th class="col-acciones"></th>
                                     </tr></thead>
                                     <tbody id="tablaPlanes">
-                                        <tr class="fila-vacia"><td colspan="9">
+                                        <tr class="fila-vacia"><td colspan="8">
                                             <div class="spinner-border spinner-border-sm me-2"
                                                  style="color:var(--morado-600)"></div>Cargando...
                                         </td></tr>

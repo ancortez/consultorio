@@ -890,3 +890,180 @@ function moduloConsultorio() {
     }
   });
 }
+
+/* ---------------------------------------------------------------------
+   Configuracion > Apariencia
+
+   Al elegir un color se guarda y se recarga. Se recarga a proposito: el
+   color vive en un bloque <style> que imprime el servidor, y pintarlo
+   con JavaScript ademas dejaria dos fuentes de verdad.
+   --------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  const caja = document.getElementById('temas');
+  if (!caja) return;
+
+  caja.addEventListener('click', async (ev) => {
+    const boton = ev.target.closest('[data-tema]');
+    if (!boton || boton.classList.contains('activo')) return;
+
+    const nombre = boton.querySelector('.nombre').textContent.trim();
+
+    const ok = await App.alerta.confirmar(
+      'Cambiar el color del sistema',
+      `El sistema se verá en «${nombre}» para todos los usuarios. `
+      + 'La pantalla se recargará para aplicarlo.',
+      'Sí, cambiar');
+    if (!ok) return;
+
+    try {
+      await App.api('configuracion/tema_guardar.php', { tema: boton.dataset.tema });
+      location.reload();
+    } catch (e) { /* ya se mostro */ }
+  });
+});
+
+/* ---------------------------------------------------------------------
+   Configuracion > Recordatorios de cita
+   --------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  const tabla = document.getElementById('tablaRecordatorios');
+  if (!tabla) return;
+
+  let reglas = (window.REGLAS_RECORDATORIO ?? []).map((r) => ({
+    nombre: r.nombre,
+    horas_antes: Number(r.horas_antes),
+  }));
+
+  /** "48 horas" se lee mejor como "2 dias". */
+  function enPalabras(horas) {
+    if (horas % 24 === 0 && horas >= 24) {
+      const d = horas / 24;
+      return `${d} día${d === 1 ? '' : 's'} antes`;
+    }
+    return `${horas} hora${horas === 1 ? '' : 's'} antes`;
+  }
+
+  function pintar() {
+    // Del mas anticipado al mas cercano: es el orden en que ocurren.
+    reglas.sort((a, b) => b.horas_antes - a.horas_antes);
+
+    tabla.innerHTML = reglas.length
+      ? reglas.map((r, i) => `
+          <tr data-i="${i}">
+            <td class="text-secondary">${i + 1}</td>
+            <td>
+              <input type="text" class="form-control form-control-sm rec-nombre"
+                     value="${App.esc(r.nombre)}" maxlength="60">
+            </td>
+            <td>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control text-end rec-horas"
+                       value="${r.horas_antes}" min="1" max="720">
+                <span class="input-group-text">horas antes</span>
+              </div>
+            </td>
+            <td class="text-secondary">${enPalabras(r.horas_antes)}</td>
+            <td class="col-acciones">
+              <button type="button" class="btn-menu-fila text-danger"
+                      data-quitar="${i}" title="Quitar">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </td>
+          </tr>`).join('')
+      : `<tr class="fila-vacia"><td colspan="5">
+           Sin recordatorios. Agrega al menos uno.</td></tr>`;
+
+    pintarLinea();
+  }
+
+  /**
+   * Linea de tiempo del aviso hasta la cita.
+   *
+   * Sirve para ver de un golpe si los recordatorios estan repartidos o
+   * si dos caen casi encima, que es el error tipico al configurarlos.
+   */
+  function pintarLinea() {
+    const caja = document.getElementById('lineaRecordatorios');
+    if (!reglas.length) {
+      caja.innerHTML = '<span class="text-secondary small">Sin recordatorios.</span>';
+      return;
+    }
+
+    const maximo = Math.max(...reglas.map((r) => r.horas_antes));
+
+    caja.innerHTML = `
+      <div class="linea">
+        ${reglas.map((r) => {
+          // Se coloca por proporcion: el primero a la izquierda y la
+          // cita al final, a la derecha.
+          const pos = 100 - (r.horas_antes / maximo) * 92;
+          return `
+            <div class="marca" style="left:${pos}%">
+              <span class="punto"></span>
+              <span class="texto">${App.esc(enPalabras(r.horas_antes))}</span>
+            </div>`;
+        }).join('')}
+        <div class="marca cita" style="left:100%">
+          <span class="punto"></span>
+          <span class="texto">La cita</span>
+        </div>
+      </div>`;
+  }
+
+  tabla.addEventListener('input', (ev) => {
+    const fila = ev.target.closest('tr[data-i]');
+    if (!fila) return;
+
+    const r = reglas[Number(fila.dataset.i)];
+    if (ev.target.classList.contains('rec-nombre')) r.nombre = ev.target.value;
+    if (ev.target.classList.contains('rec-horas')) {
+      r.horas_antes = Math.max(1, Math.min(720, Number(ev.target.value) || 1));
+      pintarLinea();
+      fila.children[3].textContent = enPalabras(r.horas_antes);
+    }
+  });
+
+  tabla.addEventListener('click', (ev) => {
+    const boton = ev.target.closest('[data-quitar]');
+    if (!boton) return;
+    reglas.splice(Number(boton.dataset.quitar), 1);
+    pintar();
+  });
+
+  document.getElementById('recAgregar').addEventListener('click', () => {
+    // Se propone la mitad del aviso mas cercano: casi siempre es por
+    // ahi por donde se quiere meter uno nuevo.
+    const menor = reglas.length ? Math.min(...reglas.map((r) => r.horas_antes)) : 48;
+    const horas = Math.max(1, Math.round(menor / 2));
+
+    if (reglas.some((r) => r.horas_antes === horas)) {
+      App.alerta.error('Ya existe un recordatorio con esa anticipación.');
+      return;
+    }
+
+    reglas.push({ nombre: '', horas_antes: horas });
+    pintar();
+  });
+
+  document.getElementById('recGuardar').addEventListener('click', async () => {
+    const horas = reglas.map((r) => r.horas_antes);
+    if (new Set(horas).size !== horas.length) {
+      App.alerta.error('Hay dos recordatorios con la misma anticipación.',
+        'Cada uno tiene que caer en un momento distinto.');
+      return;
+    }
+
+    try {
+      const r = await App.api('configuracion/recordatorios_guardar.php', {
+        reglas: JSON.stringify(reglas),
+      });
+      reglas = r.datos.map((x) => ({
+        nombre: x.nombre, horas_antes: Number(x.horas_antes),
+      }));
+      pintar();
+      App.alerta.toast('Recordatorios guardados');
+    } catch (e) { /* ya se mostro */ }
+  });
+
+  pintar();
+});

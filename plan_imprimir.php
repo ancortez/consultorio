@@ -264,6 +264,10 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
                     <span class="et">Estatus</span>
                     <span class="va"><?= e($plan['nombre_estado']) ?></span>
                 </div>
+                <div class="dato ancho">
+                    <span class="et">Descripci&oacute;n</span>
+                    <span class="va"><?= e($plan['descripcion'] ?? '') ?></span>
+                </div>
             </div>
         </div>
 
@@ -294,20 +298,21 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
         <div class="seccion">
             <h2>Procedimientos</h2>
             <table class="proc">
+                <?php /* Sin columnas de fecha: el plan es la cotizacion de lo
+                         que se va a hacer, no la agenda. Las fechas reales
+                         salen de las consultas, que se registran aparte. */ ?>
                 <thead>
                     <tr>
                         <th style="width:.9cm">#</th>
                         <th>Procedimiento</th>
-                        <th style="width:1.6cm">Diente</th>
-                        <th style="width:1.2cm">Cant.</th>
-                        <th style="width:2.2cm" class="der">Costo</th>
-                        <th style="width:2.4cm">Fecha</th>
-                        <th style="width:2.4cm">Pr&oacute;x. cita</th>
+                        <th style="width:2.6cm">&Oacute;rgano dentario</th>
+                        <th style="width:1.4cm" class="num">Cant.</th>
+                        <th style="width:2.4cm" class="der">Costo</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php if (!$renglones): ?>
-                    <tr><td colspan="7" style="text-align:center;padding:.6cm;color:#a094a5">
+                    <tr><td colspan="5" style="text-align:center;padding:.6cm;color:#a094a5">
                         Sin procedimientos registrados.
                     </td></tr>
                 <?php else: foreach ($renglones as $i => $r): ?>
@@ -319,11 +324,9 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
                                 <div class="nota"><?= e($r['notas']) ?></div>
                             <?php endif; ?>
                         </td>
-                        <td class="num"><?= $r['id_diente'] ? (int) $r['id_diente'] : '—' ?></td>
+                        <td class="num"><?= e($r['dientes'] ?: '—') ?></td>
                         <td class="num"><?= (int) $r['cantidad'] ?></td>
                         <td class="der"><?= e(money($r['importe'])) ?></td>
-                        <td><?= e(fecha($r['fecha_programada'])) ?></td>
-                        <td><?= e(fecha($r['proxima_cita'])) ?></td>
                     </tr>
                 <?php endforeach; endif; ?>
                 </tbody>

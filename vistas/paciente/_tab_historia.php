@@ -72,9 +72,33 @@ function casillas(array $lista, string $titulo): string
         </p>
     </div>
     <div class="d-flex gap-2">
+        <button type="button" class="btn btn-light d-none" id="hcPrellenar">
+            <i class="bi bi-magic me-1"></i> Prellenar lo habitual
+        </button>
         <button type="button" class="btn btn-outline-morado d-none" id="hcImprimir">
             <i class="bi bi-printer me-1"></i> Imprimir para firma
         </button>
+    </div>
+</div>
+
+<?php /* Mismo aviso que el del expediente electronico: un pendiente
+         que se ve, no uno que hay que ir a buscar. Se esconde solo en
+         cuanto la historia existe. */ ?>
+<div class="aviso-vinculado mb-3 d-none" id="hcAvisoPendiente">
+    <i class="bi bi-clipboard2-x"></i>
+    <div>
+        <b>Este paciente todav&iacute;a no tiene historia cl&iacute;nica.</b><br>
+        Es lo primero que se captura: de aqu&iacute; salen las alertas de
+        alergias y de enfermedades que aparecen en cada consulta y en
+        cada plan de tratamiento.
+        <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-morado" id="hcEmpezar">
+                <i class="bi bi-pencil-square me-1"></i> Capturarla ahora
+            </button>
+            <button type="button" class="btn btn-sm btn-light" id="hcPrellenarAviso">
+                <i class="bi bi-magic me-1"></i> Prellenar lo habitual y revisar
+            </button>
+        </div>
     </div>
 </div>
 

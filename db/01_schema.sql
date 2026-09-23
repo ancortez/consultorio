@@ -304,6 +304,11 @@ CREATE TABLE tipo_documento (
   pendiente_al_alta TINYINT UNSIGNED NOT NULL DEFAULT 0,
   -- 1 = se puede volver a pedir varias veces (planes, consentimientos)
   permite_varios    TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  -- Donde vive el documento dentro del expediente:
+  --   PACIENTE = arriba, junto a la foto y el historial
+  --   PLAN     = dentro del bloque del plan de tratamiento al que pertenece
+  -- Con PLAN, "unico" significa unico POR PLAN, no por paciente.
+  ambito            VARCHAR(10) NOT NULL DEFAULT 'PACIENTE',
   -- extensiones aceptadas, separadas por coma
   formatos          VARCHAR(80) NOT NULL DEFAULT 'pdf,jpg,jpeg,png',
   orden             TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -321,6 +326,17 @@ CREATE TABLE documento (
 
   -- 0 = pendiente de digitalizar | 1 = digitalizado | 2 = no aplica
   estado               TINYINT UNSIGNED NOT NULL DEFAULT 0,
+
+  -- Donde vive el documento dentro del expediente. Se lee en cascada:
+  --   id_consulta          -> cuelga de esa consulta
+  --   id_plan_tratamiento  -> cuelga del plan
+  --   ninguno de los dos   -> documento general del paciente
+  -- Una consulta que pertenece a un plan arrastra ahi sus documentos,
+  -- por eso no hace falta llenar los dos campos.
+  -- Las llaves foraneas se agregan al final del archivo, cuando las
+  -- tablas apuntadas ya existen.
+  id_plan_tratamiento  INT UNSIGNED NULL,
+  id_consulta          INT UNSIGNED NULL,
 
   -- Referencia a lo que origino el pendiente (un plan, un tutor...).
   -- Sirve para saber a que se refiere sin tener que adivinar.
@@ -344,6 +360,8 @@ CREATE TABLE documento (
   estatus              TINYINT UNSIGNED NOT NULL DEFAULT 1,
   PRIMARY KEY (id_documento),
   KEY ix_doc_expediente (id_registro_paciente, estado),
+  KEY ix_doc_plan (id_plan_tratamiento),
+  KEY ix_doc_consulta (id_consulta),
   KEY ix_doc_tipo (id_tipo_documento),
   KEY ix_doc_origen (origen_tabla, origen_id),
   CONSTRAINT fk_doc_expediente FOREIGN KEY (id_registro_paciente)
@@ -677,6 +695,10 @@ CREATE TABLE cita (
   id_usuario_dentista  INT UNSIGNED NOT NULL,
   id_sala              TINYINT UNSIGNED NULL,
   id_estado_cita       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  -- Procedimiento previsto. De el sale la duracion al agendar, en vez
+  -- de apartar media hora para todo: una resina y una revision no
+  -- ocupan el sillon el mismo tiempo.
+  id_procedimiento     INT UNSIGNED NULL,
   fecha_inicio         DATETIME NOT NULL,
   fecha_fin            DATETIME NOT NULL,
   motivo               VARCHAR(255) NULL,
@@ -688,6 +710,7 @@ CREATE TABLE cita (
   KEY ix_cita_expediente (id_registro_paciente),
   KEY ix_cita_dentista_fecha (id_usuario_dentista, fecha_inicio),
   KEY ix_cita_fecha (fecha_inicio),
+  KEY ix_cita_procedimiento (id_procedimiento),
   CONSTRAINT fk_cita_expediente FOREIGN KEY (id_registro_paciente)
     REFERENCES registro_paciente (id_registro_paciente),
   CONSTRAINT fk_cita_dentista FOREIGN KEY (id_usuario_dentista)
@@ -698,10 +721,109 @@ CREATE TABLE cita (
     REFERENCES estado_cita (id_estado_cita)
 ) ENGINE=InnoDB;
 
+-- ---------------------------------------------------------------------
+-- Bloqueos de agenda
+--
+-- Vacaciones, un congreso, la comida. Sin esto el sistema ofrece
+-- horarios en los que no hay nadie y alguien acaba agendando ahi.
+-- id_usuario en NULL = cierra el consultorio completo.
+-- ---------------------------------------------------------------------
+CREATE TABLE agenda_bloqueo (
+  id_bloqueo     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_usuario     INT UNSIGNED NULL,
+  fecha_inicio   DATETIME NOT NULL,
+  fecha_fin      DATETIME NOT NULL,
+  motivo         VARCHAR(150) NOT NULL,
+  id_usuario_registro INT UNSIGNED NOT NULL,
+  fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  estatus        TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (id_bloqueo),
+  KEY ix_bloqueo_fecha (fecha_inicio, fecha_fin),
+  KEY ix_bloqueo_usuario (id_usuario),
+  CONSTRAINT fk_bloqueo_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_bloqueo_registro FOREIGN KEY (id_usuario_registro)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- Lista de espera
+--
+-- Pacientes que quieren "lo que salga antes". Cuando se cancela una
+-- cita, el sistema puede decir quien estaba esperando ese hueco.
+-- ---------------------------------------------------------------------
+CREATE TABLE lista_espera (
+  id_espera            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_registro_paciente INT UNSIGNED NOT NULL,
+  id_usuario_dentista  INT UNSIGNED NULL,   -- NULL = cualquiera
+  motivo               VARCHAR(255) NULL,
+  -- Franja que le acomoda: 1 maniana | 2 tarde | 3 cualquiera
+  preferencia_horario  TINYINT UNSIGNED NOT NULL DEFAULT 3,
+  duracion_min         SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+  notas                VARCHAR(255) NULL,
+  -- 1 esperando | 2 ya se agendo | 0 se dio de baja
+  estado               TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  id_cita              INT UNSIGNED NULL,   -- con la que se resolvio
+  id_usuario_registro  INT UNSIGNED NOT NULL,
+  fecha_registro       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_espera),
+  KEY ix_espera_estado (estado, fecha_registro),
+  CONSTRAINT fk_espera_expediente FOREIGN KEY (id_registro_paciente)
+    REFERENCES registro_paciente (id_registro_paciente),
+  CONSTRAINT fk_espera_dentista FOREIGN KEY (id_usuario_dentista)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_espera_registro FOREIGN KEY (id_usuario_registro)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- Recordatorios de cita
+--
+-- Las reglas dicen cuantos avisos se le hacen al paciente y con cuanta
+-- anticipacion. El registro dice cuales ya se hicieron, para que el
+-- tablero no vuelva a pedir el mismo.
+-- ---------------------------------------------------------------------
+CREATE TABLE recordatorio_regla (
+  id_regla    TINYINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  nombre      VARCHAR(60) NOT NULL,
+  horas_antes SMALLINT UNSIGNED NOT NULL,
+  orden       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  estatus     TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (id_regla),
+  UNIQUE KEY uq_regla_horas (horas_antes)
+) ENGINE=InnoDB;
+
+CREATE TABLE cita_recordatorio (
+  id_recordatorio INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_cita         INT UNSIGNED NOT NULL,
+  id_regla        TINYINT UNSIGNED NOT NULL,
+  -- 1 enviado | 2 no se pudo contactar | 3 omitido a proposito
+  resultado       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  nota            VARCHAR(150) NULL,
+  id_usuario      INT UNSIGNED NOT NULL,
+  fecha_registro  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_recordatorio),
+  UNIQUE KEY uq_cita_regla (id_cita, id_regla),
+  CONSTRAINT fk_rec_cita FOREIGN KEY (id_cita)
+    REFERENCES cita (id_cita) ON DELETE CASCADE,
+  CONSTRAINT fk_rec_regla FOREIGN KEY (id_regla)
+    REFERENCES recordatorio_regla (id_regla),
+  CONSTRAINT fk_rec_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
 CREATE TABLE consulta (
   id_consulta          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_registro_paciente INT UNSIGNED NOT NULL,
+  -- Folio visible (CN-0001). Es con lo que se le habla a una consulta
+  -- en las listas, en las recetas y en el expediente; el id interno no
+  -- se le ensenia a nadie.
+  folio                VARCHAR(20) NOT NULL,
   id_cita              INT UNSIGNED NULL,
+  -- Plan de tratamiento del que forma parte la consulta. NULL = consulta
+  -- suelta (revision, urgencia, valoracion). El expediente las separa
+  -- justo por esto. La llave foranea se agrega al final del archivo.
+  id_plan_tratamiento  INT UNSIGNED NULL,
   id_usuario_dentista  INT UNSIGNED NOT NULL,
   fecha_hora           DATETIME NOT NULL,
   motivo               VARCHAR(255) NULL,
@@ -719,15 +841,66 @@ CREATE TABLE consulta (
   estatus              TINYINT UNSIGNED NOT NULL DEFAULT 1,
   fecha_registro       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id_consulta),
+  UNIQUE KEY uq_consulta_folio (folio),
   KEY ix_consulta_expediente (id_registro_paciente, fecha_hora),
   KEY ix_consulta_dentista (id_usuario_dentista),
   KEY ix_consulta_cita (id_cita),
+  KEY ix_consulta_plan (id_plan_tratamiento),
   CONSTRAINT fk_consulta_expediente FOREIGN KEY (id_registro_paciente)
     REFERENCES registro_paciente (id_registro_paciente),
   CONSTRAINT fk_consulta_cita FOREIGN KEY (id_cita)
     REFERENCES cita (id_cita),
   CONSTRAINT fk_consulta_dentista FOREIGN KEY (id_usuario_dentista)
     REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- Notas de evolucion.
+--
+-- No son un documento que se escanee: se escriben en el sistema y ahi
+-- se quedan. Por eso viven en su propia tabla y no en 'documento', que
+-- es la lista de papeles que falta digitalizar.
+CREATE TABLE nota_evolucion (
+  id_nota_evolucion INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_consulta       INT UNSIGNED NOT NULL,
+  texto             TEXT NOT NULL,
+  id_usuario        INT UNSIGNED NOT NULL,
+  fecha_registro    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  estatus           TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (id_nota_evolucion),
+  KEY ix_nota_consulta (id_consulta, fecha_registro),
+  CONSTRAINT fk_nota_consulta FOREIGN KEY (id_consulta)
+    REFERENCES consulta (id_consulta) ON DELETE CASCADE,
+  CONSTRAINT fk_nota_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- Recetas.
+--
+-- El consultorio ya tiene el recetario impreso, con su membrete y su
+-- pie. El sistema guarda lo que se receto y al imprimir manda SOLO los
+-- datos, calzados en los espacios en blanco de esa hoja. Por eso la
+-- receta se guarda entera como texto: es lo que se escribe a mano en
+-- el papel, renglon por renglon.
+CREATE TABLE receta (
+  id_receta           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_consulta         INT UNSIGNED NOT NULL,
+  folio               VARCHAR(20) NOT NULL,
+  fecha               DATE NOT NULL,
+  id_usuario_dentista INT UNSIGNED NOT NULL,
+  indicaciones        TEXT NOT NULL,
+  -- Documento del expediente que guarda la receta firmada escaneada.
+  id_documento        INT UNSIGNED NULL,
+  estatus             TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  fecha_registro      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id_receta),
+  UNIQUE KEY uq_receta_folio (folio),
+  KEY ix_receta_consulta (id_consulta),
+  CONSTRAINT fk_receta_consulta FOREIGN KEY (id_consulta)
+    REFERENCES consulta (id_consulta) ON DELETE CASCADE,
+  CONSTRAINT fk_receta_dentista FOREIGN KEY (id_usuario_dentista)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_receta_documento FOREIGN KEY (id_documento)
+    REFERENCES documento (id_documento) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE consulta_archivo (
@@ -871,6 +1044,9 @@ CREATE TABLE plan_tratamiento (
   id_registro_paciente INT UNSIGNED NOT NULL,
   id_usuario_dentista  INT UNSIGNED NOT NULL,
   folio                VARCHAR(20) NOT NULL,
+  -- Como le dicen al plan en el consultorio ("ORTOPEDIA ETAPA 1").
+  -- El folio sirve para buscarlo; la descripcion, para reconocerlo.
+  descripcion          VARCHAR(150) NULL,
   fecha                DATE NOT NULL,
   id_estado_plan       TINYINT UNSIGNED NOT NULL DEFAULT 1,
   descuento            DECIMAL(10,2) NOT NULL DEFAULT 0.00,
@@ -904,6 +1080,14 @@ CREATE TABLE plan_tratamiento_detalle (
   -- El procedimiento es lo que se escribe en la hoja; el tratamiento es
   -- de donde sale el precio. Casi siempre van juntos, pero no siempre.
   id_procedimiento     INT UNSIGNED NULL,
+  -- Organos dentarios del renglon.
+  --
+  -- 'dientes' es la lista real y manda: "16" para uno solo, "16,26,36,46"
+  -- para varios, NULL cuando el procedimiento no aplica a un diente.
+  -- id_diente se conserva con el primero de la lista porque el
+  -- odontograma y los reportes lo consultan con una llave foranea, que
+  -- una lista de texto no puede dar.
+  dientes              VARCHAR(160) NULL,
   id_diente            TINYINT UNSIGNED NULL,
   cara                 CHAR(1) NULL,
   cantidad             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
@@ -1038,18 +1222,88 @@ CREATE TABLE pago_forma (
 ) ENGINE=InnoDB;
 
 -- aplicacion del pago a conceptos especificos del plan
+-- ---------------------------------------------------------------------
+-- cargo: lo unico que el paciente debe
+--
+-- Antes lo cobrable vivia solo en el plan de tratamiento, y los pagos
+-- se aplicaban contra sus renglones. Eso dejaba fuera lo que sale en la
+-- consulta sin estar planeado, que es la mitad del trabajo real: una
+-- extraccion de urgencia, una resina que aparecio al limpiar.
+--
+-- Con esta tabla hay un solo lugar donde vive la deuda, venga de donde
+-- venga, y una sola forma de saber cuanto se debe: importe menos lo
+-- aplicado. El plan y la consulta solo dicen de donde salio el cargo.
+-- ---------------------------------------------------------------------
+CREATE TABLE cargo (
+  id_cargo             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_registro_paciente INT UNSIGNED NOT NULL,
+
+  -- De donde salio. Los tres pueden ser NULL: un cargo manual
+  -- (un material, una reposicion) no viene de ningun lado.
+  id_plan_tratamiento  INT UNSIGNED NULL,
+  id_plan_detalle      INT UNSIGNED NULL,
+  id_consulta          INT UNSIGNED NULL,
+  id_procedimiento     INT UNSIGNED NULL,
+
+  descripcion          VARCHAR(200) NOT NULL,
+  cantidad             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  precio_unitario      DECIMAL(10,2) NOT NULL,
+  descuento            DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  importe              DECIMAL(12,2) NOT NULL,
+
+  -- Quien autorizo el descuento. Se guarda aunque sea el mismo que
+  -- cobra: en dinero, "quien lo permitio" es tan importante como
+  -- "cuanto fue".
+  id_usuario_descuento INT UNSIGNED NULL,
+  motivo_descuento     VARCHAR(150) NULL,
+
+  fecha                DATE NOT NULL,
+  -- 1 vigente | 0 cancelado. No se borra nunca.
+  estatus              TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  id_usuario_cancela   INT UNSIGNED NULL,
+  fecha_cancelacion    DATETIME NULL,
+  motivo_cancelacion   VARCHAR(255) NULL,
+
+  id_usuario           INT UNSIGNED NOT NULL,
+  fecha_registro       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (id_cargo),
+  KEY ix_cargo_expediente (id_registro_paciente, estatus),
+  KEY ix_cargo_plan (id_plan_tratamiento),
+  KEY ix_cargo_consulta (id_consulta),
+  CONSTRAINT fk_cargo_expediente FOREIGN KEY (id_registro_paciente)
+    REFERENCES registro_paciente (id_registro_paciente),
+  CONSTRAINT fk_cargo_plan FOREIGN KEY (id_plan_tratamiento)
+    REFERENCES plan_tratamiento (id_plan_tratamiento),
+  CONSTRAINT fk_cargo_detalle FOREIGN KEY (id_plan_detalle)
+    REFERENCES plan_tratamiento_detalle (id_plan_detalle) ON DELETE SET NULL,
+  CONSTRAINT fk_cargo_procedimiento FOREIGN KEY (id_procedimiento)
+    REFERENCES procedimiento (id_procedimiento),
+  CONSTRAINT fk_cargo_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_cargo_usuario_desc FOREIGN KEY (id_usuario_descuento)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_cargo_usuario_canc FOREIGN KEY (id_usuario_cancela)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+-- Que parte de un pago fue a que cargo.
+--
+-- Un pago puede repartirse entre varios cargos y un cargo puede
+-- juntarse de varios pagos. Sin este renglon intermedio no se puede
+-- responder "de que me sirvio el abono de hace tres semanas".
 CREATE TABLE pago_aplicacion (
   id_pago_aplicacion INT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_pago            INT UNSIGNED NOT NULL,
-  id_plan_detalle    INT UNSIGNED NOT NULL,
+  id_cargo           INT UNSIGNED NOT NULL,
   monto              DECIMAL(12,2) NOT NULL,
   PRIMARY KEY (id_pago_aplicacion),
   KEY ix_pa_pago (id_pago),
-  KEY ix_pa_detalle (id_plan_detalle),
+  KEY ix_pa_cargo (id_cargo),
   CONSTRAINT fk_pa_pago FOREIGN KEY (id_pago)
     REFERENCES pago (id_pago) ON DELETE CASCADE,
-  CONSTRAINT fk_pa_detalle FOREIGN KEY (id_plan_detalle)
-    REFERENCES plan_tratamiento_detalle (id_plan_detalle)
+  CONSTRAINT fk_pa_cargo FOREIGN KEY (id_cargo)
+    REFERENCES cargo (id_cargo)
 ) ENGINE=InnoDB;
 
 -- todo lo que entra o sale de la caja, incluidos los egresos operativos
@@ -1267,6 +1521,35 @@ JOIN tipo_documento td ON td.id_tipo_documento = d.id_tipo_documento
 WHERE d.estado = 0 AND d.estatus = 1
 GROUP BY d.id_registro_paciente;
 
+-- ---------------------------------------------------------------------
+-- Saldos
+--
+-- El saldo no se guarda en ninguna columna: se calcula. Una columna
+-- 'saldo' se desincroniza en cuanto se cancela un pago y nadie se
+-- entera hasta que un tutor reclama. Aqui siempre sale de sumar.
+-- ---------------------------------------------------------------------
+
+-- Cada cargo con lo que se le ha aplicado y lo que le falta.
+CREATE OR REPLACE VIEW v_cargo_saldo AS
+SELECT
+  c.id_cargo,
+  c.id_registro_paciente,
+  c.id_plan_tratamiento,
+  c.id_consulta,
+  c.descripcion,
+  c.fecha,
+  c.importe,
+  COALESCE(ap.aplicado, 0) AS aplicado,
+  c.importe - COALESCE(ap.aplicado, 0) AS saldo
+FROM cargo c
+LEFT JOIN (
+  SELECT pa.id_cargo, SUM(pa.monto) AS aplicado
+  FROM pago_aplicacion pa
+  JOIN pago p ON p.id_pago = pa.id_pago AND p.estatus = 1
+  GROUP BY pa.id_cargo
+) ap ON ap.id_cargo = c.id_cargo
+WHERE c.estatus = 1;
+
 -- Saldo vivo por plan de tratamiento.
 CREATE OR REPLACE VIEW v_plan_saldo AS
 SELECT
@@ -1274,9 +1557,72 @@ SELECT
   pt.id_registro_paciente,
   pt.folio,
   pt.total,
-  COALESCE(SUM(pg.monto), 0) AS pagado,
-  pt.total - COALESCE(SUM(pg.monto), 0) AS saldo_actual
+  COALESCE(SUM(vcs.importe), 0)  AS cargado,
+  COALESCE(SUM(vcs.aplicado), 0) AS pagado,
+  COALESCE(SUM(vcs.saldo), 0)    AS saldo_actual
 FROM plan_tratamiento pt
-LEFT JOIN pago pg
-  ON pg.id_plan_tratamiento = pt.id_plan_tratamiento AND pg.estatus = 1
+LEFT JOIN v_cargo_saldo vcs
+  ON vcs.id_plan_tratamiento = pt.id_plan_tratamiento
 GROUP BY pt.id_plan_tratamiento, pt.id_registro_paciente, pt.folio, pt.total;
+
+-- Saldo total del paciente, venga del plan que venga.
+CREATE OR REPLACE VIEW v_paciente_saldo AS
+SELECT
+  vcs.id_registro_paciente,
+  COUNT(*)                    AS cargos,
+  SUM(vcs.importe)            AS cargado,
+  SUM(vcs.aplicado)           AS pagado,
+  SUM(vcs.saldo)              AS saldo,
+  SUM(CASE WHEN vcs.saldo > 0 THEN 1 ELSE 0 END) AS cargos_abiertos,
+  MIN(CASE WHEN vcs.saldo > 0 THEN vcs.fecha END) AS adeudo_mas_antiguo
+FROM v_cargo_saldo vcs
+GROUP BY vcs.id_registro_paciente;
+
+-- Resumen de un turno de caja, para el corte.
+CREATE OR REPLACE VIEW v_corte_resumen AS
+SELECT
+  cc.id_corte_caja,
+  fp.id_forma_pago,
+  fp.nombre_forma,
+  fp.afecta_efectivo,
+  SUM(CASE WHEN mc.naturaleza = 'I' THEN mc.monto ELSE 0 END) AS ingresos,
+  SUM(CASE WHEN mc.naturaleza = 'E' THEN mc.monto ELSE 0 END) AS egresos,
+  SUM(CASE WHEN mc.naturaleza = 'I' THEN mc.monto ELSE -mc.monto END) AS neto
+FROM corte_caja cc
+JOIN movimiento_caja mc
+  ON mc.id_corte_caja = cc.id_corte_caja AND mc.estatus = 1
+JOIN forma_pago fp ON fp.id_forma_pago = mc.id_forma_pago
+GROUP BY cc.id_corte_caja, fp.id_forma_pago, fp.nombre_forma, fp.afecta_efectivo;
+
+
+-- =====================================================================
+-- SECCION 11 : LLAVES QUE CRUZAN SECCIONES
+--
+-- documento y consulta se declaran mucho antes que plan_tratamiento, y
+-- MySQL exige que la tabla apuntada ya exista. Por eso estas dos llaves
+-- se agregan hasta el final en lugar de ir dentro del CREATE TABLE.
+-- =====================================================================
+
+ALTER TABLE documento
+  ADD CONSTRAINT fk_doc_plan FOREIGN KEY (id_plan_tratamiento)
+      REFERENCES plan_tratamiento (id_plan_tratamiento) ON DELETE SET NULL;
+
+ALTER TABLE consulta
+  ADD CONSTRAINT fk_consulta_plan FOREIGN KEY (id_plan_tratamiento)
+      REFERENCES plan_tratamiento (id_plan_tratamiento) ON DELETE SET NULL;
+
+ALTER TABLE documento
+  ADD CONSTRAINT fk_doc_consulta FOREIGN KEY (id_consulta)
+      REFERENCES consulta (id_consulta) ON DELETE SET NULL;
+
+ALTER TABLE cita
+  ADD CONSTRAINT fk_cita_procedimiento FOREIGN KEY (id_procedimiento)
+      REFERENCES procedimiento (id_procedimiento);
+
+ALTER TABLE lista_espera
+  ADD CONSTRAINT fk_espera_cita FOREIGN KEY (id_cita)
+      REFERENCES cita (id_cita) ON DELETE SET NULL;
+
+ALTER TABLE cargo
+  ADD CONSTRAINT fk_cargo_consulta FOREIGN KEY (id_consulta)
+      REFERENCES consulta (id_consulta) ON DELETE SET NULL;

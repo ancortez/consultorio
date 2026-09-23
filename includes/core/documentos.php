@@ -18,8 +18,16 @@ final class Documentos
     /**
      * Crea un pendiente de digitalizacion.
      *
-     * Si el tipo de documento no permite varios y ya existe uno
-     * pendiente, no se duplica: seria ruido para quien captura.
+     * Si el tipo de documento no permite varios y ya existe uno, no se
+     * duplica: seria ruido para quien captura.
+     *
+     * @param int|null $idPlan    plan de tratamiento al que pertenece
+     * @param int|null $idConsulta consulta de la que salio el papel
+     *
+     * Donde queda el documento lo decide su ambito:
+     *   PACIENTE -> suelto en el expediente (foto, historial)
+     *   PLAN     -> dentro del bloque del plan (consentimiento, hoja)
+     *   CONSULTA -> anidado bajo su consulta (receta, radiografia)
      *
      * @return int|null id del documento creado, o null si ya existia
      */
@@ -28,10 +36,12 @@ final class Documentos
         string  $claveTipo,
         ?string $descripcion = null,
         ?string $origenTabla = null,
-        ?int    $origenId = null
+        ?int    $origenId = null,
+        ?int    $idPlan = null,
+        ?int    $idConsulta = null
     ): ?int {
         $tipo = Conexion::uno(
-            'SELECT id_tipo_documento, permite_varios
+            'SELECT id_tipo_documento, permite_varios, ambito
                FROM tipo_documento
               WHERE clave = :c AND estatus = 1',
             [':c' => $claveTipo]
@@ -42,17 +52,42 @@ final class Documentos
             return null;
         }
 
-        // Documento unico: existe uno solo por expediente, sin importar
-        // si ya se digitalizo. Antes solo se revisaban los pendientes, y
-        // por eso volver a abrir el consentimiento generaba un faltante
-        // nuevo aunque el firmado ya estuviera guardado.
+        // Cada ambito solo acepta el amarre que le corresponde. Asi un
+        // error de quien llama no deja la foto del paciente colgando de
+        // una consulta ni la receta suelta en el expediente.
+        if ($tipo['ambito'] === 'PACIENTE') {
+            $idPlan = null;
+            $idConsulta = null;
+        } elseif ($tipo['ambito'] === 'PLAN') {
+            $idConsulta = null;
+        } elseif ($tipo['ambito'] === 'CONSULTA') {
+            // Una consulta ligada a un plan arrastra ahi sus papeles.
+            if ($idConsulta !== null && $idPlan === null) {
+                $idPlan = Conexion::valor(
+                    'SELECT id_plan_tratamiento FROM consulta WHERE id_consulta = :c',
+                    [':c' => $idConsulta]
+                );
+                $idPlan = $idPlan !== null ? (int) $idPlan : null;
+            }
+        }
+
+        // Documento unico: existe uno solo, sin importar si ya se
+        // digitalizo. Antes solo se revisaban los pendientes, y por eso
+        // volver a abrir el consentimiento generaba un faltante nuevo
+        // aunque el firmado ya estuviera guardado.
+        //
+        // "Unico" se mide dentro de su ambito: un consentimiento por
+        // plan, una fotografia por paciente.
         if ((int) $tipo['permite_varios'] === 0) {
             $ya = (int) Conexion::valor(
                 'SELECT COUNT(*) FROM documento
                   WHERE id_registro_paciente = :r
                     AND id_tipo_documento = :t
+                    AND id_plan_tratamiento <=> :pl
+                    AND id_consulta <=> :co
                     AND estatus = 1',
-                [':r' => $idExpediente, ':t' => $tipo['id_tipo_documento']]
+                [':r' => $idExpediente, ':t' => $tipo['id_tipo_documento'],
+                 ':pl' => $idPlan, ':co' => $idConsulta]
             );
             if ($ya > 0) {
                 return null;
@@ -79,10 +114,12 @@ final class Documentos
 
         Conexion::consulta(
             'INSERT INTO documento
-                (id_registro_paciente, id_tipo_documento, estado,
-                 origen_tabla, origen_id, descripcion, id_usuario_solicita)
-             VALUES (:r, :t, ' . self::PENDIENTE . ', :ot, :oi, :d, :u)',
+                (id_registro_paciente, id_tipo_documento, id_plan_tratamiento,
+                 id_consulta, estado, origen_tabla, origen_id, descripcion,
+                 id_usuario_solicita)
+             VALUES (:r, :t, :pl, :co, ' . self::PENDIENTE . ', :ot, :oi, :d, :u)',
             [':r' => $idExpediente, ':t' => $tipo['id_tipo_documento'],
+             ':pl' => $idPlan, ':co' => $idConsulta,
              ':ot' => $origenTabla, ':oi' => $origenId,
              ':d' => $descripcion, ':u' => Auth::id()]
         );
@@ -98,8 +135,14 @@ final class Documentos
     }
 
     /**
-     * Crea de un golpe los pendientes que le tocan a un paciente recien
-     * registrado (los tipos marcados con pendiente_al_alta).
+     * Crea los pendientes marcados con pendiente_al_alta.
+     *
+     * Hoy no hay ninguno: se decidio que el expediente no nazca con
+     * avisos rojos de papeles que todavia no existen. El pendiente se
+     * crea cuando el papel se genera (al guardar la historia, al
+     * imprimir el consentimiento, al hacer la receta). El metodo se
+     * conserva porque el catalogo sigue teniendo la columna y manianaa
+     * puede volver a usarse.
      */
     public static function pendientesDeAlta(int $idExpediente): int
     {
@@ -135,6 +178,7 @@ final class Documentos
         return Conexion::todos(
             'SELECT d.*,
                     td.clave, td.nombre_documento, td.icono, td.formatos,
+                    td.ambito, td.permite_varios,
                     us.nombre_completo AS subio,
                     usol.nombre_completo AS solicito
                FROM documento d
@@ -145,6 +189,147 @@ final class Documentos
               ORDER BY d.estado, td.orden, d.fecha_solicitud DESC',
             [':r' => $idExpediente]
         );
+    }
+
+    /** Tipos de documento de un ambito, en el orden en que deben salir. */
+    public static function tipos(string $ambito): array
+    {
+        return Conexion::todos(
+            'SELECT clave, nombre_documento, descripcion, icono, formatos,
+                    permite_varios
+               FROM tipo_documento
+              WHERE ambito = :a AND estatus = 1
+              ORDER BY orden',
+            [':a' => $ambito]
+        );
+    }
+
+    /**
+     * El expediente como lo pide la pantalla: un bloque general arriba y
+     * despues un bloque por cada plan de tratamiento, del mas reciente al
+     * mas antiguo.
+     *
+     * Se arma aqui y no en JavaScript porque son cuatro consultas que se
+     * cruzan entre si, y repartirlas en cuatro llamadas AJAX solo haria
+     * la pantalla mas lenta y mas facil de descuadrar.
+     */
+    public static function arbol(int $idExpediente): array
+    {
+        $documentos = self::listar($idExpediente);
+
+        $consultas = Conexion::todos(
+            'SELECT c.id_consulta, c.folio, c.id_plan_tratamiento, c.fecha_hora,
+                    c.motivo, c.diagnostico, c.cerrada,
+                    u.nombre_completo AS dentista,
+                    (SELECT COUNT(*) FROM nota_evolucion ne
+                      WHERE ne.id_consulta = c.id_consulta AND ne.estatus = 1) AS notas
+               FROM consulta c
+               JOIN usuario u ON u.id_usuario = c.id_usuario_dentista
+              WHERE c.id_registro_paciente = :r AND c.estatus = 1
+              ORDER BY c.fecha_hora DESC',
+            [':r' => $idExpediente]
+        );
+
+        $planes = Conexion::todos(
+            'SELECT pt.id_plan_tratamiento, pt.folio, pt.descripcion, pt.fecha,
+                    pt.total, pt.diagnostico, pt.id_estado_plan, ep.nombre_estado,
+                    u.nombre_completo AS dentista
+               FROM plan_tratamiento pt
+               JOIN estado_plan ep ON ep.id_estado_plan = pt.id_estado_plan
+               JOIN usuario u ON u.id_usuario = pt.id_usuario_dentista
+              WHERE pt.id_registro_paciente = :r
+              ORDER BY pt.fecha DESC, pt.id_plan_tratamiento DESC',
+            [':r' => $idExpediente]
+        );
+
+        // ---- Reparto de documentos en tres niveles ----
+        // La consulta manda sobre el plan: un documento con id_consulta
+        // se dibuja anidado bajo esa consulta, aunque tambien traiga
+        // plan. Asi se ve de que cita salio cada radiografia.
+        $porConsulta = [];
+        $porPlan     = [];
+        $generales   = [];
+
+        $consultaConocida = [];
+        foreach ($consultas as $c) {
+            $consultaConocida[(int) $c['id_consulta']] = true;
+        }
+
+        foreach ($documentos as $d) {
+            $cons = $d['id_consulta'];
+            $plan = $d['id_plan_tratamiento'];
+
+            if ($cons !== null && isset($consultaConocida[(int) $cons])) {
+                $porConsulta[(int) $cons][] = $d;
+            } elseif ($plan !== null) {
+                $porPlan[(int) $plan][] = $d;
+            } else {
+                $generales[] = $d;
+            }
+        }
+
+        /** Cuenta los pendientes de una lista de documentos. */
+        $pendientesDe = static fn(array $lista): int => count(array_filter(
+            $lista, static fn($d) => (int) $d['estado'] === self::PENDIENTE));
+
+        // Cada consulta se lleva sus documentos colgados.
+        $consPorPlan = [];
+        $consLibres  = [];
+        foreach ($consultas as $c) {
+            $id = (int) $c['id_consulta'];
+            $c['documentos'] = $porConsulta[$id] ?? [];
+            $c['pendientes'] = $pendientesDe($c['documentos']);
+
+            if ($c['id_plan_tratamiento'] === null) {
+                $consLibres[] = $c;
+            } else {
+                $consPorPlan[(int) $c['id_plan_tratamiento']][] = $c;
+            }
+        }
+
+        $bloques = [];
+        foreach ($planes as $p) {
+            $id   = (int) $p['id_plan_tratamiento'];
+            $docs = $porPlan[$id] ?? [];
+            $cons = $consPorPlan[$id] ?? [];
+
+            // Las consultas ya vienen de la mas reciente a la mas
+            // antigua; los pendientes del bloque suman los suyos.
+            $pend = $pendientesDe($docs);
+            foreach ($cons as $c) { $pend += $c['pendientes']; }
+
+            $bloques[] = [
+                'plan'       => $p,
+                'documentos' => $docs,
+                'consultas'  => $cons,
+                'pendientes' => $pend,
+            ];
+        }
+
+        // Un documento puede haber quedado colgado de un plan borrado.
+        // Que no se pierda de vista: se manda al bloque general.
+        foreach ($porPlan as $id => $docs) {
+            $conocido = false;
+            foreach ($planes as $p) {
+                if ((int) $p['id_plan_tratamiento'] === $id) { $conocido = true; break; }
+            }
+            if (!$conocido) {
+                $generales = array_merge($generales, $docs);
+            }
+        }
+
+        $pendGenerales = $pendientesDe($generales);
+        foreach ($consLibres as $c) { $pendGenerales += $c['pendientes']; }
+
+        return [
+            'generales'  => $generales,
+            'consultas'  => $consLibres,
+            'planes'     => $bloques,
+            'tipos_paciente' => self::tipos('PACIENTE'),
+            'tipos_plan'     => self::tipos('PLAN'),
+            'tipos_consulta' => self::tipos('CONSULTA'),
+            'pendientes_generales' => $pendGenerales,
+        ];
     }
 
     /**

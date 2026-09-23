@@ -1,6 +1,9 @@
 <?php
 /**
- * Documentos del expediente electronico de un paciente.
+ * Expediente electronico de un paciente, ya agrupado.
+ *
+ * Devuelve el bloque general (foto, credenciales, historial, consultas
+ * sueltas) y despues un bloque por cada plan de tratamiento.
  */
 require_once __DIR__ . '/../_endpoint.php';
 endpoint('paciente.ver');
@@ -10,8 +13,7 @@ if (!$idExpediente) {
     Respuesta::error('Falta el expediente.');
 }
 
-Respuesta::ok([
-    'documentos' => Documentos::listar($idExpediente),
+Respuesta::ok(Documentos::arbol($idExpediente) + [
     'pendientes' => Documentos::cuantosPendientes($idExpediente),
     'almacen'    => Almacen::revisar(),
 ]);

@@ -75,3 +75,55 @@ function citasPorConfirmar() {
     }
   }
 }
+
+/* ---------------------------------------------------------------------
+   Recordatorios del tablero
+
+   Mandar el WhatsApp y registrar que se mando son dos cosas distintas:
+   el enlace abre la aplicacion y ahi se pierde el rastro. Por eso al
+   pulsar "Enviar" se registra de una vez, y quedan aparte los botones
+   de "ya le avise" (por si se hizo por telefono) y "no contesto".
+   --------------------------------------------------------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  const lista = document.getElementById('listaRecordatorios');
+  if (!lista) return;
+
+  async function registrar(fila, resultado, aviso) {
+    try {
+      await App.api('consultas/recordatorio_registrar.php', {
+        id_cita: fila.dataset.cita,
+        id_regla: fila.dataset.regla,
+        resultado,
+      });
+
+      // La fila se desvanece: ya no es trabajo pendiente y dejarla ahi
+      // invita a mandar el mismo recordatorio dos veces.
+      fila.classList.add('hecho');
+      setTimeout(() => fila.remove(), 400);
+
+      App.alerta.toast(aviso);
+    } catch (e) { /* ya se mostro */ }
+  }
+
+  lista.addEventListener('click', (ev) => {
+    const fila = ev.target.closest('.recordatorio');
+    if (!fila) return;
+
+    const accion = ev.target.closest('[data-accion]')?.dataset.accion;
+
+    // El enlace de WhatsApp se deja pasar: abre la app y de paso se
+    // registra. Si se bloqueara para registrar primero, el navegador
+    // trataria la apertura como emergente y la detendria.
+    if (accion === 'rec-enviar') {
+      registrar(fila, 1, 'Recordatorio registrado');
+      return;
+    }
+
+    if (accion === 'rec-hecho') {
+      registrar(fila, 1, 'Recordatorio registrado');
+    }
+    if (accion === 'rec-nocontesto') {
+      registrar(fila, 2, 'Anotado: no contestó');
+    }
+  });
+});

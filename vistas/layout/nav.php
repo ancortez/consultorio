@@ -18,20 +18,24 @@ $menu = [
 
     ['clave' => 'cajas', 'texto' => 'Cajas', 'icono' => 'bi-cash-coin',
      'permiso' => 'cajas.ver', 'submenu' => [
-        ['texto' => 'Registrar cobro', 'icono' => 'bi-receipt-cutoff',
+        ['texto' => 'Cobrar', 'icono' => 'bi-receipt-cutoff',
          'url' => '?modulo=cajas&vista=cobrar', 'permiso' => 'cajas.cobrar'],
-        ['texto' => 'Corte de caja', 'icono' => 'bi-calculator',
+        ['texto' => 'Turnos y corte', 'icono' => 'bi-calculator',
          'url' => '?modulo=cajas&vista=corte', 'permiso' => 'cajas.ver'],
+        ['texto' => 'Pendientes de pago', 'icono' => 'bi-exclamation-circle',
+         'url' => '?modulo=cajas&vista=pendientes', 'permiso' => 'cajas.ver'],
      ]],
 
     ['clave' => 'consultas', 'texto' => 'Consultas', 'icono' => 'bi-clipboard2-pulse',
      'permiso' => 'consultas.ver', 'submenu' => [
-        ['texto' => 'Agenda', 'icono' => 'bi-calendar3',
+        ['texto' => 'Agenda de la semana', 'icono' => 'bi-calendar3-week',
+         'url' => '?modulo=consultas&vista=semana', 'permiso' => 'consultas.ver'],
+        ['texto' => 'Agenda del d&iacute;a', 'icono' => 'bi-calendar3',
          'url' => '?modulo=consultas&vista=agenda', 'permiso' => 'consultas.ver'],
-        ['texto' => 'Nueva consulta', 'icono' => 'bi-clipboard2-plus',
-         'url' => '?modulo=consultas&vista=nueva_consulta', 'permiso' => 'consultas.crear'],
+        ['texto' => 'Lista de consultas', 'icono' => 'bi-clipboard2-pulse',
+         'url' => '?modulo=consultas&vista=consultas', 'permiso' => 'consultas.ver'],
         ['texto' => 'Plan de tratamiento', 'icono' => 'bi-list-check',
-         'url' => '?modulo=consultas&vista=nuevo_plan_tratamiento', 'permiso' => 'consultas.plan'],
+         'url' => '?modulo=consultas&vista=planes', 'permiso' => 'consultas.plan'],
      ]],
 
     ['clave' => 'reportes', 'texto' => 'Reportes', 'icono' => 'bi-graph-up',
@@ -49,6 +53,10 @@ $menu = [
          'url' => '?modulo=configuracion&vista=tarifas', 'permiso' => 'config.tarifas'],
         ['texto' => 'Datos del consultorio', 'icono' => 'bi-shop',
          'url' => '?modulo=configuracion&vista=consultorio', 'permiso' => 'config.consultorio'],
+        ['texto' => 'Recordatorios de cita', 'icono' => 'bi-whatsapp',
+         'url' => '?modulo=configuracion&vista=recordatorios', 'permiso' => 'config.consultorio'],
+        ['texto' => 'Apariencia', 'icono' => 'bi-palette',
+         'url' => '?modulo=configuracion&vista=apariencia', 'permiso' => 'config.consultorio'],
      ]],
 
     ['clave' => 'facturacion', 'texto' => 'Facturaci&oacute;n', 'icono' => 'bi-receipt',

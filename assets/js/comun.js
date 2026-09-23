@@ -562,12 +562,33 @@ const Pasos = (() => {
         </button>`;
     }
 
-    function mostrar() {
+    /**
+     * Muestra el paso actual.
+     *
+     * @param {number} desde  paso que se estaba viendo, para saber si
+     *                        el movimiento fue hacia adelante o hacia
+     *                        atras y deslizar en esa direccion. Sin
+     *                        esto la pantalla cambia de golpe y cuesta
+     *                        seguir donde quedo uno.
+     */
+    function mostrar(desde) {
       if (modo === 'colapsable') {
         secciones.forEach((s) => s.classList.remove('d-none'));
         return;
       }
+
       secciones.forEach((s, i) => s.classList.toggle('d-none', i !== actual));
+
+      const visible = secciones[actual];
+      if (visible && desde !== undefined && desde !== actual) {
+        const clase = actual > desde ? 'entra-derecha' : 'entra-izquierda';
+        visible.classList.remove('entra-derecha', 'entra-izquierda');
+        // Forzar el reflow hace que la animacion vuelva a correr aunque
+        // sea la misma clase de la vez pasada.
+        void visible.offsetWidth;
+        visible.classList.add(clase);
+      }
+
       raiz.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
@@ -594,9 +615,27 @@ const Pasos = (() => {
           <span class="flex-grow-1 text-start">${App.esc(s.dataset.titulo ?? '')}</span>
           <i class="bi bi-chevron-down flecha"></i>`;
 
+        // Abrir y cerrar con altura animada. No se puede animar
+        // 'height: auto', asi que se mide el contenido, se anima hasta
+        // ese numero y al terminar se suelta para que la seccion
+        // pueda crecer sola si algo cambia adentro.
         cabeza.addEventListener('click', () => {
           const abierto = s.classList.toggle('abierto');
           cabeza.classList.toggle('abierto', abierto);
+
+          if (abierto) {
+            cuerpo.style.height = '0px';
+            void cuerpo.offsetHeight;
+            cuerpo.style.height = cuerpo.scrollHeight + 'px';
+            cuerpo.addEventListener('transitionend', function suelta() {
+              cuerpo.style.height = '';
+              cuerpo.removeEventListener('transitionend', suelta);
+            });
+          } else {
+            cuerpo.style.height = cuerpo.scrollHeight + 'px';
+            void cuerpo.offsetHeight;
+            cuerpo.style.height = '0px';
+          }
         });
 
         s.append(cabeza, cuerpo);
@@ -637,10 +676,11 @@ const Pasos = (() => {
         }
       }
 
+      const anterior = actual;
       actual = Math.max(0, Math.min(secciones.length - 1, destino));
       pintarBarra();
       pintarPie();
-      mostrar();
+      mostrar(anterior);
     }
 
     barra.addEventListener('click', (ev) => {
@@ -701,4 +741,395 @@ const Pasos = (() => {
   }
 
   return { crear };
+})();
+
+/* =====================================================================
+   Planes de tratamiento: la fila de la tabla
+
+   La misma fila se usa en dos lugares (la pestania del paciente y el
+   listado de Consultas > Planes de tratamiento). Tenerla escrita dos
+   veces garantizaba que tarde o temprano se vieran distintas.
+   ===================================================================== */
+const Planes = (() => {
+
+  /**
+   * @param {object} p       plan devuelto por planes_listar.php
+   * @param {number} i       consecutivo visible (no el id)
+   * @param {number|string|null} idExpediente
+   *        Cuando se pinta dentro del expediente de un paciente se pasa
+   *        su id y la columna Paciente se omite: ya se sabe de quien es.
+   *        Sin id, la fila trae esa columna.
+   */
+  function fila(p, i, idExpediente) {
+    const conceptos  = Number(p.conceptos) || 0;
+    const terminados = Number(p.terminados) || 0;
+    const avance = conceptos > 0 ? Math.round((terminados / conceptos) * 100) : 0;
+
+    const expediente = idExpediente ?? p.id_registro_paciente;
+    const detalle = `${App.URL_BASE}/index.php?modulo=consultas`
+      + `&vista=nuevo_plan_tratamiento&id=${expediente}`
+      + `&plan=${p.id_plan_tratamiento}`;
+
+    return `
+    <tr>
+      <td class="text-secondary">${i + 1}</td>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <a href="${detalle}" class="icono-plan" title="Abrir el plan">
+            <i class="bi bi-clipboard2-check"></i>
+          </a>
+          <a href="${detalle}" class="enlace-paciente">${App.esc(p.folio)}</a>
+        </div>
+      </td>
+      <td>${App.esc(App.fecha(p.fecha))}</td>
+      <td>
+        <div class="plan-diagnostico">${App.esc(p.descripcion || '—')}</div>
+      </td>
+      ${idExpediente ? '' : `
+        <td>
+          <a class="enlace-paciente"
+             href="${App.URL_BASE}/index.php?modulo=paciente&vista=detalle_paciente&id=${p.id_registro_paciente}">
+            ${App.esc(p.paciente ?? '')}
+          </a>
+          <div class="text-secondary" style="font-size:11px">
+            ${App.esc(p.num_expediente ?? '')}
+          </div>
+        </td>`}
+      <td>
+        <div class="plan-diagnostico">
+          ${p.diagnostico ? App.esc(p.diagnostico.substring(0, 90)) : '—'}
+        </div>
+        <div class="plan-dentista">${App.esc(p.dentista)}</div>
+      </td>
+      <td>
+        <div style="background:var(--gris-100);border-radius:999px;height:6px;
+                    overflow:hidden;margin-bottom:3px">
+          <div style="width:${avance}%;height:100%;background:var(--exito)"></div>
+        </div>
+        <span style="font-size:11px" class="text-secondary">
+          ${terminados} de ${conceptos} · ${avance}%
+        </span>
+      </td>
+      <td><span class="badge badge-suave">${App.esc(p.nombre_estado)}</span></td>
+      <td class="col-acciones">
+        <div class="dropdown">
+          <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                  aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="${detalle}">
+              <i class="bi bi-pencil me-2"></i>Ver o modificar</a></li>
+          </ul>
+        </div>
+      </td>
+    </tr>`;
+  }
+
+  return { fila };
+})();
+
+/* =====================================================================
+   Nueva consulta
+
+   Una consulta puede ser suelta (revision, urgencia, valoracion) o parte
+   de un plan de tratamiento en proceso. La diferencia importa: de ella
+   depende en que bloque del expediente queda guardada y contra que plan
+   se cobra. Preguntarlo al abrir es mas barato que corregirlo despues.
+   ===================================================================== */
+const NuevaConsulta = (() => {
+
+  /** Ruta relativa, que es lo que espera App.ir(). */
+  function ruta(idExpediente, idPlan) {
+    return `index.php?modulo=consultas&vista=consulta`
+      + `&paciente=${idExpediente}`
+      + (idPlan ? `&plan=${idPlan}` : '');
+  }
+
+  /**
+   * Desde el expediente del paciente: hay que averiguar si tiene planes
+   * en proceso antes de poder preguntar nada.
+   */
+  async function desdePaciente(idExpediente) {
+    App.alerta.cargando('Revisando sus planes de tratamiento...');
+
+    let enProceso = [];
+    try {
+      const r = await App.api('consultas/planes_listar.php', {
+        id_registro_paciente: idExpediente,
+      });
+      // 3 = En proceso. Un plan propuesto todavia no se autoriza, y uno
+      // aceptado pero sin arrancar se pone en proceso al abrirlo.
+      enProceso = r.datos.filter((p) => Number(p.id_estado_plan) === 3);
+    } catch (e) {
+      App.alerta.cerrar();
+      return;
+    }
+    App.alerta.cerrar();
+
+    // Sin planes vivos no hay nada que preguntar.
+    if (!enProceso.length) {
+      App.ir(ruta(idExpediente, null));
+      return;
+    }
+
+    const opciones = {};
+    enProceso.forEach((p) => {
+      opciones[p.id_plan_tratamiento] =
+        `${p.folio} — ${p.diagnostico
+            ? p.diagnostico.substring(0, 45) : 'SIN DIAGNÓSTICO'}`;
+    });
+
+    const r = await Swal.fire({
+      icon: 'question',
+      title: '¿Qué tipo de consulta es?',
+      html: `<div style="font-size:14px;line-height:1.6;text-align:left">
+               Este paciente tiene <b>${enProceso.length}</b> plan(es) de
+               tratamiento en proceso. Si la consulta es parte de uno de
+               ellos, elígelo para que quede guardada dentro de su
+               expediente y se descuente de su avance.
+             </div>`,
+      input: 'select',
+      inputOptions: opciones,
+      inputValue: String(enProceso[0].id_plan_tratamiento),
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: 'Ligar al plan elegido',
+      confirmButtonColor: '#7b2d8e',
+      denyButtonText: 'Es una consulta general',
+      denyButtonColor: '#c2568f',
+      cancelButtonText: 'Cancelar',
+      cancelButtonColor: '#6c6577',
+    });
+
+    if (r.isConfirmed) {
+      App.ir(ruta(idExpediente, r.value));
+    } else if (r.isDenied) {
+      App.ir(ruta(idExpediente, null));
+    }
+  }
+
+  /** Desde el detalle de un plan: el plan ya se sabe, solo se avisa. */
+  async function desdePlan(idExpediente, idPlan, folio) {
+    const ok = await App.alerta.confirmar(
+      'Nueva consulta del plan ' + folio,
+      'La consulta quedará vinculada a este plan de tratamiento: se '
+      + 'guardará dentro de su bloque en el expediente y contará para '
+      + 'su avance.',
+      'Sí, crear la consulta');
+
+    if (ok) App.ir(ruta(idExpediente, idPlan));
+  }
+
+  return { desdePaciente, desdePlan };
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btnNuevaConsulta')?.addEventListener('click', () => {
+    const caja = document.querySelector('.tab-content[data-id-expediente]');
+    if (caja) NuevaConsulta.desdePaciente(caja.dataset.idExpediente);
+  });
+
+  document.getElementById('planNuevaConsulta')?.addEventListener('click', (ev) => {
+    const b = ev.currentTarget;
+    NuevaConsulta.desdePlan(
+      b.dataset.expediente, b.dataset.plan, b.dataset.folio);
+  });
+});
+
+/* =====================================================================
+   Selector de organos dentarios
+
+   Maneja el modal con la arcada dibujada. Se usa desde el plan de
+   tratamiento y queda listo para la consulta y el odontograma.
+
+   Una seleccion puede ser:
+     - una lista de dientes  -> [16, 26]
+     - "no aplica"           -> lista vacia y noAplica = true
+     - sin decidir todavia   -> lista vacia y noAplica = false
+   Los tres casos son distintos y por eso no basta con la lista vacia.
+   ===================================================================== */
+const Dientes = (() => {
+
+  let modal      = null;
+  let elegidos   = new Set();
+  let alElegir   = null;
+
+  /** Texto corto para el boton de la tabla. */
+  function etiqueta(lista, noAplica) {
+    if (noAplica) return 'No aplica';
+
+    const n = (lista ?? []).length;
+    if (n === 0) return 'Elegir...';
+    if (n <= 4)  return lista.join(', ');
+
+    // Con muchos dientes el numero dice mas que la lista cortada.
+    return `${n} órganos`;
+  }
+
+  function caja() { return document.getElementById('modalDientes'); }
+
+  function pintarSeleccion() {
+    const noAplica = document.getElementById('dientesNoAplica').checked;
+
+    caja().querySelectorAll('.diente').forEach((b) => {
+      b.classList.toggle('elegido', elegidos.has(Number(b.dataset.diente)));
+      b.disabled = noAplica;
+    });
+
+    const lista = [...elegidos].sort((a, b) => a - b);
+    document.getElementById('dientesResumen').textContent = noAplica
+      ? 'El procedimiento no va sobre un órgano dentario'
+      : (lista.length
+          ? `${lista.length} seleccionado(s): ${lista.join(', ')}`
+          : 'Sin selección');
+  }
+
+  /**
+   * Abre el modal.
+   * @param {object} cfg {procedimiento, dientes, noAplica, alElegir}
+   */
+  function pedir(cfg) {
+    if (!caja()) return;
+
+    modal = modal ?? bootstrap.Modal.getOrCreateInstance(caja());
+    alElegir = cfg.alElegir;
+
+    elegidos = new Set(cfg.dientes ?? []);
+    document.getElementById('dientesNoAplica').checked = !!cfg.noAplica;
+    document.getElementById('dientesProcedimiento').textContent =
+      cfg.procedimiento ?? '—';
+
+    // Si lo que trae son dientes temporales, se abre en esa pestania:
+    // buscarlos a mano cada vez seria una molestia diaria.
+    const hayTemporal = [...elegidos].some((n) => n >= 51);
+    const pestania = document.querySelector(
+      `[data-bs-target="${hayTemporal ? '#dent-temporal' : '#dent-permanente'}"]`);
+    if (pestania) bootstrap.Tab.getOrCreateInstance(pestania).show();
+
+    pintarSeleccion();
+    modal.show();
+  }
+
+  function iniciar() {
+    if (!caja()) return;
+
+    caja().addEventListener('click', (ev) => {
+      const diente = ev.target.closest('.diente');
+      if (diente) {
+        const n = Number(diente.dataset.diente);
+        if (elegidos.has(n)) elegidos.delete(n); else elegidos.add(n);
+        pintarSeleccion();
+        return;
+      }
+
+      const todos = ev.target.closest('[data-todos]');
+      if (todos) {
+        caja().querySelectorAll(`.diente.${todos.dataset.todos}`)
+          .forEach((b) => elegidos.add(Number(b.dataset.diente)));
+        // Elegir dientes contradice "no aplica": se apaga sola.
+        document.getElementById('dientesNoAplica').checked = false;
+        pintarSeleccion();
+        return;
+      }
+
+      const ninguno = ev.target.closest('[data-ninguno]');
+      if (ninguno) {
+        caja().querySelectorAll(`.diente.${ninguno.dataset.ninguno}`)
+          .forEach((b) => elegidos.delete(Number(b.dataset.diente)));
+        pintarSeleccion();
+      }
+    });
+
+    document.getElementById('dientesNoAplica')
+      .addEventListener('change', (ev) => {
+        if (ev.target.checked) elegidos.clear();
+        pintarSeleccion();
+      });
+
+    document.getElementById('dientesAceptar').addEventListener('click', () => {
+      const noAplica = document.getElementById('dientesNoAplica').checked;
+      alElegir?.({
+        dientes: noAplica ? [] : [...elegidos].sort((a, b) => a - b),
+        noAplica,
+      });
+      modal.hide();
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', iniciar);
+
+  return { pedir, etiqueta };
+})();
+
+/* =====================================================================
+   Selector de procedimientos del catalogo
+
+   Lo usan el plan de tratamiento y el cargo de la consulta. Quien lo
+   abre pasa que hacer con lo elegido; el modal no sabe nada de planes
+   ni de cargos.
+   ===================================================================== */
+const SelectorProcedimiento = (() => {
+
+  let modal      = null;
+  let alElegir   = null;
+  let lista      = [];
+
+  function caja() { return document.getElementById('modalProcSel'); }
+
+  async function cargar(q = '') {
+    const caja2 = document.getElementById('procSelLista');
+    caja2.innerHTML = `<div class="cargando">
+        <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
+        Buscando...</div>`;
+
+    const r = await App.api('catalogo/procedimientos.php', { q });
+    lista = r.datos;
+
+    caja2.innerHTML = lista.length
+      ? lista.map((p) => `
+          <div class="opcion" data-id="${p.id_procedimiento}">
+            <div>
+              <div class="fw-semibold">${App.esc(p.nombre_procedimiento)}</div>
+              <div class="text-secondary" style="font-size:11px">
+                ${App.esc(p.nombre_categoria ?? '')}
+                ${p.duracion_min ? ' · ' + p.duracion_min + ' min' : ''}
+                ${Number(p.requiere_anestesia) === 1 ? ' · Requiere anestesia' : ''}
+              </div>
+            </div>
+            <span class="badge badge-suave">${App.money(p.costo_sugerido)}</span>
+          </div>`).join('')
+      : '<div class="p-4 text-center text-secondary small">Sin resultados.</div>';
+  }
+
+  /** @param {function} cb  recibe el procedimiento elegido */
+  function pedir(cb) {
+    if (!caja()) return;
+
+    modal = modal ?? bootstrap.Modal.getOrCreateInstance(caja());
+    alElegir = cb;
+
+    document.getElementById('procSelFiltro').value = '';
+    modal.show();
+    cargar();
+    setTimeout(() => document.getElementById('procSelFiltro').focus(), 250);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!caja()) return;
+
+    document.getElementById('procSelFiltro').addEventListener('input',
+      App.debounce((ev) => cargar(ev.target.value.trim()), 300));
+
+    document.getElementById('procSelLista').addEventListener('click', (ev) => {
+      const opcion = ev.target.closest('.opcion[data-id]');
+      if (!opcion) return;
+
+      const p = lista.find((x) => String(x.id_procedimiento) === opcion.dataset.id);
+      if (!p) return;
+
+      alElegir?.(p);
+      modal.hide();
+    });
+  });
+
+  return { pedir };
 })();

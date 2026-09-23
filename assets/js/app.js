@@ -92,6 +92,30 @@ const App = (() => {
       });
       return r.isConfirmed;
     },
+    /**
+     * Pide un texto corto y obligatorio.
+     *
+     * Se usa para los motivos: cancelar un cargo, cancelar un cobro,
+     * bloquear la agenda. En todos esos casos el "por que" es parte
+     * del registro, no un adorno, asi que no se acepta vacio.
+     *
+     * @returns {Promise<string|null>} null si se cancelo.
+     */
+    async pedirTexto(titulo, texto = '', valor = '') {
+      const r = await Swal.fire({
+        icon: 'question', title: titulo, text: texto,
+        input: 'textarea',
+        inputValue: valor,
+        inputAttributes: { maxlength: 255, rows: 3 },
+        showCancelButton: true,
+        confirmButtonText: 'Continuar', confirmButtonColor: MORADO,
+        cancelButtonText: 'Cancelar',   cancelButtonColor: '#6c6577',
+        reverseButtons: true,
+        inputValidator: (v) => (!v || v.trim().length < 4)
+          ? 'Escribe el motivo.' : undefined,
+      });
+      return r.isConfirmed ? r.value.trim().toUpperCase() : null;
+    },
     cargando(titulo = 'Procesando...') {
       Swal.fire({
         title: titulo, allowOutsideClick: false, allowEscapeKey: false,
@@ -177,6 +201,21 @@ const App = (() => {
 
     ventana.focus();
     return ventana;
+  }
+
+  /**
+   * Solo la fecha, en formato dd/mm/aaaa.
+   *
+   * No se usa Date() a proposito: un DATE de MySQL ("2026-09-16") lo
+   * interpreta como UTC y en nuestro huso se corre un dia hacia atras.
+   * Partir el texto no tiene ese problema.
+   */
+  function fecha(valor) {
+    if (!valor) return '';
+    const solo = String(valor).substring(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(solo)
+      ? solo.split('-').reverse().join('/')
+      : String(valor);
   }
 
   /** Fecha y hora legibles a partir de un DATETIME de MySQL. */
@@ -365,7 +404,7 @@ const App = (() => {
     URL_BASE, aMayusculas, activarMayusculas, datosEnMayusculas,
     recordarPestania, activarPestania, recargarEnPestania,
     quitarCortinilla, desactivarAutocompletar,
-    tamanoLegible, fechaHora, abrirVentana,
+    tamanoLegible, fecha, fechaHora, abrirVentana,
   };
 })();
 

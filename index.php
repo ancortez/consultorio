@@ -46,25 +46,45 @@ $rutas = [
         'permiso' => 'consultas.ver',
         'titulo'  => 'Agenda',
     ],
-    'consultas/nueva_consulta' => [
-        'archivo' => 'en_construccion.php',
-        'permiso' => 'consultas.crear',
-        'titulo'  => 'Nueva consulta',
+    'consultas/semana' => [
+        'archivo' => 'consultas/semana.php',
+        'permiso' => 'consultas.ver',
+        'titulo'  => 'Agenda de la semana',
+    ],
+    'consultas/consultas' => [
+        'archivo' => 'consultas/consultas.php',
+        'permiso' => 'consultas.ver',
+        'titulo'  => 'Lista de consultas',
+    ],
+    'consultas/consulta' => [
+        'archivo' => 'consultas/consulta.php',
+        'permiso' => 'consultas.ver',
+        'titulo'  => 'Detalle de consulta',
+    ],
+    'consultas/planes' => [
+        'archivo' => 'consultas/planes.php',
+        'permiso' => 'consultas.plan',
+        'titulo'  => 'Planes de tratamiento',
     ],
     'consultas/nuevo_plan_tratamiento' => [
         'archivo' => 'consultas/nuevo_plan_tratamiento.php',
         'permiso' => 'consultas.plan',
         'titulo'  => 'Nuevo plan de tratamiento',
     ],
-    'cajas/corte' => [
-        'archivo' => 'en_construccion.php',
-        'permiso' => 'cajas.ver',
-        'titulo'  => 'Corte de caja',
-    ],
     'cajas/cobrar' => [
-        'archivo' => 'en_construccion.php',
+        'archivo' => 'cajas/cobrar.php',
         'permiso' => 'cajas.cobrar',
-        'titulo'  => 'Registrar cobro',
+        'titulo'  => 'Cobrar',
+    ],
+    'cajas/corte' => [
+        'archivo' => 'cajas/corte.php',
+        'permiso' => 'cajas.ver',
+        'titulo'  => 'Turnos y corte',
+    ],
+    'cajas/pendientes' => [
+        'archivo' => 'cajas/pendientes.php',
+        'permiso' => 'cajas.ver',
+        'titulo'  => 'Pendientes de pago',
     ],
     'reportes/general' => [
         'archivo' => 'en_construccion.php',
@@ -90,6 +110,16 @@ $rutas = [
         'archivo' => 'configuracion/consultorio.php',
         'permiso' => 'config.consultorio',
         'titulo'  => 'Datos del consultorio',
+    ],
+    'configuracion/recordatorios' => [
+        'archivo' => 'configuracion/recordatorios.php',
+        'permiso' => 'config.consultorio',
+        'titulo'  => 'Recordatorios de cita',
+    ],
+    'configuracion/apariencia' => [
+        'archivo' => 'configuracion/apariencia.php',
+        'permiso' => 'config.consultorio',
+        'titulo'  => 'Apariencia',
     ],
     'configuracion/tarifas' => [
         'archivo' => 'en_construccion.php',
@@ -130,6 +160,12 @@ $usuarioSesion = Auth::usuario();
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <link rel="stylesheet" href="<?= URL_BASE ?>/assets/css/estilo.css?v=<?= e(APP_VERSION) ?>">
+<?php
+/* El color del sistema se elige en Configuracion. Va despues de la
+   hoja de estilo para que gane por orden, sin necesidad de !important.
+   Con el tema de fabrica esto no imprime nada. */
+echo Tema::estilos();
+?>
 </head>
 <body>
 

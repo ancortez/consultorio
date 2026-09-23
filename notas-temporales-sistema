@@ -1,29 +1,185 @@
-Algunas correcciones:
+Necesito comprar un plan de hosting que me permita tener subdominios y varios correos electrónicos para mis clientes. Recomiéndame el deal.
+No serán muchos de momento, pero si quiero que si mi proyecto escala a unos 100 clientes gubernamentales (que pienso que será en unos 10 años) no haya problema.
+La idea no es administrar de momento todo el grueso de los sistemas, solo los servicios que manejaré como extras que son:
+    * Adminstración de mis clientes. Base de datos de clientes que tienen servicio contratado conmigo.
+    * Servicios de correo electrónico para recordatorios (consultorio) o cobranza (haixa)
+    * Almacenamiento de documentos digitales.
+    * Procesos de generación y envío de PDF de estados de cuenta a los usuarios de agua potable
+    * procesamiento de facturas.
+Tambien requiero informacion de como activar un certificado ssl en mi sitio para que los correos que salen de ahi no se vayan a spam.
 
-VISTA CONFIGURACION>DATOS DEL CONSULTORIO
-    * No abre el modal de la colonia. Su comportamiento debe ser igual que en los domicilios del paciente y del tutor.
 
-VISTA PACIENTE>DETALLE DEL PACIENTE.
-    Pestaña Historial medico
-        * Para evitar tener un formulario gigante haremos un Journey de 5 pasos:
-            1. Ficha de identificación
-            2. Antecedentes no patológicos
-            3. Antecedentes patológicos
-            4. Antecedentes odontológicos y Hábitos
-            5. Examen bucal
-        
-        * Al final nos permitirá imprimir el Historial para tener una copia física firmada por el dr y el tutor.
-        * Cuando el historial ya existe, aparecerán estos mismos elementos en forma de colapsables para abrir cada uno y poder modificar por partes.
+
+++++++++++++
+
+* CORRECCIONES 16/09/2026
+Vamos a hacer algunas correcciones y mejora de funciones:
+
+** MÓDULO PACIENTE **
+
+PACIENTE/BUSCAR PACIENTE:
+1. En la lista de pacientes hay quer agregar un pequeño ícono de un monito morado cuadrado con esquinas redondeadas a la izquierda del nombre del paciente. Este servirá tambiien como link para acceder a DETALLE DEL PACIENTE.
+2. El nombre mismo del paciente en el listado debe ser un link a detalle del paciente.
+3. El nombre de la calle en la columna DOMICILIO debe ser ligeramente mayor que lo demás. Despues del numero ext e int debe haber un salto de linea para que la colonia empiece en la segunda.
+
+PACIENTE/DETALLE DEL PACIENTE
+4. Las esquinas de card donde estan los datos del paciente (foto, nombre, exp, edad...) hay que redondearlas.
+5. Quitar botón de CONSENTIMIENTO. Esta funciòn estarà en otro lugar.
+6. TAB: Expediente Electrónico. Mostrará los documentos como en la imagen adjunta:
+    Serán elementos colapsables
+    a. Siempre arriba: los documentos generales del paciente:
+        FOTOGRAFÍA DEL PACIENTE
+        CREDENCIAL DEL O LOS TUTORES. UN REGISTRO PARA CADA UNO
+        CONSULTAS NO LIGADAS A PLANES DE TRATAMIENTO
+        HISTORIAL CLÍNICO DEL PACIENTE FIRMADO
+    b. Planes de tratamiento ordenador por las mas recientes a la más antigua
+        CONSENTIMIENTO BAJO INFORMACIÓN FIRMADO
+        HOJA DE PLAN DE TRATAMIENTO.
+        CONSULTAS RELACIONADAS AL PLAN DE TRATAMIENTO
+        RECETAS
+        RADIOGRAFÍAS
+        FOTOGRAFÍAS
+        NOTAS DE EVOLUCIÓN
+7. TAB: PLANES DE TRATAMIENTO
+    El folio será link que nos mandará al detalle del plan de tratamiento.
+    A la izquierda del folio ícono ilustrativo de color morado.
+    Quitar columnas de TOTAL y SALDO.
+    Diagnóstico fuente levemente más grande que el nombre del dr.
+8. Botón <Nueva consulta>. Manda mensaje para saber si será una consulta general o si se vincula con un plan de tratamiento con estatus EN PROCESO.
+
+MENU: CONSULTAS/PLAN DE TRATAMIENTO
+9. Mostrar un listado de planes de tratamiento con estatus PROPUESTO, ACEPTADO y EN PROCESO
+10. Columnas: #, FOLIO, FECHA, PACIENTE, DIAGNOSTICO, AVANCE, ESTATUS. Al final un menú hamburguesa con la opción de VER O MODIFICAR
+11. Link en el folio que redirija a la visa de detalle de plan de tratamiento. A la izquierda del folio, un ícono ilustrativo de color morado.
+
+CONSULTAS/DETALLE DE PLAN DE TRATAMIENTO
+12. Botón arriba <NUEVA CONSULTA>. Al presionar aparece un mensaje avisando que se generará una nueva consulta vinculada al plan de tratamiento número ###
+13. PLAN DE TRATAMIENTO/PROCEDIMIENTOS:
+    En la lista de procedimientos a realizar al paciente cambiar el texto DIENTE por órgano dentario.
+    Quitar la columna FECHA y PRÓXIMA CITA. Lo mismo con el documento impreso.
+
+Y una pregunta al final. Dimos de alta el repositorio de MINIO pero no se donde están los archivos de ese sistemita. Puedes ilustrarme por favor??
+
+++++++++++
+
+** CORRECCIONES 19/09/2026 **
+
+1. Permitir Cambio de color general de la app en configuracion.
+2. PLan de Tratamiento.
+    Generales. Nuevo campo. Descripción del plan de tratamiento. Campo grande, fuente grande. Prellenar: "Plan de tratamiento <FECHA>".
+    Procedimientos. Al agregar el procedimiento, después de seleccionarlo pasa a la lista de procedimientos del plan.
+        - Campo Nota del procedimiento hacer mas pequeño.
+        - Organo dentario. Botón <Órgano Dentario> con un pequeño ícono de muela. Abre modal con la imagen representativa de la dentadura para seleccionar el órgano dentario.
+        - El modal permite definir si es temporal o permanente. Opción para seleccionar TODOS en cualquiera de las dos modalidades.
+        - Opción seleccionable de No aplica.
+
+3. Modificar el Menú consultas. Ahora será: Consultas/Lista de consultas. Mostrará las últimas consultas del Dr que revisa, o si tiene el permiso, de todos los doctores del consultorio.
+    Lista de consultas muestra las columnas: 
+        #
+        FOLIO (Link a detalle consulta)
+        FECHA
+        PACIENTE
+        PLAN DE TRATAMIENTO (Si está vinculada a un Plan de Tratamiento colocar el folio del plan y descripción del plan).
+        ESTATUS
+
+    * MODULO DETALLE DE CONSULTA. Al seleccionar una consulta o al crear una nueva.
+    proponme vista generalizada de cosulta
+    Permitir añadir elementos que acompañen a la consulta
+        Fotografías (subir una o varias (album))
+        Radiografías (subir una o varias (album))
+        Otros (uno por uno)
+        Recetas. Este elemento no solo es un escaneo sino que se puede llenar con lo que el médico recete para el paciente.
+            - Se adjunta imagen de ejemplo.
+            - Prellenar datos de fecha, paciente y edad.
+            - Mostrar vista en sistema completa pero a la hora de imprimir, solo se imprimen los datos, ya que la plantilla de documento ya existe en físico.
+            - Se generará pendiente de digitaización cuando se creé la receta.
+    Estos documentos formarán parte del expediente electrónico del paciente. Generarán pendiente de digitalización de la siguiente forma:
+        - Consultas generales. Aparecerán como ya se ha programado anteriormente.
+        - Consultas vinculadas a plan de tratamiento. Vendrán dentro del expediente del plan de tratamiento.
+        - Se agrega campo "Folio consulta" para especificar a qué consulta pertenece.
+    Botón <Notas de evolución>. Agregar botón que abra modal de notas de evolución.
+        - Las notas no crean pendiente de digitalización
+        - Sirven para llevar comentario o observaciones hechas en la consulta, complementadas por los documentos varios generados en al consulta.
+
+4. Menu Consultas/Plan de Tratamiento
+    Agregar columna DESCRIPCIÓN después de FECHA y antes de PACIENTE
+
+5. PACIENTE/DETALLE PACIENTE
+    Historia clínica.
+        - Cuando aún no existe, mostrar un aviso visual (como el de Expediente electrónico) de que está pendiente registrar su hitorial clínico.
+        - Efecto de deslizar a la derecha o izquierda al pulsar Siguente o anterior.
+        - Al consultar un historial ya existente, efecto de subir bajar al presionar la flecha del elemento colapsable.
+        - Mostrar arriba fecha y hora de última actualización.
+        - Prellenar botones para agilizar llenado. El doctor modificará en caso de ser necesario.
+            * Antecedentes no patológicos
+                - Embarazo Normal: Si
+                - Parto: normal
+                - Nacimiento: A término
+                - Complicaciones: No
+                - Lactancia materna: Si
+                - Fórmula: Si
+                - Dieta Actual: Completa
+            * Antecedentes Patológicos
+                - Estado de salud: Bueno
+                - Enfermedad crónica: no
+                - Discapacidad: no
+                - Alergico: no
+                - Tratamiento médico: No
+                - Cirugías: no
+            * Antecedentes Odontológicos
+                - Experiencia: no
+                - Informacion medidas preventivas: no
+                - Pasta dental: Si
+                - Otro elemento higiene: No
+            * Examen Bucal
+                - Labios: competentes
+                - Frenillos: Normales
+                - Lengua: Normal
+                - Tipo de dentición: Mixta
+        - Documento impreso. Antes de imprimir seleccionar datos del doctor que va a atender al paciente para que aparezcan sus datos en el documento. Agregar datos del consultorio (Domicilio y Teléfono).
     
-    Nuevo plan de tratamiento
-        * Para evitar tener un formulario gigante haremos un Journey de 5 pasos:
-            1. Generales (Paciente, dentista, fecha, estatus)
-            2. Diagnóstico
-            3. Procedimientos
-            4. Observaciones
-            5. Resumen
+    Expediente Electrónico. Historial clínico. Mostrar el pendiente de digitalización solo cuando ya se han registrado datos en el historial.
+    Botón de cambiar fotografía en card de identificación no funciona.
 
-        * Al final nos permitirá imprimir el Tratamiento para tener una copia física firmada por el dr y el tutor.
-        * Cuando el tratamiento ya existe, mostrará la tabla de cada uno de ellos y al seleccionar 'ver o modificar', nos llevará al detalle donde aparecerán estos mismos elementos en forma de colapsables para abrir cada uno y poder modificar por partes.
+    Expediente Electrónico. Plan de Tratamiento
+        - Ordenar for fecha descendente, para que las consultas relacionadas salgan mas arriba las mas actuales.
+        - Cuidar Mantener siempre arriba el Consentimiento Bajo información y La hoja de Plan de Tratamiento, ya después las consultas.
+        - Acomodar por niveles los documentos que pertenecen a una consulta relacionada con el plan de tratamiento para ubicar visualmente a que consulta pertenecen.
+        - No generar pedientes de digitalización hasta que estos hayan sido creados.
 
-    * El consentimiento es único. no debe crear un pendiente de digitalización cada vez que lo consultemo.sDDGFDGD
+6. Proponme el desarrollo del modulo CITAS y CAJAS para en la siguiente actualización corregir funcionamiento.
+
+
+++++++++
+
+PROPUESTA CITAS Y CAJAS
+
+##CAJAS
+Adelante con la siguientes propuestas:
+    APERTURA Y CUERRE DE TURNO. OK!
+    COBRO CONTRA PLAN DE TRATAMIENTO, OK!
+    RECIBO. OK!
+    PAGO MIXTO. OK!
+    ESTADO DE CUNETA. OK!
+    CORTE DE CAJA IMPRIMIBLE. OK!
+    CAJAS. Varias. A veces la misma doctora hace cobros por transferencia o en efectivo.
+    COBRAR SIN PLAN DE TRATAMIENTO. Desde luego. Las consultas no ligadas a un plan tambien se toman en cuenta.
+    CANCELACION DE PAGOS. Usuario con el permiso activo para realiar cancelaciones. Queno se borre. Solo que cambie de estatus. Solo se podrá cancelar el cobro el mismo día en que se realizó, con la intención de afectar el corte de caja que ya se haya realizado.
+    FOLIO FISCAL. Se piensa llevar en un futuro la función de FACTURACIÓN. Yo desconozco completamente el tema fiscal, pero, para que sea de utilidad, te tomaré la recomendación.
+    DEESCUENTOS AUTORIZADOS. Si. Solo usuarios con el permiso activo pueden hacerlo.
+
+* En el proceso de la consulta a veces suele salir algo que no estaba planeado, por lo que al momento de generar la consulta debe haber un modulo similar al de lan de tratamiento/procedimientos, para que genere los pendientes de pago. Debe ofrecer tambien abonar una parcialidad del total del plan de trataiento y guardarlo en el saldo pendiente como lo ofreces en las propuestas. En dashboard debe aparecer el modulo con estos pendientes para que la recepcionista aplique los pagos que se generaron a nombre del paciente.
+
+##CITAS
+Adelante con las propuestas que me haces:
+    VISTA DE SEMANA. OK!
+    BLOQUEOS DE AGENDA. OK!
+    DURACION SEGUN PROCEDIMIENTO. OK!
+    RECORDATORIO POR WHATSAPP MANUAL. OK!
+        Unido a esto. Una función que permita decidir cuanto tiempo antes de la cita y cuantos recordatorios hay que hacerle al paciente. Area en el dashboard con ayuda visual para hacer los recordatorios.
+    OFRECER CREAR CONSULTA CUANDO PACIENTE ESTA EN SALA. OK!
+    REAGENDAR ARRASTRANDO. OK!
+    LISTA DE ESPERA. OK!
+
+Funciones que de momento no se requieren
+    HORARIOS DE ATENCION POR DOCTOR.

@@ -15,6 +15,15 @@ const Expediente = (() => {
   let modalNuevo   = null;
   let archivoElegido = null;
 
+  // Tipos de documento por ambito, para armar el combo de "Agregar".
+  let tiposPaciente = [];
+  let tiposPlan     = [];
+
+  // Que bloques estaban abiertos antes de recargar. Sin esto, subir un
+  // archivo cerraria toda la carpeta y habria que volver a buscar donde
+  // se estaba trabajando.
+  let abiertos = new Set(['generales']);
+
   /* -------------------------------------------------------------------
      Carga y pintado
      ------------------------------------------------------------------- */
@@ -22,9 +31,11 @@ const Expediente = (() => {
     const contenedor = document.getElementById('expDocumentos');
     if (!contenedor) return;
 
-    contenedor.innerHTML = `<div class="col-12"><div class="cargando">
+    recordarAbiertos();
+
+    contenedor.innerHTML = `<div class="cargando">
         <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
-        Cargando expediente...</div></div>`;
+        Cargando expediente...</div>`;
 
     try {
       const r = await App.api('expediente/listar.php', {
@@ -32,13 +43,28 @@ const Expediente = (() => {
       });
       pintar(r.datos);
     } catch (e) {
-      contenedor.innerHTML = `<div class="col-12">
-          <div class="alert alert-danger mb-0">No se pudo cargar el expediente.</div>
-        </div>`;
+      contenedor.innerHTML =
+        `<div class="alert alert-danger mb-0">No se pudo cargar el expediente.</div>`;
     }
   }
 
-  function pintar({ documentos, pendientes, almacen }) {
+  function recordarAbiertos() {
+    const cajas = document.querySelectorAll('#expDocumentos .exp-bloque[data-clave]');
+    if (!cajas.length) return;
+
+    abiertos = new Set();
+    cajas.forEach((caja) => {
+      if (caja.querySelector('.exp-cuerpo')?.classList.contains('abierto')) {
+        abiertos.add(caja.dataset.clave);
+      }
+    });
+  }
+
+  function pintar(datos) {
+    const { almacen, pendientes } = datos;
+    tiposPaciente = datos.tipos_paciente ?? [];
+    tiposPlan     = datos.tipos_plan ?? [];
+
     // Aviso si MinIO no responde. Se dice que hacer, no solo que fallo.
     const aviso = document.getElementById('expAvisoAlmacen');
     aviso.classList.toggle('d-none', almacen.ok);
@@ -64,19 +90,211 @@ const Expediente = (() => {
         : 'Expediente completo';
     }
 
-    const contenedor = document.getElementById('expDocumentos');
+    document.getElementById('expDocumentos').innerHTML =
+      bloqueGeneral(datos) + datos.planes.map(bloquePlan).join('');
+  }
 
-    if (!documentos.length) {
-      contenedor.innerHTML = `<div class="col-12">
-          <div class="card"><div class="card-body text-center py-5 text-secondary">
-            <i class="bi bi-folder2-open fs-1 d-block mb-2 opacity-25"></i>
-            Este expediente todavía no tiene documentos.
-          </div></div>
-        </div>`;
-      return;
-    }
+  /* -------------------------------------------------------------------
+     Bloque de arriba: lo que es del paciente, no de un tratamiento
+     ------------------------------------------------------------------- */
+  function bloqueGeneral(datos) {
+    const grupos = tiposPaciente.map((t) =>
+      grupo(t, datos.generales.filter((d) => d.clave === t.clave), null)).join('');
 
-    contenedor.innerHTML = documentos.map(tarjeta).join('');
+    const consultas = grupoConsultas(
+      datos.consultas,
+      'Consultas no ligadas a planes de tratamiento',
+      'Revisiones, urgencias y valoraciones sueltas.');
+
+    return bloque({
+      clave: 'generales',
+      icono: 'bi-person-vcard',
+      titulo: 'Documentos generales del paciente',
+      subtitulo: 'Identificaci&oacute;n, historial y consultas sueltas',
+      pendientes: datos.pendientes_generales,
+      cuerpo: grupos + consultas,
+      plan: null,
+    });
+  }
+
+  /* -------------------------------------------------------------------
+     Un bloque por plan de tratamiento
+     ------------------------------------------------------------------- */
+  function bloquePlan(b) {
+    const p = b.plan;
+    const id = p.id_plan_tratamiento;
+
+    const grupos = tiposPlan.map((t) =>
+      grupo(t, b.documentos.filter((d) => d.clave === t.clave), p)).join('');
+
+    // Los que no caen en ningun tipo esperado (un "OTRO" colgado del
+    // plan) no se pierden: van al final.
+    const claves = new Set(tiposPlan.map((t) => t.clave));
+    const sueltos = b.documentos.filter((d) => !claves.has(d.clave));
+
+    // Las consultas van despues del consentimiento y de la hoja del
+    // plan, que son los dos papeles que sostienen todo lo demas y
+    // tienen que quedar siempre a la vista al abrir el bloque.
+    const consultas = grupoConsultas(
+      b.consultas,
+      'Consultas de este plan',
+      'Citas en las que se trabaj&oacute; el tratamiento.');
+
+    return bloque({
+      clave: `plan-${id}`,
+      icono: 'bi-list-check',
+      titulo: `Plan ${App.esc(p.folio)}`,
+      subtitulo: `${App.esc(App.fecha(p.fecha))} · ${App.esc(p.nombre_estado)}`
+        + (p.diagnostico ? ` · ${App.esc(p.diagnostico.substring(0, 70))}` : ''),
+      pendientes: b.pendientes,
+      plan: p,
+      cuerpo: grupos
+        + (sueltos.length
+            ? grupo({ clave: 'OTRO', nombre_documento: 'Otros documentos',
+                      icono: 'bi-paperclip', permite_varios: 1 }, sueltos, p)
+            : '')
+        + consultas,
+    });
+  }
+
+  /** Caja colapsable con su encabezado. */
+  function bloque({ clave, icono, titulo, subtitulo, pendientes, cuerpo, plan }) {
+    const abierto = abiertos.has(clave);
+
+    return `
+    <div class="exp-bloque" data-clave="${clave}">
+      <button type="button" class="exp-cabecera ${abierto ? 'abierto' : ''}"
+              data-plegar="${clave}">
+        <span class="exp-flecha"><i class="bi bi-chevron-right"></i></span>
+        <span class="exp-icono"><i class="bi ${icono}"></i></span>
+        <span class="exp-titulo">
+          <span class="t">${titulo}</span>
+          <span class="s">${subtitulo}</span>
+        </span>
+        ${pendientes > 0
+          ? `<span class="badge badge-pendiente">${pendientes} por escanear</span>`
+          : `<span class="badge badge-suave">Completo</span>`}
+      </button>
+
+      <div class="exp-cuerpo ${abierto ? 'abierto' : ''}">
+        ${plan ? barraPlan(plan) : ''}
+        ${cuerpo}
+      </div>
+    </div>`;
+  }
+
+  /** Acciones propias del plan: consentimiento y hoja para firma. */
+  function barraPlan(p) {
+    return `
+    <div class="exp-barra-plan">
+      <a class="btn btn-sm btn-outline-morado"
+         href="${App.URL_BASE}/index.php?modulo=consultas&vista=nuevo_plan_tratamiento&id=${idExpediente}&plan=${p.id_plan_tratamiento}">
+        <i class="bi bi-box-arrow-up-right me-1"></i> Abrir el plan
+      </a>
+      <button type="button" class="btn btn-sm btn-outline-morado"
+              data-accion="exp-consentimiento" data-plan="${p.id_plan_tratamiento}">
+        <i class="bi bi-file-earmark-check me-1"></i> Consentimiento
+      </button>
+      <button type="button" class="btn btn-sm btn-outline-morado"
+              data-accion="exp-hoja-plan" data-plan="${p.id_plan_tratamiento}">
+        <i class="bi bi-printer me-1"></i> Hoja del plan
+      </button>
+      <span class="ms-auto fw-semibold" style="color:var(--morado-800)">
+        ${App.money(p.total)}
+      </span>
+    </div>`;
+  }
+
+  /* -------------------------------------------------------------------
+     Un grupo = un tipo de documento con sus archivos
+     ------------------------------------------------------------------- */
+  function grupo(tipo, docs, plan) {
+    const puedeEditar = document.getElementById('expNuevoPendiente') !== null;
+
+    // Un tipo unico que ya tiene su documento no ofrece "agregar otro".
+    const unico = Number(tipo.permite_varios) === 0;
+    const puedeAgregar = puedeEditar && (!unico || docs.length === 0);
+
+    // Para un tipo unico y vacio no tiene caso pedir primero el
+    // pendiente y luego el archivo: son dos pasos para lo mismo. El
+    // boton dice "Subir" y abre de una vez el dialogo de archivo.
+    const accion = unico ? 'exp-subir-directo' : 'exp-agregar';
+
+    return `
+    <div class="exp-grupo">
+      <div class="exp-grupo-titulo">
+        <i class="bi ${App.esc(tipo.icono || 'bi-file-earmark')}"></i>
+        <span>${App.esc(tipo.nombre_documento)}</span>
+        ${docs.length ? `<span class="cuenta">${docs.length}</span>` : ''}
+        ${puedeAgregar ? `
+          <button type="button" class="btn btn-sm btn-link p-0 ms-auto"
+                  data-accion="${accion}"
+                  data-clave="${App.esc(tipo.clave)}"
+                  data-plan="${plan ? plan.id_plan_tratamiento : ''}">
+            <i class="bi bi-${unico ? 'cloud-arrow-up' : 'plus-lg'}"></i>
+            ${unico ? 'Subir' : 'Agregar'}
+          </button>` : ''}
+      </div>
+
+      ${docs.length
+        ? `<div class="exp-tarjetas">${docs.map(tarjeta).join('')}</div>`
+        : `<div class="exp-vacio">Sin documentos de este tipo.</div>`}
+    </div>`;
+  }
+
+  /**
+   * Las consultas, de la mas reciente a la mas antigua, cada una con
+   * los documentos que salieron de ella colgando debajo.
+   *
+   * Anidarlos importa: una radiografia suelta en la lista del plan no
+   * dice de que cita salio, y esa es justo la pregunta que se hace
+   * quien revisa un expediente.
+   */
+  function grupoConsultas(lista, titulo, ayuda) {
+    return `
+    <div class="exp-grupo">
+      <div class="exp-grupo-titulo">
+        <i class="bi bi-clipboard2-pulse"></i>
+        <span>${titulo}</span>
+        ${lista.length ? `<span class="cuenta">${lista.length}</span>` : ''}
+      </div>
+
+      ${lista.length
+        ? `<div class="exp-consultas">${lista.map(consulta).join('')}</div>`
+        : `<div class="exp-vacio">${ayuda}</div>`}
+    </div>`;
+  }
+
+  function consulta(c) {
+    const cerrada = Number(c.cerrada) === 1;
+    const docs = c.documentos ?? [];
+
+    return `
+    <div class="exp-consulta-caja">
+      <div class="exp-consulta">
+        <div class="fecha">
+          <a href="${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&id=${c.id_consulta}"
+             class="enlace-paciente">${App.esc(c.folio ?? '')}</a>
+          <div>${App.esc(App.fechaHora(c.fecha_hora))}</div>
+        </div>
+        <div class="flex-grow-1" style="min-width:0">
+          <div class="fw-semibold">${App.esc(c.motivo || 'CONSULTA')}</div>
+          <div class="text-secondary" style="font-size:11.5px">
+            ${App.esc(c.dentista)}
+            ${c.diagnostico ? ' · ' + App.esc(c.diagnostico.substring(0, 70)) : ''}
+            ${Number(c.notas) > 0 ? ` · ${c.notas} nota(s)` : ''}
+          </div>
+        </div>
+        <span class="chip-estado ${cerrada ? 'badge-suave' : 'badge-pendiente'}">
+          ${cerrada ? 'CERRADA' : 'ABIERTA'}
+        </span>
+      </div>
+
+      ${docs.length ? `
+        <div class="exp-consulta-docs">
+          ${docs.map(tarjeta).join('')}
+        </div>` : ''}
+    </div>`;
   }
 
   function tarjeta(d) {
@@ -85,59 +303,57 @@ const Expediente = (() => {
     const puedeEditar = document.getElementById('expNuevoPendiente') !== null;
 
     return `
-    <div class="col-6">
-      <div class="doc-tarjeta ${pendiente ? 'pendiente' : 'listo'}"
-           data-documento='${App.esc(JSON.stringify(d))}'>
-        <div class="doc-icono">
-          <i class="bi ${App.esc(d.icono || 'bi-file-earmark')}"></i>
-        </div>
+    <div class="doc-tarjeta ${pendiente ? 'pendiente' : 'listo'}"
+         data-documento='${App.esc(JSON.stringify(d))}'>
+      <div class="doc-icono">
+        <i class="bi ${App.esc(d.icono || 'bi-file-earmark')}"></i>
+      </div>
 
-        <div class="flex-grow-1" style="min-width:0">
-          <div class="doc-nombre">${App.esc(d.nombre_documento)}</div>
+      <div class="flex-grow-1" style="min-width:0">
+        <div class="doc-nombre">${App.esc(d.nombre_documento)}</div>
 
-          ${d.descripcion
-            ? `<div class="doc-meta">${App.esc(d.descripcion)}</div>` : ''}
+        ${d.descripcion
+          ? `<div class="doc-meta">${App.esc(d.descripcion)}</div>` : ''}
 
-          ${pendiente ? `
-            <div class="doc-meta mt-1">
-              <span class="chip-estado badge-pendiente">PENDIENTE DE DIGITALIZAR</span>
-            </div>
-            <div class="doc-meta mt-1">
-              Solicitado el ${App.esc(App.fechaHora(d.fecha_solicitud))}
-              ${d.solicito ? ' por ' + App.esc(d.solicito) : ''}
-            </div>
-          ` : `
-            <div class="doc-meta mt-1" style="word-break:break-all">
-              ${App.esc(d.nombre_original || '')}
-              · ${App.esc(App.tamanoLegible(d.tamano_bytes))}
-            </div>
-            <div class="doc-meta">
-              Digitalizado el ${App.esc(App.fechaHora(d.fecha_digitalizacion))}
-              ${d.subio ? ' por ' + App.esc(d.subio) : ''}
-            </div>
-          `}
-
-          <div class="mt-2 d-flex gap-2 flex-wrap">
-            ${pendiente ? (puedeEditar ? `
-              <button type="button" class="btn btn-sm btn-morado" data-accion="exp-subir">
-                <i class="bi bi-cloud-arrow-up me-1"></i> Subir escaneo
-              </button>` : '') : `
-              <button type="button" class="btn btn-sm btn-outline-morado"
-                      data-accion="exp-ver">
-                <i class="bi bi-eye me-1"></i> ${esImagen ? 'Ver imagen' : 'Ver'}
-              </button>
-              <a class="btn btn-sm btn-light"
-                 href="${App.URL_BASE}/archivo.php?id=${d.id_documento}&d=1">
-                <i class="bi bi-download me-1"></i> Descargar
-              </a>
-              ${puedeEditar ? `
-              <button type="button" class="btn btn-sm btn-light" data-accion="exp-reemplazar">
-                <i class="bi bi-arrow-repeat me-1"></i> Reemplazar
-              </button>
-              <button type="button" class="btn btn-sm btn-link text-danger"
-                      data-accion="exp-quitar">Quitar</button>` : ''}
-            `}
+        ${pendiente ? `
+          <div class="doc-meta mt-1">
+            <span class="chip-estado badge-pendiente">PENDIENTE DE DIGITALIZAR</span>
           </div>
+          <div class="doc-meta mt-1">
+            Solicitado el ${App.esc(App.fechaHora(d.fecha_solicitud))}
+            ${d.solicito ? ' por ' + App.esc(d.solicito) : ''}
+          </div>
+        ` : `
+          <div class="doc-meta mt-1" style="word-break:break-all">
+            ${App.esc(d.nombre_original || '')}
+            · ${App.esc(App.tamanoLegible(d.tamano_bytes))}
+          </div>
+          <div class="doc-meta">
+            Digitalizado el ${App.esc(App.fechaHora(d.fecha_digitalizacion))}
+            ${d.subio ? ' por ' + App.esc(d.subio) : ''}
+          </div>
+        `}
+
+        <div class="mt-2 d-flex gap-2 flex-wrap">
+          ${pendiente ? (puedeEditar ? `
+            <button type="button" class="btn btn-sm btn-morado" data-accion="exp-subir">
+              <i class="bi bi-cloud-arrow-up me-1"></i> Subir escaneo
+            </button>` : '') : `
+            <button type="button" class="btn btn-sm btn-outline-morado"
+                    data-accion="exp-ver">
+              <i class="bi bi-eye me-1"></i> ${esImagen ? 'Ver imagen' : 'Ver'}
+            </button>
+            <a class="btn btn-sm btn-light"
+               href="${App.URL_BASE}/archivo.php?id=${d.id_documento}&d=1">
+              <i class="bi bi-download me-1"></i> Descargar
+            </a>
+            ${puedeEditar ? `
+            <button type="button" class="btn btn-sm btn-light" data-accion="exp-reemplazar">
+              <i class="bi bi-arrow-repeat me-1"></i> Reemplazar
+            </button>
+            <button type="button" class="btn btn-sm btn-link text-danger"
+                    data-accion="exp-quitar">Quitar</button>` : ''}
+          `}
         </div>
       </div>
     </div>`;
@@ -307,19 +523,43 @@ const Expediente = (() => {
     /* ---------- Boton "Cambiar fotografia" de la tarjeta ---------- */
     // Esta fuera de la pestania del expediente, asi que necesita buscar
     // el documento de tipo foto por su cuenta.
+    /*
+     * El boton fallaba porque buscaba un documento de fotografia que
+     * ya no se crea al dar de alta al paciente: si no existia, el
+     * boton solo mandaba a otra pestania y ahi se acababa. Ahora, si
+     * no existe, lo crea y sigue de frente.
+     *
+     * Ademas el arbol viene agrupado, asi que la foto hay que buscarla
+     * dentro de 'generales' y no en una lista plana que ya no existe.
+     */
     document.getElementById('btnCambiarFoto')?.addEventListener('click', async () => {
       App.alerta.cargando('Preparando...');
       try {
-        const r = await App.api('expediente/listar.php', {
+        let r = await App.api('expediente/listar.php', {
           id_registro_paciente: idExpediente,
         });
-        App.alerta.cerrar();
 
-        const foto = r.datos.documentos.find((d) => d.clave === 'FOTO_PACIENTE');
+        let foto = (r.datos.generales ?? []).find((d) => d.clave === 'FOTO_PACIENTE');
 
         if (!foto) {
-          App.alerta.info('Sin documento de fotografía',
-            'Agrega el documento desde la pestaña Expediente electrónico.');
+          const nuevo = await App.api('expediente/pendiente_nuevo.php', {
+            id_registro_paciente: idExpediente,
+            clave: 'FOTO_PACIENTE',
+            descripcion: '',
+          });
+
+          r = await App.api('expediente/listar.php', {
+            id_registro_paciente: idExpediente,
+          });
+          foto = (r.datos.generales ?? []).find(
+            (d) => Number(d.id_documento) === Number(nuevo.datos.id_documento));
+        }
+
+        App.alerta.cerrar();
+
+        if (!foto) {
+          App.alerta.error('No se pudo preparar la fotografía',
+            'Intenta desde la pestaña Expediente electrónico.');
           return;
         }
 
@@ -329,10 +569,44 @@ const Expediente = (() => {
       }
     });
 
+    /* ---------- Abrir y cerrar bloques ---------- */
+    document.getElementById('expDocumentos').addEventListener('click', (ev) => {
+      const cab = ev.target.closest('[data-plegar]');
+      if (!cab) return;
+
+      const caja = cab.closest('.exp-bloque');
+      cab.classList.toggle('abierto');
+      caja.querySelector('.exp-cuerpo').classList.toggle('abierto');
+    });
+
     /* ---------- Acciones de cada tarjeta ---------- */
     document.getElementById('expDocumentos').addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-accion]');
       if (!btn) return;
+
+      /* --- Acciones de bloque (no cuelgan de un documento) --- */
+      if (btn.dataset.accion === 'exp-agregar') {
+        abrirNuevoPendiente(btn.dataset.clave, btn.dataset.plan || '');
+        return;
+      }
+
+      if (btn.dataset.accion === 'exp-subir-directo') {
+        await subirDirecto(btn.dataset.clave, btn.dataset.plan || '');
+        return;
+      }
+
+      if (btn.dataset.accion === 'exp-consentimiento') {
+        abrirDespues(`plan-${btn.dataset.plan}`);
+        Consentimiento.pedir(Number(btn.dataset.plan));
+        return;
+      }
+
+      if (btn.dataset.accion === 'exp-hoja-plan') {
+        App.abrirVentana(
+          `${App.URL_BASE}/plan_imprimir.php?id=${btn.dataset.plan}`,
+          880, 1020, 'plan');
+        return;
+      }
 
       const doc = JSON.parse(btn.closest('[data-documento]').dataset.documento);
 
@@ -418,10 +692,8 @@ const Expediente = (() => {
     });
 
     /* ---------- Pendiente a mano ---------- */
-    document.getElementById('expNuevoPendiente')?.addEventListener('click', () => {
-      document.getElementById('formNuevoPendiente').reset();
-      modalNuevo.show();
-    });
+    document.getElementById('expNuevoPendiente')?.addEventListener('click',
+      () => abrirNuevoPendiente('', ''));
 
     document.getElementById('formNuevoPendiente')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -432,124 +704,238 @@ const Expediente = (() => {
         });
         modalNuevo.hide();
         App.alerta.toast('Pendiente agregado');
+
+        // El bloque donde se agrego se queda abierto al recargar.
+        const plan = document.getElementById('pendPlan').value;
+        abrirDespues(plan ? `plan-${plan}` : 'generales');
         cargar();
       } catch (e) { /* ya se mostro */ }
     });
-
-    iniciarConsentimiento(idExpediente);
   }
 
-  /* -------------------------------------------------------------------
-     Consentimiento bajo informacion
-     ------------------------------------------------------------------- */
-  function iniciarConsentimiento(expediente) {
-    const boton = document.getElementById('btnConsentimiento');
-    if (!boton) return;
+  /**
+   * Crea el pendiente de un tipo unico y abre de inmediato el dialogo
+   * de subida. Es lo que usan la fotografia del paciente y el
+   * historial firmado: el papel ya esta en la mano, no hay nada que
+   * "apuntar como faltante" antes de subirlo.
+   */
+  async function subirDirecto(clave, idPlan) {
+    App.alerta.cargando('Preparando...');
+    try {
+      const r = await App.api('expediente/pendiente_nuevo.php', {
+        id_registro_paciente: idExpediente,
+        clave,
+        id_plan_tratamiento: idPlan || '',
+        descripcion: '',
+      });
+      App.alerta.cerrar();
 
-    const modal  = bootstrap.Modal.getOrCreateInstance(
-      document.getElementById('modalConsentimiento'));
-    const selTutor     = document.getElementById('consTutor');
-    const selDomicilio = document.getElementById('consDomicilio');
-    const selDentista  = document.getElementById('consDentista');
-    const bloqueDom    = document.getElementById('consBloqueDomicilio');
+      abrirDespues(idPlan ? `plan-${idPlan}` : 'generales');
 
-    let datos = null;
-
-    /** Los domicilios dependen del tutor elegido. */
-    function pintarDomicilios() {
-      const tutor = datos.tutores.find(
-        (t) => String(t.id_expediente_tutor) === selTutor.value);
-
-      const lista = tutor?.domicilios ?? [];
-
-      selDomicilio.innerHTML = lista.length
-        ? lista.map((d) => `<option value="${d.id_domicilio}">
-             ${App.esc([d.calle_numero, d.colonia, d.codigo_postal ? 'C.P. ' + d.codigo_postal : '',
-                        d.nombre_municipio].filter(Boolean).join(', '))}
-           </option>`).join('')
-        : '<option value="">Este tutor no tiene domicilio registrado</option>';
-
-      // Con un solo domicilio no hay nada que elegir.
-      bloqueDom.classList.toggle('d-none', lista.length <= 1);
+      // Se recarga para que la tarjeta exista, y se abre su subida.
+      await cargar();
+      const doc = buscarDocumento(r.datos.id_documento);
+      if (doc) abrirSubida(doc);
+    } catch (e) {
+      App.alerta.cerrar();
     }
+  }
 
-    function abrirDocumento() {
-      const url = `${App.URL_BASE}/consentimiento.php`
-        + `?id=${expediente}`
-        + `&tutor=${selTutor.value || 0}`
-        + `&domicilio=${selDomicilio.value || 0}`
-        + `&dentista=${selDentista.value || 0}`;
+  /** Busca un documento ya pintado por su id. */
+  function buscarDocumento(id) {
+    const caja = document.querySelector(
+      `#expDocumentos [data-documento*='"id_documento":"${id}"'],`
+      + `#expDocumentos [data-documento*='"id_documento":${id}']`);
+    return caja ? JSON.parse(caja.dataset.documento) : null;
+  }
 
-      // Ancho de hoja carta (21.6 cm ≈ 816 px) mas el margen del visor.
-      // Alto suficiente para ver la hoja completa sin tapar el sistema.
-      App.abrirVentana(url, 880, 1020, 'consentimiento');
+  /** Marca un bloque para que quede abierto en el siguiente pintado. */
+  function abrirDespues(clave) {
+    recordarAbiertos();
+    abiertos.add(clave);
+  }
 
-      // Al volver, el expediente ya tiene un pendiente mas.
-      setTimeout(() => cargar(), 1500);
-    }
+  /**
+   * Abre el modal de "agregar documento" con el contexto puesto.
+   *
+   * El combo se arma segun donde se pidio: dentro de un plan solo salen
+   * los tipos del plan, y en el bloque general solo los del paciente.
+   * Asi no se puede colgar una radiografia del expediente entero ni la
+   * fotografia de un tratamiento.
+   */
+  function abrirNuevoPendiente(clave, idPlan) {
+    const form = document.getElementById('formNuevoPendiente');
+    form.reset();
 
-    boton.addEventListener('click', async () => {
-      App.alerta.cargando('Preparando el documento...');
-      try {
-        const r = await App.api('paciente/consentimiento_datos.php', {
-          id_registro_paciente: expediente,
-        });
-        App.alerta.cerrar();
-        datos = r.datos;
+    const tipos = idPlan ? tiposPlan : tiposPaciente;
 
-        if (!datos.tutores.length) {
-          const seguir = await App.alerta.confirmar(
-            'Este paciente no tiene tutor registrado',
-            'El consentimiento saldrá sin nombre ni domicilio del representante '
-            + 'legal. ¿Aun así quieres imprimirlo?',
-            'Sí, imprimir en blanco');
-          if (!seguir) return;
-          abrirDocumento();
-          return;
-        }
-
-        selTutor.innerHTML = datos.tutores.map((t) => `
-          <option value="${t.id_expediente_tutor}">
-            ${App.esc(t.nombre_completo)}
-            ${t.nombre_parentesco ? ' — ' + App.esc(t.nombre_parentesco) : ''}
-            ${Number(t.es_responsable_pago) === 1 ? ' (responsable de pago)' : ''}
+    document.getElementById('pendTipo').innerHTML =
+      '<option value="">Seleccionar...</option>'
+      + tipos.map((t) => `
+          <option value="${App.esc(t.clave)}"
+                  ${t.clave === clave ? 'selected' : ''}>
+            ${App.esc(t.nombre_documento)}
           </option>`).join('');
 
-        selDentista.innerHTML = datos.dentistas.length
-          ? datos.dentistas.map((d) => `
-              <option value="${d.id_usuario}"
-                ${String(d.id_usuario) === String(datos.yo_dentista) ? 'selected' : ''}>
-                ${App.esc(d.nombre_completo)}
-              </option>`).join('')
-          : '<option value="">No hay dentistas registrados</option>';
+    document.getElementById('pendPlan').value = idPlan || '';
 
-        pintarDomicilios();
+    const contexto = document.getElementById('pendContexto');
+    contexto.classList.toggle('d-none', !idPlan);
 
-        const unTutor    = datos.tutores.length === 1;
-        const unDomicilio = (datos.tutores[0].domicilios ?? []).length <= 1;
-        const unDentista = datos.dentistas.length === 1;
+    if (idPlan) {
+      const cab = document.querySelector(`.exp-bloque[data-clave="plan-${idPlan}"] .exp-titulo .t`);
+      document.getElementById('pendContextoFolio').textContent =
+        cab ? cab.textContent.trim() : `#${idPlan}`;
+    }
 
-        // Sin nada que decidir, no se estorba con un modal de un solo
-        // camino: se abre el documento directo.
-        if (unTutor && unDomicilio && unDentista) {
-          abrirDocumento();
-          return;
-        }
-
-        modal.show();
-      } catch (e) {
-        App.alerta.cerrar();
-      }
-    });
-
-    selTutor.addEventListener('change', pintarDomicilios);
-
-    document.getElementById('formConsentimiento').addEventListener('submit', (ev) => {
-      ev.preventDefault();
-      modal.hide();
-      abrirDocumento();
-    });
+    modalNuevo.show();
   }
 
-  return { iniciar, cargar, iniciarConsentimiento };
+  return { iniciar, cargar };
+})();
+
+/* =====================================================================
+   Consentimiento bajo informacion
+
+   El consentimiento pertenece a un plan de tratamiento, no al paciente:
+   es el permiso para ESE tratamiento. Por eso se pide desde el bloque
+   del plan en el expediente y no desde un boton suelto arriba.
+
+   Antes de abrir el documento hay que saber con que tutor, con que
+   domicilio y con que dentista sale impreso. Si no hay nada que elegir,
+   el modal estorba y se salta.
+   ===================================================================== */
+const Consentimiento = (() => {
+
+  let idExpediente = null;
+  let idPlan       = null;
+  let datos        = null;
+  let modal        = null;
+
+  function elementos() {
+    return {
+      tutor:     document.getElementById('consTutor'),
+      domicilio: document.getElementById('consDomicilio'),
+      dentista:  document.getElementById('consDentista'),
+      bloqueDom: document.getElementById('consBloqueDomicilio'),
+    };
+  }
+
+  /** Los domicilios dependen del tutor elegido. */
+  function pintarDomicilios() {
+    const el = elementos();
+
+    const tutor = datos.tutores.find(
+      (t) => String(t.id_expediente_tutor) === el.tutor.value);
+
+    const lista = tutor?.domicilios ?? [];
+
+    el.domicilio.innerHTML = lista.length
+      ? lista.map((d) => `<option value="${d.id_domicilio}">
+           ${App.esc([d.calle_numero, d.colonia,
+                      d.codigo_postal ? 'C.P. ' + d.codigo_postal : '',
+                      d.nombre_municipio].filter(Boolean).join(', '))}
+         </option>`).join('')
+      : '<option value="">Este tutor no tiene domicilio registrado</option>';
+
+    // Con un solo domicilio no hay nada que elegir.
+    el.bloqueDom.classList.toggle('d-none', lista.length <= 1);
+  }
+
+  function abrirDocumento() {
+    const el = elementos();
+
+    const url = `${App.URL_BASE}/consentimiento.php`
+      + `?id=${idExpediente}`
+      + `&plan=${idPlan || 0}`
+      + `&tutor=${el.tutor.value || 0}`
+      + `&domicilio=${el.domicilio.value || 0}`
+      + `&dentista=${el.dentista.value || 0}`;
+
+    // Ancho de hoja carta (21.6 cm = 816 px) mas el margen del visor.
+    App.abrirVentana(url, 880, 1020, 'consentimiento');
+
+    // Al volver, el plan ya tiene su pendiente de consentimiento.
+    setTimeout(() => Expediente.cargar(), 1500);
+  }
+
+  /** Punto de entrada: pide el consentimiento de un plan. */
+  async function pedir(plan) {
+    idPlan = plan || null;
+
+    App.alerta.cargando('Preparando el documento...');
+    try {
+      const r = await App.api('paciente/consentimiento_datos.php', {
+        id_registro_paciente: idExpediente,
+      });
+      App.alerta.cerrar();
+      datos = r.datos;
+
+      if (!datos.tutores.length) {
+        const seguir = await App.alerta.confirmar(
+          'Este paciente no tiene tutor registrado',
+          'El consentimiento saldra sin nombre ni domicilio del representante '
+          + 'legal. \u00bfAun asi quieres imprimirlo?',
+          'Si, imprimir en blanco');
+        if (!seguir) return;
+        abrirDocumento();
+        return;
+      }
+
+      const el = elementos();
+
+      el.tutor.innerHTML = datos.tutores.map((t) => `
+        <option value="${t.id_expediente_tutor}">
+          ${App.esc(t.nombre_completo)}
+          ${t.nombre_parentesco ? ' \u2014 ' + App.esc(t.nombre_parentesco) : ''}
+          ${Number(t.es_responsable_pago) === 1 ? ' (responsable de pago)' : ''}
+        </option>`).join('');
+
+      el.dentista.innerHTML = datos.dentistas.length
+        ? datos.dentistas.map((d) => `
+            <option value="${d.id_usuario}"
+              ${String(d.id_usuario) === String(datos.yo_dentista) ? 'selected' : ''}>
+              ${App.esc(d.nombre_completo)}
+            </option>`).join('')
+        : '<option value="">No hay dentistas registrados</option>';
+
+      pintarDomicilios();
+
+      const unTutor     = datos.tutores.length === 1;
+      const unDomicilio = (datos.tutores[0].domicilios ?? []).length <= 1;
+      const unDentista  = datos.dentistas.length === 1;
+
+      // Sin nada que decidir, no se estorba con un modal de un solo
+      // camino: se abre el documento directo.
+      if (unTutor && unDomicilio && unDentista) {
+        abrirDocumento();
+        return;
+      }
+
+      modal.show();
+    } catch (e) {
+      App.alerta.cerrar();
+    }
+  }
+
+  function iniciar(expediente) {
+    idExpediente = expediente;
+
+    const caja = document.getElementById('modalConsentimiento');
+    if (!caja) return;
+
+    modal = bootstrap.Modal.getOrCreateInstance(caja);
+
+    document.getElementById('consTutor')
+      .addEventListener('change', pintarDomicilios);
+
+    document.getElementById('formConsentimiento')
+      .addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        modal.hide();
+        abrirDocumento();
+      });
+  }
+
+  return { iniciar, pedir };
 })();

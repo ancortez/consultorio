@@ -667,36 +667,63 @@ INSERT INTO medio_contacto (id_medio_contacto, nombre_medio_contacto, descripcio
 -- ---------------------------------------------------------------------
 -- Expediente electronico
 --
--- pendiente_al_alta = 1 significa que en cuanto se registra un paciente
--- el sistema ya le apunta ese documento como faltante. Asi el pendiente
--- no depende de que alguien se acuerde de crearlo.
+-- pendiente_al_alta quedo en 0 para todos. Antes se apuntaba el
+-- faltante al registrar al paciente, y el expediente nacia con avisos
+-- rojos de papeles que todavia no existian. Ahora el pendiente se crea
+-- cuando el papel se genera: al guardar la historia clinica, al
+-- imprimir el consentimiento, al crear la receta.
 -- ---------------------------------------------------------------------
+-- El campo 'ambito' decide donde aparece el documento en el expediente:
+--   PACIENTE = bloque de arriba, comun a todo el expediente
+--   PLAN     = dentro del bloque del plan de tratamiento que lo genero
+-- Y 'permite_varios' se lee dentro de ese ambito: el consentimiento es
+-- unico POR PLAN, no uno solo en toda la vida del paciente.
 INSERT INTO tipo_documento
   (id_tipo_documento, clave, nombre_documento, descripcion, icono,
-   pendiente_al_alta, permite_varios, formatos, orden) VALUES
+   pendiente_al_alta, permite_varios, ambito, formatos, orden) VALUES
+
+-- ---- Del paciente: valen para todo el expediente ----
 (1,'FOTO_PACIENTE','Fotografia del paciente',
  'Foto de frente para identificarlo en el expediente',
- 'bi-person-badge', 1, 0, 'jpg,jpeg,png', 1),
-(2,'HISTORIAL_CLINICO','Historial clinico',
- 'Hoja de historia clinica firmada por el tutor',
- 'bi-clipboard2-pulse', 1, 0, 'pdf,jpg,jpeg,png', 2),
--- El consentimiento es unico por expediente: se firma una vez y ahi
--- queda. Consultarlo o reimprimirlo no debe generar otro faltante.
-(3,'CONSENTIMIENTO','Consentimiento bajo informacion',
- 'Se imprime prellenado, se firma y se escanea',
- 'bi-file-earmark-check', 1, 0, 'pdf,jpg,jpeg,png', 3),
-(4,'PLAN_TRATAMIENTO','Plan de tratamiento',
- 'Plan firmado por el tutor',
- 'bi-list-check', 0, 1, 'pdf,jpg,jpeg,png', 4),
-(5,'IDENTIFICACION_TUTOR','Identificacion del tutor',
- 'Credencial vigente del tutor o responsable legal',
- 'bi-person-vcard', 0, 1, 'pdf,jpg,jpeg,png', 5),
-(6,'RADIOGRAFIA','Radiografia',
- 'Radiografias periapicales o panoramicas',
- 'bi-image', 0, 1, 'pdf,jpg,jpeg,png', 6),
+ 'bi-person-badge', 0, 0, 'PACIENTE', 'jpg,jpeg,png', 1),
+(5,'IDENTIFICACION_TUTOR','Credencial del tutor',
+ 'Credencial vigente del tutor o responsable legal. Una por cada tutor.',
+ 'bi-person-vcard', 0, 1, 'PACIENTE', 'pdf,jpg,jpeg,png', 2),
+(2,'HISTORIAL_CLINICO','Historial clinico firmado',
+ 'Hoja de historia clinica firmada por el tutor y el dentista',
+ 'bi-clipboard2-pulse', 0, 0, 'PACIENTE', 'pdf,jpg,jpeg,png', 3),
 (7,'OTRO','Otro documento',
  'Cualquier otro documento del expediente',
- 'bi-paperclip', 0, 1, 'pdf,jpg,jpeg,png,doc,docx', 9);
+ 'bi-paperclip', 0, 1, 'PACIENTE', 'pdf,jpg,jpeg,png,doc,docx', 9),
+
+-- ---- Del plan de tratamiento ----
+(3,'CONSENTIMIENTO','Consentimiento bajo informacion',
+ 'Se imprime prellenado, se firma y se escanea. Uno por plan.',
+ 'bi-file-earmark-check', 0, 0, 'PLAN', 'pdf,jpg,jpeg,png', 1),
+(4,'PLAN_TRATAMIENTO','Hoja del plan de tratamiento',
+ 'Plan firmado por el tutor y el dentista',
+ 'bi-list-check', 0, 0, 'PLAN', 'pdf,jpg,jpeg,png', 2),
+
+-- ---- De la consulta ----
+-- Una consulta ligada a un plan arrastra sus documentos al bloque de
+-- ese plan, anidados bajo la consulta. Una consulta suelta los deja en
+-- el bloque general. Por eso no hace falta duplicar los tipos.
+(8,'RECETA','Receta',
+ 'Receta entregada en la consulta, firmada y escaneada',
+ 'bi-prescription2', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png', 1),
+(6,'RADIOGRAFIA','Radiografia',
+ 'Radiografias periapicales o panoramicas',
+ 'bi-radioactive', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png', 2),
+(9,'FOTOGRAFIA','Fotografia clinica',
+ 'Fotografias intraorales y de avance del tratamiento',
+ 'bi-camera', 0, 1, 'CONSULTA', 'jpg,jpeg,png', 3),
+(11,'OTRO_CONSULTA','Otro documento de la consulta',
+ 'Estudios externos, interconsultas, cualquier otro papel',
+ 'bi-paperclip', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png,doc,docx', 9);
+
+-- NOTA_EVOLUCION ya no es un tipo de documento: las notas se escriben
+-- en el sistema y viven en la tabla nota_evolucion. No hay papel que
+-- escanear, asi que no tienen por que generar un pendiente.
 
 INSERT INTO tipo_identificacion
   (id_tipo_identificacion, nombre_identificacion, tiene_vigencia) VALUES
@@ -790,11 +817,17 @@ INSERT INTO permiso (id_modulo, clave, nombre) VALUES
 (3,'cajas.egreso','Registrar egresos'),
 (3,'cajas.corte','Abrir y cerrar caja'),
 (3,'cajas.cancelar','Cancelar pagos'),
+(3,'cajas.descuento','Autorizar descuentos'),
+(3,'cajas.cargo','Registrar cargos a pacientes'),
+(3,'cajas.estado_cuenta','Ver estado de cuenta de pacientes'),
 (4,'consultas.ver','Ver consultas'),
 (4,'consultas.crear','Registrar consulta'),
 (4,'consultas.agenda','Administrar agenda'),
 (4,'consultas.plan','Planes de tratamiento'),
 (4,'consultas.odontograma','Odontograma'),
+-- Sin este permiso el usuario solo ve en la lista las consultas que el
+-- atendio. Recepcion y administracion si necesitan verlas todas.
+(4,'consultas.todas','Ver las consultas de todos los dentistas'),
 (5,'reportes.ver','Ver reportes'),
 (5,'reportes.exportar','Exportar reportes'),
 (6,'config.usuarios','Administrar usuarios'),
@@ -820,13 +853,16 @@ WHERE clave IN ('paciente.ver','paciente.crear','paciente.editar',
                 'paciente.historia',
                 'consultas.ver','consultas.crear','consultas.agenda',
                 'consultas.plan','consultas.odontograma','reportes.ver',
-                'config.procedimientos');
+                'config.procedimientos',
+                'cajas.ver','cajas.cobrar','cajas.cargo','cajas.descuento',
+                'cajas.estado_cuenta');
 -- Recepcion
 INSERT INTO rol_permiso (id_rol, id_permiso)
 SELECT 3, id_permiso FROM permiso
 WHERE clave IN ('paciente.ver','paciente.crear','paciente.editar',
-                'cajas.ver','cajas.cobrar','cajas.corte',
-                'consultas.ver','consultas.agenda',
+                'cajas.ver','cajas.cobrar','cajas.corte','cajas.egreso',
+                'cajas.cargo','cajas.estado_cuenta',
+                'consultas.ver','consultas.agenda','consultas.todas',
                 'factura.ver','factura.emitir','reportes.ver',
                 'config.colonias','config.ocupaciones','paciente.historia');
 -- Auxiliar
@@ -1056,7 +1092,13 @@ INSERT INTO estado_plan (id_estado_plan, nombre_estado) VALUES
 -- ---------------------------------------------------------------------
 -- Caja
 -- ---------------------------------------------------------------------
-INSERT INTO caja (id_caja, nombre_caja) VALUES (1,'Caja recepcion');
+-- Varias cajas: la de recepcion y la de cada doctora, porque tambien
+-- cobran por transferencia o en efectivo desde el consultorio. Cada una
+-- abre y cierra su turno por separado, y su corte es el suyo.
+INSERT INTO caja (id_caja, nombre_caja) VALUES
+(1,'Recepcion'),
+(2,'Consultorio 1'),
+(3,'Consultorio 2');
 
 INSERT INTO forma_pago (id_forma_pago, nombre_forma, clave_sat, afecta_efectivo) VALUES
 (1,'Efectivo','01',1),
@@ -1077,7 +1119,21 @@ INSERT INTO concepto_movimiento (id_concepto, nombre_concepto, naturaleza) VALUE
 (8,'Nomina','E'),
 (9,'Retiro de efectivo','E'),
 (10,'Devolucion a paciente','E'),
-(11,'Otros egresos','E');
+(11,'Otros egresos','E'),
+-- Contraparte de una cancelacion: no se borra el ingreso, se registra
+-- su reverso para que el corte cuadre y quede el rastro de los dos.
+(12,'Cancelacion de cobro','E');
+
+-- ---------------------------------------------------------------------
+-- Recordatorios de cita
+--
+-- Cuantos avisos y con cuanta anticipacion. Se puede cambiar desde
+-- Configuracion: son las que el consultorio pidio para empezar.
+-- ---------------------------------------------------------------------
+INSERT INTO recordatorio_regla (id_regla, nombre, horas_antes, orden) VALUES
+(1,'Dos dias antes', 48, 1),
+(2,'El dia anterior', 24, 2),
+(3,'Dos horas antes', 2, 3);
 
 -- ---------------------------------------------------------------------
 -- Facturacion (subconjunto de catalogos SAT usados en el giro)

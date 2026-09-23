@@ -18,9 +18,38 @@ $idDentista   = paramInt('id_usuario_dentista');
 $idSala       = paramInt('id_sala');
 $fecha        = trim((string) param('fecha', ''));
 $hora         = trim((string) param('hora', ''));
+$idProc       = paramInt('id_procedimiento') ?: null;
 $duracion     = paramInt('duracion_min') ?? Agenda::BLOQUE;
 $motivo       = limpiarEspacios(paramMayus('motivo'));
 $notas        = limpiarEspacios(paramMayus('notas'));
+
+// La duracion sale del procedimiento previsto. Apartar media hora
+// para todo es lo que hace que una agenda se retrase desde la tercera
+// cita: una resina y una revision no ocupan el sillon igual.
+if ($idProc !== null) {
+    $proc = Conexion::uno(
+        'SELECT nombre_procedimiento, duracion_min FROM procedimiento
+          WHERE id_procedimiento = :p AND estatus = 1',
+        [':p' => $idProc]
+    );
+
+    if ($proc === null) {
+        $idProc = null;
+    } else {
+        // Se respeta lo que haya capturado quien agenda: el catalogo
+        // propone, no impone. Solo se usa cuando no vino nada.
+        if (!paramInt('duracion_min') && (int) $proc['duracion_min'] > 0) {
+            // Se redondea hacia arriba al bloque de media hora: la
+            // agenda trabaja en bloques y una cita de 40 minutos ocupa
+            // dos, no uno y un tercio.
+            $duracion = (int) (ceil((int) $proc['duracion_min'] / Agenda::BLOQUE)
+                * Agenda::BLOQUE);
+        }
+        if ($motivo === null || $motivo === '') {
+            $motivo = mb_strtoupper($proc['nombre_procedimiento'], 'UTF-8');
+        }
+    }
+}
 
 $errores = [];
 if (!$idExpediente) { $errores['id_registro_paciente'] = 'Selecciona el paciente.'; }
@@ -58,23 +87,31 @@ try {
         Conexion::consulta(
             'UPDATE cita
                 SET id_registro_paciente = :r, id_usuario_dentista = :d,
-                    id_sala = :s, fecha_inicio = :ini, fecha_fin = :fin,
+                    id_sala = :s, id_procedimiento = :proc,
+                    fecha_inicio = :ini, fecha_fin = :fin,
                     motivo = :m, notas = :n, id_estado_cita = :e,
                     recordatorio_enviado = 0
               WHERE id_cita = :id',
             [':r' => $idExpediente, ':d' => $idDentista, ':s' => $idSala ?: null,
+             ':proc' => $idProc,
              ':ini' => $inicio, ':fin' => $fin, ':m' => $motivo, ':n' => $notas,
              ':e' => ESTADO_PENDIENTE, ':id' => $idCita]
         );
+        // Los recordatorios ya hechos dejan de valer: el horario que se
+        // le dijo al paciente ya no es el de la cita.
+        Conexion::consulta(
+            'DELETE FROM cita_recordatorio WHERE id_cita = :c', [':c' => $idCita]);
+
         $accion = 'REAGENDA';
     } else {
         Conexion::consulta(
             'INSERT INTO cita
                 (id_registro_paciente, id_usuario_dentista, id_sala,
-                 id_estado_cita, fecha_inicio, fecha_fin, motivo, notas,
-                 id_usuario_registro)
-             VALUES (:r, :d, :s, :e, :ini, :fin, :m, :n, :u)',
+                 id_procedimiento, id_estado_cita, fecha_inicio, fecha_fin,
+                 motivo, notas, id_usuario_registro)
+             VALUES (:r, :d, :s, :proc, :e, :ini, :fin, :m, :n, :u)',
             [':r' => $idExpediente, ':d' => $idDentista, ':s' => $idSala ?: null,
+             ':proc' => $idProc,
              ':e' => ESTADO_PENDIENTE, ':ini' => $inicio, ':fin' => $fin,
              ':m' => $motivo, ':n' => $notas, ':u' => Auth::id()]
         );

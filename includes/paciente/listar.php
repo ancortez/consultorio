@@ -43,16 +43,25 @@ if ($q !== '') {
     $params[':q4'] = $comodin;
 }
 
+// El domicilio viaja partido en dos: la calle con su numero va en el
+// primer renglon y con letra un poco mas grande, y la colonia y el resto
+// en el segundo. Armarlo como una sola cadena obligaria al JavaScript a
+// adivinar donde cortar.
 $sql = 'SELECT vp.id_registro_paciente, vp.num_expediente, vp.id_persona,
                vp.nombre_completo, vp.edad, vp.telefono, vp.correo,
-               vp.estatus, vp.ultima_consulta,
-               (SELECT CONCAT_WS(", ", vd.calle_numero, vd.colonia,
-                                 vd.codigo_postal, vd.nombre_municipio,
-                                 vd.nombre_estado)
+               vp.estatus, vp.ultima_consulta, vp.foto,
+               (SELECT vd.calle_numero
                   FROM v_domicilio vd
                  WHERE vd.id_persona = vp.id_persona AND vd.estatus = 1
                  ORDER BY vd.es_principal DESC, vd.id_domicilio
-                 LIMIT 1) AS domicilio
+                 LIMIT 1) AS domicilio_calle,
+               (SELECT CONCAT_WS(", ", vd.colonia,
+                                 CONCAT("C.P. ", vd.codigo_postal),
+                                 vd.nombre_municipio, vd.nombre_estado)
+                  FROM v_domicilio vd
+                 WHERE vd.id_persona = vp.id_persona AND vd.estatus = 1
+                 ORDER BY vd.es_principal DESC, vd.id_domicilio
+                 LIMIT 1) AS domicilio_resto
           FROM v_paciente vp';
 
 if ($where) {

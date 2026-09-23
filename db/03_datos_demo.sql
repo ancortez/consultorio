@@ -184,28 +184,38 @@ INSERT INTO cita (id_cita, id_registro_paciente, id_usuario_dentista, id_sala, i
 (21, 9, 2, 1, 1, DATE_ADD(@hoy, INTERVAL 7 DAY) + INTERVAL 13 HOUR, DATE_ADD(@hoy, INTERVAL 7 DAY) + INTERVAL 825 MINUTE, 'Limpieza dental');
 
 -- ---------- Consultas realizadas ----------
-INSERT INTO consulta (id_consulta, id_registro_paciente, id_usuario_dentista, fecha_hora, motivo, diagnostico, cerrada, fecha_cierre) VALUES
-(1, 12, 2, DATE_SUB(NOW(), INTERVAL 139 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
-(2, 4, 2, DATE_SUB(NOW(), INTERVAL 12 DAY), 'Limpieza', 'Gingivitis leve generalizada', 1, NOW()),
-(3, 5, 2, DATE_SUB(NOW(), INTERVAL 155 DAY), 'Limpieza', 'Sin hallazgos patologicos', 1, NOW()),
-(4, 9, 3, DATE_SUB(NOW(), INTERVAL 38 DAY), 'Dolor dental', 'Sin hallazgos patologicos', 1, NOW()),
-(5, 8, 3, DATE_SUB(NOW(), INTERVAL 133 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
-(6, 3, 2, DATE_SUB(NOW(), INTERVAL 117 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
-(7, 1, 2, DATE_SUB(NOW(), INTERVAL 49 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
-(8, 10, 2, DATE_SUB(NOW(), INTERVAL 147 DAY), 'Dolor dental', 'Sin hallazgos patologicos', 1, NOW()),
-(9, 11, 3, DATE_SUB(NOW(), INTERVAL 32 DAY), 'Dolor dental', 'Gingivitis leve generalizada', 1, NOW()),
-(10, 4, 3, DATE_SUB(NOW(), INTERVAL 15 DAY), 'Dolor dental', 'Periodontitis cronica localizada', 1, NOW()),
-(11, 8, 2, DATE_SUB(NOW(), INTERVAL 21 DAY), 'Control de tratamiento', 'Sin hallazgos patologicos', 1, NOW()),
-(12, 10, 2, DATE_SUB(NOW(), INTERVAL 75 DAY), 'Control de tratamiento', 'Periodontitis cronica localizada', 1, NOW()),
-(13, 9, 3, DATE_SUB(NOW(), INTERVAL 134 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
-(14, 5, 2, DATE_SUB(NOW(), INTERVAL 119 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
-(15, 2, 3, DATE_SUB(NOW(), INTERVAL 118 DAY), 'Limpieza', 'Caries oclusal en organo dentario 36', 1, NOW());
+-- Las consultas con id_plan_tratamiento salen dentro del bloque de su
+-- plan en el expediente; las de NULL quedan arriba, como consultas
+-- sueltas. La demo trae de las dos para que se vea la diferencia.
+INSERT INTO consulta (id_consulta, folio, id_registro_paciente, id_usuario_dentista, fecha_hora, motivo, diagnostico, cerrada, fecha_cierre) VALUES
+(1, 'CN-0001', 12, 2, DATE_SUB(NOW(), INTERVAL 139 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
+(2, 'CN-0002', 4, 2, DATE_SUB(NOW(), INTERVAL 12 DAY), 'Limpieza', 'Gingivitis leve generalizada', 1, NOW()),
+(3, 'CN-0003', 5, 2, DATE_SUB(NOW(), INTERVAL 155 DAY), 'Limpieza', 'Sin hallazgos patologicos', 1, NOW()),
+(4, 'CN-0004', 9, 3, DATE_SUB(NOW(), INTERVAL 38 DAY), 'Dolor dental', 'Sin hallazgos patologicos', 1, NOW()),
+(5, 'CN-0005', 8, 3, DATE_SUB(NOW(), INTERVAL 133 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
+(6, 'CN-0006', 3, 2, DATE_SUB(NOW(), INTERVAL 117 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
+(7, 'CN-0007', 1, 2, DATE_SUB(NOW(), INTERVAL 49 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
+(8, 'CN-0008', 10, 2, DATE_SUB(NOW(), INTERVAL 147 DAY), 'Dolor dental', 'Sin hallazgos patologicos', 1, NOW()),
+(9, 'CN-0009', 11, 3, DATE_SUB(NOW(), INTERVAL 32 DAY), 'Dolor dental', 'Gingivitis leve generalizada', 1, NOW()),
+(10, 'CN-0010', 4, 3, DATE_SUB(NOW(), INTERVAL 15 DAY), 'Dolor dental', 'Periodontitis cronica localizada', 1, NOW()),
+(11, 'CN-0011', 8, 2, DATE_SUB(NOW(), INTERVAL 21 DAY), 'Control de tratamiento', 'Sin hallazgos patologicos', 1, NOW()),
+(12, 'CN-0012', 10, 2, DATE_SUB(NOW(), INTERVAL 75 DAY), 'Control de tratamiento', 'Periodontitis cronica localizada', 1, NOW()),
+(13, 'CN-0013', 9, 3, DATE_SUB(NOW(), INTERVAL 134 DAY), 'Revision de rutina', 'Periodontitis cronica localizada', 1, NOW()),
+(14, 'CN-0014', 5, 2, DATE_SUB(NOW(), INTERVAL 119 DAY), 'Revision de rutina', 'Caries interproximal 24-25', 1, NOW()),
+(15, 'CN-0015', 2, 3, DATE_SUB(NOW(), INTERVAL 118 DAY), 'Limpieza', 'Caries oclusal en organo dentario 36', 1, NOW());
+
+-- Consultas que forman parte de un plan (se liga despues de crear los
+-- planes, que se insertan mas abajo).
 
 -- ---------- Planes de tratamiento ----------
 INSERT INTO plan_tratamiento (id_plan_tratamiento, id_registro_paciente, id_usuario_dentista, folio, fecha, id_estado_plan, subtotal, total, saldo) VALUES
 (1, 1, 2, 'PT-0001', DATE_SUB(CURDATE(), INTERVAL 40 DAY), 3, 4700.00, 4700.00, 1700.00),
 (2, 4, 2, 'PT-0002', DATE_SUB(CURDATE(), INTERVAL 25 DAY), 2, 3500.00, 3500.00, 3500.00),
 (3, 8, 3, 'PT-0003', DATE_SUB(CURDATE(), INTERVAL 12 DAY), 1, 12000.00, 12000.00, 12000.00);
+
+-- Consultas del plan PT-0001 (paciente 1) y del PT-0002 (paciente 4).
+UPDATE consulta SET id_plan_tratamiento = 1 WHERE id_consulta = 7;
+UPDATE consulta SET id_plan_tratamiento = 2 WHERE id_consulta = 10;
 
 INSERT INTO plan_tratamiento_detalle (id_plan_tratamiento, id_tratamiento, id_diente, cantidad, precio_unitario, importe, orden, estado_avance) VALUES
 (1, 4, NULL, 1, 700.00, 700.00, 1, 2),

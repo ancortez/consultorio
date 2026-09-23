@@ -58,15 +58,31 @@ $kpi = [
           WHERE DATE(fecha_hora) = :hoy AND estatus = 1', [':hoy' => $hoy]),
 ];
 
-$porCobrar = Conexion::todos(
-    'SELECT vp.nombre_completo, vp.id_registro_paciente,
-            ps.folio, ps.total, ps.pagado, ps.saldo_actual
-       FROM v_plan_saldo ps
-       JOIN v_paciente vp ON vp.id_registro_paciente = ps.id_registro_paciente
-      WHERE ps.saldo_actual > 0
-      ORDER BY ps.saldo_actual DESC
-      LIMIT 6'
-);
+/**
+ * Pendientes de pago.
+ *
+ * Se agrupa por paciente y no por plan: en el mostrador se cobra a una
+ * persona, no a un folio, y un paciente con dos planes abiertos
+ * aparecia dos veces pidiendo dos cobros que en realidad son uno.
+ *
+ * Ordenado por antiguedad del adeudo: entre mas tiempo pasa, mas
+ * dificil es recuperarlo.
+ */
+$porCobrar = Auth::puede('cajas.ver')
+    ? Conexion::todos(
+        'SELECT vp.nombre_completo, vp.id_registro_paciente, vp.telefono,
+                vp.num_expediente, vps.saldo, vps.cargos_abiertos,
+                vps.adeudo_mas_antiguo,
+                DATEDIFF(CURDATE(), vps.adeudo_mas_antiguo) AS dias
+           FROM v_paciente_saldo vps
+           JOIN v_paciente vp ON vp.id_registro_paciente = vps.id_registro_paciente
+          WHERE vps.saldo > 0
+          ORDER BY vps.adeudo_mas_antiguo, vps.saldo DESC
+          LIMIT 8')
+    : [];
+
+$totalPorCobrar = (float) (Conexion::valor(
+    'SELECT COALESCE(SUM(saldo), 0) FROM v_paciente_saldo WHERE saldo > 0') ?? 0);
 
 /**
  * Citas por confirmar.
@@ -95,6 +111,21 @@ if ($soloMisCitas) {
 $sqlPorConfirmar .= ' ORDER BY c.fecha_inicio LIMIT 12';
 
 $porConfirmar = Conexion::todos($sqlPorConfirmar, $paramsPorConfirmar);
+
+/**
+ * Recordatorios que toca hacer.
+ *
+ * Es el trabajo que se olvida: el paciente confirmo hace dos semanas y
+ * nadie volvio a llamarle. El tablero los pone enfrente con el mensaje
+ * ya armado.
+ */
+$recordatorios = Auth::puede('consultas.ver')
+    ? AgendaExtra::pendientes($soloMisCitas ? (int) Auth::id() : null)
+    : [];
+
+$nombreConsultorio = (string) (Conexion::valor(
+    'SELECT nombre_comercial FROM consultorio WHERE id_consultorio = 1'
+) ?? 'el consultorio');
 
 $cajaAbierta = Conexion::uno(
     'SELECT cc.*, u.nombre_completo AS abrio
@@ -291,24 +322,153 @@ $tarjetas = [
         </div>
         <?php endif; ?>
 
-        <div class="card">
-            <div class="card-header"><i class="bi bi-exclamation-circle me-2"></i>Saldos pendientes</div>
+        <?php if (Auth::puede('cajas.ver')): ?>
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-cash-coin me-2"></i>Pendientes de pago
+                    <?php if ($porCobrar): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($porCobrar) ?></span>
+                    <?php endif; ?>
+                </span>
+                <a class="btn btn-sm btn-outline-morado"
+                   href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=pendientes">
+                    Ver todos
+                </a>
+            </div>
+
+            <?php if ($totalPorCobrar > 0): ?>
+            <div class="px-3 pt-2">
+                <div class="resumen-saldo">
+                    <div>
+                        <span class="et">Total por cobrar</span>
+                        <span class="va fs-5" style="color:var(--error)">
+                            <?= e(money($totalPorCobrar)) ?>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <div class="list-group list-group-flush">
                 <?php if (!$porCobrar): ?>
-                    <div class="p-4 text-center text-secondary small">Sin saldos pendientes.</div>
+                    <div class="p-4 text-center text-secondary small">
+                        <i class="bi bi-check2-circle fs-3 d-block mb-2"
+                           style="color:var(--exito)"></i>
+                        Nadie debe nada.
+                    </div>
                 <?php else: foreach ($porCobrar as $p): ?>
-                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-                       href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $p['id_registro_paciente'] ?>">
-                        <div>
-                            <div class="fw-semibold" style="font-size:13px"><?= e($p['nombre_completo']) ?></div>
-                            <div class="text-secondary" style="font-size:11px"><?= e($p['folio']) ?></div>
+                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                        <div style="min-width:0">
+                            <a class="enlace-paciente" style="font-size:13px"
+                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $p['id_registro_paciente'] ?>">
+                                <?= e($p['nombre_completo']) ?>
+                            </a>
+                            <div class="text-secondary" style="font-size:11px">
+                                <?= (int) $p['cargos_abiertos'] ?> concepto(s)
+                                <?php /* Un adeudo de mas de un mes se marca:
+                                         es el que hay que atender primero. */ ?>
+                                <?php if ((int) $p['dias'] > 30): ?>
+                                    &middot; <span style="color:var(--error)">
+                                        hace <?= (int) $p['dias'] ?> d&iacute;as</span>
+                                <?php else: ?>
+                                    &middot; hace <?= (int) $p['dias'] ?> d&iacute;a(s)
+                                <?php endif; ?>
+                            </div>
                         </div>
-                        <span class="fw-semibold" style="color:var(--error)">
-                            <?= e(money($p['saldo_actual'])) ?>
-                        </span>
-                    </a>
+                        <div class="text-end">
+                            <div class="fw-semibold" style="color:var(--error)">
+                                <?= e(money($p['saldo'])) ?>
+                            </div>
+                            <?php if (Auth::puede('cajas.cobrar')): ?>
+                            <a class="btn btn-sm btn-morado mt-1"
+                               href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=cobrar&paciente=<?= (int) $p['id_registro_paciente'] ?>">
+                                Cobrar
+                            </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                 <?php endforeach; endif; ?>
             </div>
         </div>
+        <?php endif; ?>
+
+        <?php /* ============ Recordatorios ============ */ ?>
+        <?php if (Auth::puede('consultas.ver')): ?>
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-whatsapp me-2"></i>Recordatorios de hoy
+                    <?php if ($recordatorios): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($recordatorios) ?></span>
+                    <?php endif; ?>
+                </span>
+            </div>
+
+            <div class="list-group list-group-flush" id="listaRecordatorios">
+                <?php if (!$recordatorios): ?>
+                    <div class="p-4 text-center text-secondary small">
+                        <i class="bi bi-check2-circle fs-3 d-block mb-2"
+                           style="color:var(--exito)"></i>
+                        No hay recordatorios pendientes.
+                    </div>
+                <?php else: foreach ($recordatorios as $r):
+                    $tel = preg_replace('/\D+/', '', (string) ($r['telefono'] ?? ''));
+                    if (strlen($tel) === 10) { $tel = '52' . $tel; }
+                    $mensaje = AgendaExtra::mensaje($r, $nombreConsultorio);
+                ?>
+                    <div class="list-group-item recordatorio" data-cita="<?= (int) $r['id_cita'] ?>"
+                         data-regla="<?= (int) $r['id_regla'] ?>">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                            <div style="min-width:0">
+                                <a class="enlace-paciente" style="font-size:13px"
+                                   href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $r['id_registro_paciente'] ?>">
+                                    <?= e($r['paciente']) ?>
+                                </a>
+                                <div class="text-secondary" style="font-size:11px">
+                                    <?= e(fechaHora($r['fecha_inicio'])) ?>
+                                    &middot; <?= e($r['dentista']) ?>
+                                </div>
+                                <div style="font-size:10.5px">
+                                    <span class="chip-estado badge-pendiente">
+                                        <?= e($r['regla']) ?>
+                                    </span>
+                                    <span class="text-secondary">
+                                        faltan <?= (int) round($r['horas_faltan']) ?> h
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="d-flex flex-column gap-1 align-items-end">
+                                <?php if ($tel !== ''): ?>
+                                <a class="btn btn-sm btn-whatsapp" target="_blank"
+                                   rel="noopener"
+                                   href="https://wa.me/<?= e($tel) ?>?text=<?= rawurlencode($mensaje) ?>"
+                                   data-accion="rec-enviar">
+                                    <i class="bi bi-whatsapp"></i> Enviar
+                                </a>
+                                <?php else: ?>
+                                <span class="text-secondary" style="font-size:10.5px">
+                                    Sin tel&eacute;fono
+                                </span>
+                                <?php endif; ?>
+
+                                <div class="d-flex gap-1">
+                                    <button type="button" class="btn btn-sm btn-light"
+                                            data-accion="rec-hecho" title="Ya le avis&eacute;">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-light"
+                                            data-accion="rec-nocontesto" title="No contest&oacute;">
+                                        <i class="bi bi-telephone-x"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 </div>

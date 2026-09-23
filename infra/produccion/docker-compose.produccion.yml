@@ -1,0 +1,164 @@
+# =====================================================================
+#  Consultorio Dental - produccion
+#
+#  Diferencias de fondo contra el compose de local, y por que:
+#
+#  1. NADA se expone a internet salvo Caddy (80 y 443). En local MySQL
+#     y phpMyAdmin salen al puerto de la maquina porque ahi solo estas
+#     tu; en un servidor publico, un MySQL con puerto abierto lo
+#     encuentran bots en cuestion de horas.
+#
+#  2. Caddy consigue y renueva el certificado HTTPS solo, gratis, con
+#     Let's Encrypt. Sin esto las contrasenias de los usuarios viajarian
+#     en texto plano por internet.
+#
+#  3. El codigo se monta de solo lectura. La aplicacion no tiene por que
+#     escribir en su propio codigo, y si algun dia alguien encuentra un
+#     hueco, no puede dejar un archivo dentro.
+#
+#  4. phpMyAdmin no tiene puerto publico: se llega por un tunel SSH.
+#     Es la pieza mas atacada de cualquier servidor con MySQL.
+#
+#  Uso:
+#     docker compose -f docker-compose.produccion.yml up -d
+# =====================================================================
+
+services:
+
+  # -------------------------------------------------------------------
+  # Caddy: la unica puerta a internet
+  # -------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: consultorio_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Aqui viven los certificados. Si se pierde este volumen, Caddy
+      # los vuelve a pedir, pero Let's Encrypt tiene limites por semana:
+      # conviene no borrarlo a la ligera.
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMINIO:        ${DOMINIO:?Falta DOMINIO en el .env}
+      DOMINIO_MINIO:  ${DOMINIO_MINIO:-}
+      CORREO_CERTIFICADO: ${CORREO_CERTIFICADO:?Falta CORREO_CERTIFICADO en el .env}
+    networks:
+      - interna
+      - sistemas
+    depends_on:
+      - app
+
+  # -------------------------------------------------------------------
+  # Aplicacion
+  # -------------------------------------------------------------------
+  app:
+    build:
+      context: ../../docker/php
+    container_name: consultorio_app
+    restart: unless-stopped
+    # Sin 'ports': solo Caddy le habla, por la red interna.
+    volumes:
+      # Solo lectura: la app no escribe en su propio codigo.
+      - ../../:/var/www/html:ro
+      # Storage si necesita escribir (logs, temporales).
+      - ../../storage:/var/www/storage
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:?Falta DB_NAME}
+      DB_USER: ${DB_USER:?Falta DB_USER}
+      DB_PASS: ${DB_PASS:?Falta DB_PASS}
+
+      # En produccion los errores se registran, nunca se muestran. Un
+      # mensaje de error de PHP en pantalla le regala a cualquiera la
+      # ruta de los archivos y la estructura de la base.
+      APP_ENV: produccion
+      APP_TZ:  ${APP_TZ:-America/Mazatlan}
+
+      # Caddy termina el HTTPS y le habla a la app por HTTP interno.
+      # Sin esto PHP cree que la conexion es insegura y las cookies de
+      # sesion no se marcan como 'secure'.
+      HTTPS_DETRAS_DE_PROXY: "1"
+
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_BUCKET:   ${MINIO_BUCKET:-consultorio-dental}
+      MINIO_LLAVE:    ${MINIO_LLAVE:?Falta MINIO_LLAVE}
+      MINIO_SECRETO:  ${MINIO_SECRETO:?Falta MINIO_SECRETO}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - interna
+      - sistemas
+
+  # -------------------------------------------------------------------
+  # Base de datos
+  # -------------------------------------------------------------------
+  db:
+    image: mysql:8.0
+    container_name: consultorio_db
+    restart: unless-stopped
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    # Sin 'ports': MySQL no sale a internet. Para conectarte desde tu
+    # computadora, usa el tunel SSH que explica la guia.
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?Falta DB_ROOT_PASS}
+      MYSQL_DATABASE:      ${DB_NAME}
+      MYSQL_USER:          ${DB_USER}
+      MYSQL_PASSWORD:      ${DB_PASS}
+      TZ:                  ${APP_TZ:-America/Mazatlan}
+    volumes:
+      - db_data:/var/lib/mysql
+      # Los .sql corren solo la primera vez, cuando el volumen esta
+      # vacio. En un servidor con datos reales esto nunca se dispara,
+      # que es justo lo que se quiere.
+      - ../../db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - interna
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASS}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # -------------------------------------------------------------------
+  # phpMyAdmin: solo por tunel SSH
+  # -------------------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: consultorio_pma
+    restart: unless-stopped
+    # 127.0.0.1 al inicio es la parte importante: el puerto solo existe
+    # dentro del servidor. Desde internet no se ve. Para entrar:
+    #    ssh -L 8081:localhost:8081 consultorio@TU_IP
+    # y luego http://localhost:8081 en tu navegador.
+    ports:
+      - "127.0.0.1:8081:80"
+    environment:
+      PMA_HOST: db
+      UPLOAD_LIMIT: 256M
+    networks:
+      - interna
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  interna:
+
+  # Red compartida con MinIO. Se crea una vez con:
+  #    docker network create sistemas
+  sistemas:
+    external: true
+    name: sistemas

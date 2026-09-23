@@ -191,10 +191,17 @@ a:hover { color: var(--morado-500); }
 .subtitulo-vista { color: var(--gris-600); font-size: .875rem; margin: 0; }
 
 /* ---------- Tarjeta de identificacion del paciente ---------- */
-.card-identidad { overflow: hidden; }
+/* La cinta de color llega hasta el borde, asi que la tarjeta necesita
+   recortar lo que sobresale: sin overflow oculto las esquinas de arriba
+   se ven cuadradas aunque la tarjeta tenga radio. */
+.card-identidad {
+  overflow: hidden;
+  border-radius: 18px;
+}
 .card-identidad .cabecera {
   background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
   height: 76px;
+  border-radius: 18px 18px 0 0;
 }
 .card-identidad .foto {
   width: 104px; height: 104px;
@@ -760,6 +767,172 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
 .doc-nombre { font-weight: 600; color: var(--morado-900); line-height: 1.3; }
 .doc-meta   { color: var(--gris-600); font-size: 11.5px; line-height: 1.5; }
 
+/* ---------------------------------------------------------------------
+   Listado de pacientes
+   --------------------------------------------------------------------- */
+
+/* Cuadrito morado a la izquierda del nombre. Si el paciente ya tiene
+   fotografia se ve su cara; si no, un monito generico. Es un enlace, no
+   un adorno: da el segundo camino al expediente. */
+.avatar-mini {
+  width: 34px; height: 34px;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-decoration: none;
+  transition: transform .12s, box-shadow .12s;
+}
+.avatar-mini:hover { transform: scale(1.07); box-shadow: var(--sombra); color: #fff; }
+.avatar-mini img { width: 100%; height: 100%; object-fit: cover; }
+
+.enlace-paciente {
+  font-weight: 600;
+  color: var(--morado-800);
+  text-decoration: none;
+}
+.enlace-paciente:hover { color: var(--morado-600); text-decoration: underline; }
+
+/* La calle es el dato con el que se ubica a alguien, asi que va un poco
+   mas grande y en su propio renglon; la colonia y el municipio abajo. */
+.domicilio-calle { font-size: 13.5px; color: var(--gris-800, #3f3947); line-height: 1.35; }
+.domicilio-resto { font-size: 11.5px; color: var(--gris-600); line-height: 1.35; }
+
+/* ---------------------------------------------------------------------
+   Planes de tratamiento
+   --------------------------------------------------------------------- */
+
+/* Mismo cuadrito que el del paciente, con otro simbolo: se reconoce de
+   un vistazo que la fila es un plan y no una persona. */
+.icono-plan {
+  width: 30px; height: 30px;
+  flex: 0 0 30px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .95rem;
+  text-decoration: none;
+  transition: transform .12s, box-shadow .12s;
+}
+.icono-plan:hover { transform: scale(1.08); box-shadow: var(--sombra); color: #fff; }
+
+/* El diagnostico es lo que distingue un plan de otro, asi que pesa mas
+   que el nombre del dentista, que casi siempre se repite. */
+.plan-diagnostico { font-size: 13px; color: var(--gris-800, #3f3947); line-height: 1.35; }
+.plan-dentista    { font-size: 11px; color: var(--gris-600); line-height: 1.35; }
+
+/* ---------------------------------------------------------------------
+   Expediente electronico: carpeta de bloques colapsables
+
+   Arriba lo que es del paciente y despues un bloque por cada plan de
+   tratamiento. Cerrados de inicio para que un expediente con cinco anios
+   de historia no llegue como una pared de tarjetas.
+   --------------------------------------------------------------------- */
+.exp-bloque {
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  overflow: hidden;
+  margin-bottom: .8rem;
+  background: #fff;
+}
+
+.exp-cabecera {
+  width: 100%;
+  border: 0;
+  background: var(--lila-50);
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  padding: .85rem 1rem;
+  text-align: left;
+  transition: background .15s;
+}
+.exp-cabecera:hover { background: var(--rosa-100); }
+.exp-cabecera.abierto {
+  background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
+  color: #fff;
+}
+
+.exp-flecha { transition: transform .2s; color: var(--morado-600); }
+.exp-cabecera.abierto .exp-flecha { transform: rotate(90deg); color: #fff; }
+
+.exp-icono {
+  width: 34px; height: 34px;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--morado-700);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.05rem;
+}
+
+.exp-titulo { flex: 1; min-width: 0; }
+.exp-titulo .t { display: block; font-weight: 600; line-height: 1.3; }
+.exp-titulo .s {
+  display: block; font-size: 11.5px; opacity: .75;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Cerrado de verdad: sin altura y sin poder tabular hacia adentro. */
+.exp-cuerpo { display: none; padding: 1rem; }
+.exp-cuerpo.abierto { display: block; }
+
+.exp-barra-plan {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  background: var(--lila-50);
+  border-radius: var(--radio);
+  padding: .6rem .8rem;
+  margin-bottom: 1rem;
+}
+
+.exp-grupo { margin-bottom: 1.1rem; }
+.exp-grupo:last-child { margin-bottom: 0; }
+
+.exp-grupo-titulo {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--morado-700);
+  border-bottom: 1px solid var(--gris-100);
+  padding-bottom: .35rem;
+  margin-bottom: .6rem;
+}
+.exp-grupo-titulo .cuenta {
+  background: var(--rosa-100); color: var(--morado-800);
+  border-radius: 999px; padding: 0 .45rem;
+  font-size: 10.5px; letter-spacing: 0;
+}
+
+.exp-tarjetas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem;
+}
+
+.exp-vacio {
+  color: var(--gris-600); font-size: 12px;
+  background: var(--gris-50, #fafafa);
+  border: 1px dashed var(--gris-300);
+  border-radius: 10px;
+  padding: .7rem .9rem;
+}
+
+.exp-consultas { display: flex; flex-direction: column; gap: .4rem; }
+.exp-consulta {
+  display: flex; align-items: center; gap: .8rem;
+  border: 1px solid var(--gris-300);
+  border-radius: 10px;
+  padding: .6rem .8rem;
+}
+.exp-consulta .fecha {
+  flex: 0 0 120px;
+  font-size: 11.5px; font-weight: 600; color: var(--morado-700);
+}
+
 /* Zona para arrastrar archivos */
 .zona-soltar {
   border: 2px dashed var(--gris-300);
@@ -1064,4 +1237,528 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
 .seccion-colapsable .cuerpo-colapsable .row > [class^="col"] > .card {
   box-shadow: none;
   border: 1px solid var(--gris-100);
+}
+
+/* ---------------------------------------------------------------------
+   Configuracion > Apariencia
+   --------------------------------------------------------------------- */
+.tema-tarjeta {
+  width: 100%;
+  border: 2px solid var(--gris-300);
+  border-radius: var(--radio);
+  background: #fff;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  display: block;
+  position: relative;
+  transition: border-color .15s, box-shadow .15s, transform .12s;
+}
+.tema-tarjeta:hover { box-shadow: var(--sombra-alta); transform: translateY(-2px); }
+.tema-tarjeta.activo { border-color: var(--morado-600); }
+
+/* Las seis franjas son la paleta real del tema, no una aproximacion:
+   salen de los mismos valores que se le van a aplicar al sistema. */
+.tema-tarjeta .muestra { display: flex; height: 54px; }
+.tema-tarjeta .muestra span { flex: 1; }
+
+.tema-tarjeta .cuerpo { display: block; padding: .7rem .9rem; }
+.tema-tarjeta .nombre { display: block; font-weight: 600; color: var(--gris-900); }
+.tema-tarjeta .nota   { display: block; font-size: 11.5px; color: var(--gris-600); }
+
+.tema-tarjeta .marca {
+  position: absolute; top: .5rem; right: .5rem;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: #fff; color: var(--morado-700);
+  display: none; align-items: center; justify-content: center;
+  box-shadow: var(--sombra);
+}
+.tema-tarjeta.activo .marca { display: flex; }
+
+/* ---------------------------------------------------------------------
+   Selector de organos dentarios
+   --------------------------------------------------------------------- */
+
+/* Boton de la tabla del plan: dice que hay elegido sin abrir el modal. */
+.btn-dientes {
+  width: 100%;
+  border: 1px solid var(--gris-300);
+  border-radius: 8px;
+  background: #fff;
+  padding: .35rem .5rem;
+  font-size: 12.5px;
+  color: var(--morado-800);
+  display: flex; align-items: center; gap: .4rem;
+  text-align: left;
+  transition: border-color .15s, background .15s;
+}
+.btn-dientes:hover { border-color: var(--morado-500); background: var(--lila-50); }
+.btn-dientes i { color: var(--morado-600); flex: 0 0 auto; }
+.btn-dientes span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn-dientes.vacio { color: var(--gris-600); }
+
+/* La nota del procedimiento va debajo del nombre y no debe competir
+   con el: chica y discreta. */
+.campo-nota-chica {
+  font-size: 11.5px;
+  padding: .2rem .45rem;
+  height: auto;
+  min-height: 0;
+}
+
+/* ---------- La arcada ---------- */
+.arcada {
+  background: var(--lila-50);
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  padding: 1rem .8rem;
+}
+.arcada .renglon { display: flex; align-items: center; justify-content: center; }
+.arcada .mitad { display: flex; gap: .25rem; }
+
+/* La linea media separa los cuadrantes derecho e izquierdo, como en la
+   hoja de papel. Sin ella los numeros se leen como una sola tira. */
+.arcada .linea-media {
+  width: 2px; align-self: stretch;
+  background: var(--gris-300);
+  margin: 0 .6rem;
+}
+
+.arcada .etiqueta-arcada {
+  display: flex; justify-content: space-between;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--gris-600);
+  padding: .45rem .2rem;
+  margin: .3rem 0;
+  border-top: 1px dashed var(--gris-300);
+  border-bottom: 1px dashed var(--gris-300);
+}
+
+.diente {
+  border: 0; background: transparent; padding: 0;
+  width: 34px;
+  display: flex; flex-direction: column; align-items: center;
+  color: var(--gris-300);
+  transition: transform .1s, color .15s;
+}
+.diente i { font-size: 1.5rem; line-height: 1; }
+.diente span {
+  font-size: 10px; font-weight: 600;
+  color: var(--gris-600); margin-top: 1px;
+}
+.diente:hover:not(:disabled) { transform: translateY(-2px); color: var(--morado-400); }
+.diente.elegido { color: var(--morado-600); }
+.diente.elegido span { color: var(--morado-800); }
+.diente:disabled { opacity: .35; }
+
+/* Los temporales son mas chicos, como en la boca. */
+.diente.temporal { width: 38px; }
+.diente.temporal i { font-size: 1.3rem; }
+
+/* El campo que titula algo: mas grande porque es lo primero que se lee
+   en las listas y en el expediente. */
+.campo-titular {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--morado-800);
+  padding: .55rem .85rem;
+}
+
+/* ---------------------------------------------------------------------
+   Movimiento de los pasos y de los colapsables
+
+   El cambio de paso sin animacion se siente como si la pantalla se
+   hubiera recargado: no queda claro si uno avanzo, retrocedio o algo
+   fallo. El deslizado dice hacia donde va.
+   --------------------------------------------------------------------- */
+@keyframes paso-entra-derecha {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes paso-entra-izquierda {
+  from { opacity: 0; transform: translateX(-28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.paso.entra-derecha   { animation: paso-entra-derecha  .22s ease-out; }
+.paso.entra-izquierda { animation: paso-entra-izquierda .22s ease-out; }
+
+/* El colapsable se abre creciendo, no apareciendo de golpe. La altura
+   la pone el JavaScript en pixeles porque 'auto' no se puede animar. */
+.cuerpo-colapsable {
+  display: block;
+  height: 0;
+  overflow: hidden;
+  padding: 0 1.1rem;
+  transition: height .25s ease, padding .25s ease;
+}
+.seccion-colapsable.abierto .cuerpo-colapsable {
+  height: auto;
+  padding: 1rem 1.1rem 1.2rem;
+}
+
+/* Quien prefiere el sistema sin animaciones no las recibe. */
+@media (prefers-reduced-motion: reduce) {
+  .paso.entra-derecha, .paso.entra-izquierda { animation: none; }
+  .cuerpo-colapsable { transition: none; }
+}
+
+/* ---------------------------------------------------------------------
+   Anexos de la consulta (recetas, documentos, notas)
+   --------------------------------------------------------------------- */
+.anexo {
+  display: flex; gap: .6rem; align-items: flex-start;
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--gris-100);
+}
+.anexo:last-child { border-bottom: 0; }
+
+/* El texto de una receta o una nota puede ser largo. Se recorta a unas
+   lineas: quien quiera leerlo completo abre el detalle. */
+.anexo-texto {
+  font-size: 12px; color: var(--gris-900);
+  white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: .2rem;
+}
+
+.anexo-archivos { display: flex; flex-wrap: wrap; gap: .3rem; }
+.anexo-chip {
+  display: inline-flex; align-items: center; gap: .3rem;
+  background: var(--rosa-100); color: var(--morado-800);
+  border-radius: 999px; padding: .15rem .6rem;
+  font-size: 11px; text-decoration: none;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.anexo-chip:hover { background: var(--morado-700); color: #fff; }
+.anexo-chip.pendiente { background: #fff6e5; color: var(--alerta); }
+
+/* ---------- Album de archivos ---------- */
+.album-previo {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .5rem;
+}
+.album-item {
+  border: 1px solid var(--gris-300);
+  border-radius: 9px;
+  padding: .3rem;
+  text-align: center;
+  overflow: hidden;
+}
+.album-item img {
+  width: 100%; height: 70px; object-fit: cover;
+  border-radius: 6px; display: block;
+}
+.album-item i { font-size: 2rem; color: var(--morado-500); display: block; margin: .6rem 0; }
+.album-item span {
+  display: block; font-size: 10px; color: var(--gris-600);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- Encabezado de la receta ---------- */
+.rx-encabezado {
+  display: flex; gap: 1.2rem; align-items: flex-end;
+  background: var(--lila-50);
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  padding: .7rem .9rem;
+}
+.rx-encabezado .et {
+  display: block; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--gris-600);
+}
+.rx-encabezado .va { display: block; font-weight: 600; color: var(--morado-800); }
+
+/* El cuerpo de la receta se escribe como se ve en el papel. */
+.rx-cuerpo {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 13px; line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------------
+   Consultas dentro del expediente
+
+   Cada consulta es una caja y sus documentos cuelgan debajo, recorridos
+   a la derecha. La barra de color de la izquierda es lo que hace que se
+   lea como "esto pertenece a esa cita" y no como una lista aparte.
+   --------------------------------------------------------------------- */
+.exp-consulta-caja {
+  border: 1px solid var(--gris-300);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: .5rem;
+}
+.exp-consulta-caja .exp-consulta { border: 0; border-radius: 0; margin: 0; }
+
+.exp-consulta-docs {
+  border-top: 1px dashed var(--gris-300);
+  background: var(--lila-50);
+  padding: .7rem .7rem .7rem 1.6rem;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .6rem;
+}
+.exp-consulta-docs::before {
+  content: '';
+  position: absolute;
+  left: .75rem; top: .7rem; bottom: .7rem;
+  width: 3px; border-radius: 3px;
+  background: var(--morado-400);
+}
+.exp-consulta-docs .doc-tarjeta { padding: .7rem; }
+.exp-consulta-docs .doc-icono { width: 34px; height: 34px; flex: 0 0 34px; font-size: 1rem; }
+
+.exp-consulta .fecha a { display: block; }
+
+/* ---------------------------------------------------------------------
+   Modulo Cajas
+   --------------------------------------------------------------------- */
+
+/* Tarjeta de estado de cada caja. Cerrada se ve apagada; abierta, con
+   el borde de la marca: se distingue de un vistazo cual esta en uso. */
+.caja-tarjeta {
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  background: #fff;
+  padding: .9rem 1rem;
+  height: 100%;
+}
+.caja-tarjeta.abierta { border: 2px solid var(--morado-600); }
+
+.caja-icono {
+  width: 34px; height: 34px; flex: 0 0 34px;
+  border-radius: 10px;
+  background: var(--gris-100); color: var(--gris-600);
+  display: flex; align-items: center; justify-content: center;
+}
+.caja-tarjeta.abierta .caja-icono {
+  background: var(--morado-700); color: #fff;
+}
+
+.caja-cifras { display: flex; gap: .5rem; }
+.caja-cifras > div { flex: 1; }
+.caja-cifras .et {
+  display: block; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--gris-600);
+}
+.caja-cifras .va { display: block; font-size: 13px; color: var(--morado-800); }
+
+.cifra-corte {
+  border: 1px solid var(--gris-300);
+  border-radius: 10px;
+  padding: .5rem .7rem;
+  text-align: center;
+}
+.cifra-corte.destacada { border: 2px solid var(--morado-600); }
+.cifra-corte .et {
+  display: block; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--gris-600);
+}
+.cifra-corte .va {
+  display: block; font-size: 1.15rem; font-weight: 600; color: var(--morado-800);
+}
+
+.desglose-formas {
+  display: flex; flex-wrap: wrap; gap: .4rem;
+  background: var(--lila-50);
+  border-radius: 10px; padding: .5rem .7rem;
+}
+.desglose-formas .forma {
+  display: flex; gap: .4rem; align-items: baseline;
+  background: #fff; border-radius: 999px;
+  padding: .15rem .7rem; font-size: 12px;
+}
+.desglose-formas .nombre { color: var(--gris-600); }
+.desglose-formas .monto { font-weight: 600; color: var(--morado-800); }
+
+/* Comparativo del cierre: se descubre despues de capturar el conteo. */
+.cierre-comparativo {
+  display: flex; gap: 1rem;
+  background: var(--lila-50);
+  border: 1px solid var(--gris-300);
+  border-radius: var(--radio);
+  padding: .6rem .9rem;
+}
+.cierre-comparativo > div { flex: 1; text-align: center; }
+.cierre-comparativo .et {
+  display: block; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--gris-600);
+}
+.cierre-comparativo .va {
+  display: block; font-size: 1.1rem; font-weight: 600; color: var(--morado-800);
+}
+
+/* Formas de pago del cobro: una linea por forma, pago mixto en la
+   misma pantalla sin abrir nada. */
+.forma-pago {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding: .4rem 0;
+  border-bottom: 1px solid var(--gris-100);
+}
+.forma-pago:last-child { border-bottom: 0; }
+.forma-pago .cb-forma { flex: 1; min-width: 120px; }
+.forma-pago .cb-referencia { flex: 1 1 100%; font-size: 12px; }
+
+.resumen-saldo {
+  display: flex; gap: .5rem;
+  background: var(--lila-50);
+  border-radius: var(--radio);
+  padding: .6rem .9rem;
+}
+.resumen-saldo > div { flex: 1; text-align: center; }
+.resumen-saldo .et {
+  display: block; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--gris-600);
+}
+.resumen-saldo .va {
+  display: block; font-weight: 600; color: var(--morado-800);
+}
+
+/* ---------------------------------------------------------------------
+   Agenda: vista de semana
+
+   Rejilla de media hora por dia. Los huecos libres son literalmente
+   los espacios en blanco, que es lo que la hace util de un vistazo.
+   --------------------------------------------------------------------- */
+.semana-caja { overflow: auto; max-height: calc(100vh - 300px); }
+
+table.semana {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+
+table.semana thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: #fff;
+  border-bottom: 2px solid var(--gris-100);
+  padding: .5rem .3rem;
+  text-align: center;
+}
+table.semana thead th.hoy { background: var(--rosa-100); }
+table.semana thead th .nombre {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--gris-600);
+}
+table.semana thead th .dia {
+  font-size: 1.1rem; font-weight: 600; color: var(--morado-800);
+}
+
+table.semana td {
+  height: 34px;
+  border: 1px solid var(--gris-100);
+  padding: 0;
+  vertical-align: top;
+}
+
+/* La hora va pegada a la izquierda al desplazar en horizontal. */
+table.semana .hora {
+  width: 58px;
+  position: sticky; left: 0; z-index: 1;
+  background: #fff;
+  border-right: 2px solid var(--gris-100);
+  font-size: 10.5px; color: var(--gris-600);
+  text-align: right; padding: .15rem .4rem 0 0;
+  vertical-align: top;
+}
+table.semana thead .hora { z-index: 3; }
+
+table.semana td.libre { background: #fff; cursor: pointer; }
+table.semana td.libre:hover { background: var(--rosa-100); }
+table.semana td.libre.encima {
+  background: var(--morado-400);
+  box-shadow: inset 0 0 0 2px var(--morado-700);
+}
+
+/* Lo que ya paso y lo cerrado se ven apagados, pero distinto entre si:
+   uno es "ya no se puede" y el otro "nunca se pudo". */
+table.semana td.paso    { background: #fafafa; }
+table.semana td.cerrado { background: repeating-linear-gradient(
+    45deg, #f6f4f7, #f6f4f7 6px, #efecf1 6px, #efecf1 12px); }
+
+table.semana td.bloqueado {
+  background: repeating-linear-gradient(
+    45deg, #fff3f2, #fff3f2 6px, #ffe8e6 6px, #ffe8e6 12px);
+  color: #b03a2e;
+  font-size: 9.5px;
+  padding: .15rem .3rem;
+  overflow: hidden;
+}
+
+table.semana td.con-cita { padding: 2px; }
+
+.cita-bloque {
+  height: 100%;
+  border-left: 4px solid var(--color, var(--morado-600));
+  background: color-mix(in srgb, var(--color, #9333a8) 10%, #fff);
+  border-radius: 6px;
+  padding: .2rem .35rem;
+  overflow: hidden;
+  cursor: grab;
+  transition: box-shadow .12s;
+}
+.cita-bloque:hover { box-shadow: var(--sombra); }
+.cita-bloque.arrastrando { opacity: .4; cursor: grabbing; }
+
+.cita-bloque .hora { font-size: 10px; color: var(--gris-600);
+                     position: static; background: none; padding: 0;
+                     text-align: left; border: 0; }
+.cita-bloque .paciente {
+  font-weight: 600; font-size: 11.5px; line-height: 1.25;
+  color: var(--morado-900);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cita-bloque .motivo {
+  font-size: 10px; color: var(--gris-600);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cita-bloque .estado {
+  display: inline-block; font-size: 9px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--color, var(--morado-700));
+}
+
+/* ---------------------------------------------------------------------
+   Recordatorios del tablero
+   --------------------------------------------------------------------- */
+.btn-whatsapp {
+  background: #25d366; border-color: #25d366; color: #fff;
+  font-weight: 500;
+}
+.btn-whatsapp:hover { background: #1da851; border-color: #1da851; color: #fff; }
+
+/* Al registrarlo, la fila se va: dejarla ahi invita a mandar el mismo
+   recordatorio dos veces. */
+.recordatorio {
+  transition: opacity .35s, transform .35s, background .2s;
+}
+.recordatorio.hecho {
+  opacity: 0;
+  transform: translateX(28px);
+  background: #e6f5ee;
+}
+
+/* Linea de tiempo de los recordatorios */
+.linea-recordatorios { padding: 2.5rem 1rem 1.5rem; }
+.linea-recordatorios .linea {
+  position: relative; height: 4px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--gris-300), var(--morado-600));
+}
+.linea-recordatorios .marca { position: absolute; top: -8px; transform: translateX(-50%); }
+.linea-recordatorios .punto {
+  display: block; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 4px solid var(--morado-500);
+}
+.linea-recordatorios .marca.cita .punto {
+  border-color: var(--morado-800); background: var(--morado-800);
+}
+.linea-recordatorios .texto {
+  position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; white-space: nowrap; color: var(--gris-600);
+}
+.linea-recordatorios .marca.cita .texto {
+  font-weight: 600; color: var(--morado-800);
 }

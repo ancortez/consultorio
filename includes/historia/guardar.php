@@ -227,4 +227,17 @@ try {
 Bitacora::registrar('paciente', $accion, 'historia_clinica', (string) $idHistoria,
     ['expediente' => $idExpediente, 'marcas' => count($marcas)]);
 
-Respuesta::ok(['id_historia_clinica' => $idHistoria], 'Historia clinica guardada.');
+// El pendiente de digitalizacion nace aqui, no al registrar al
+// paciente: hasta este momento no habia hoja que imprimir ni que
+// firmar. Un expediente recien abierto ya no aparece con faltantes de
+// papeles que todavia no existen.
+$pendiente = Documentos::crearPendiente(
+    $idExpediente,
+    'HISTORIAL_CLINICO',
+    'HISTORIA CLINICA CAPTURADA EL ' . strtoupper(fecha(date('Y-m-d')))
+);
+
+Respuesta::ok(
+    ['id_historia_clinica' => $idHistoria, 'pendiente' => $pendiente],
+    'Historia clinica guardada.'
+);

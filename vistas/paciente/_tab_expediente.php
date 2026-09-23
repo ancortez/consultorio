@@ -49,12 +49,14 @@
     </div>
 </div>
 
-<div class="row g-3" id="expDocumentos">
-    <div class="col-12">
-        <div class="cargando">
-            <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
-            Cargando expediente...
-        </div>
+<?php /* El expediente se arma como una carpeta: arriba lo que es del
+         paciente y despues una pestania por cada plan de tratamiento,
+         del mas reciente al mas antiguo. Todo colapsable, para no tener
+         cien tarjetas a la vista de golpe. */ ?>
+<div class="expediente" id="expDocumentos">
+    <div class="cargando">
+        <div class="spinner-border spinner-border-sm" style="color:var(--morado-600)"></div>
+        Cargando expediente...
     </div>
 </div>
 
@@ -122,16 +124,23 @@
       </div>
 
       <form id="formNuevoPendiente">
+        <input type="hidden" name="id_plan_tratamiento" id="pendPlan" value="">
+
         <div class="modal-body">
+          <?php /* El combo se arma por ambito para que al agregar un
+                   documento dentro de un plan no aparezcan la foto ni el
+                   historial, que son del expediente completo. */ ?>
+          <div class="alert alert-light border py-2 small d-flex gap-2 mb-3 d-none"
+               id="pendContexto">
+            <i class="bi bi-list-check" style="color:var(--morado-600)"></i>
+            <span>El documento quedar&aacute; dentro del plan
+                  <b id="pendContextoFolio"></b>.</span>
+          </div>
+
           <div class="mb-3">
             <label class="form-label">Tipo de documento <span class="req">*</span></label>
-            <select class="form-select" name="clave" required>
+            <select class="form-select" name="clave" id="pendTipo" required>
               <option value="">Seleccionar...</option>
-              <?php foreach (Conexion::todos(
-                  'SELECT clave, nombre_documento FROM tipo_documento
-                    WHERE estatus = 1 ORDER BY orden') as $td): ?>
-                <option value="<?= e($td['clave']) ?>"><?= e($td['nombre_documento']) ?></option>
-              <?php endforeach; ?>
             </select>
           </div>
           <div>

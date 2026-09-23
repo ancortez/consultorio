@@ -13,6 +13,10 @@ $opciones = [
      'vista' => 'tarifas',   'permiso' => 'config.tarifas'],
     ['texto' => 'Datos del consultorio', 'icono' => 'bi-shop',
      'vista' => 'consultorio', 'permiso' => 'config.consultorio'],
+    ['texto' => 'Recordatorios de cita', 'icono' => 'bi-whatsapp',
+     'vista' => 'recordatorios', 'permiso' => 'config.consultorio'],
+    ['texto' => 'Apariencia', 'icono' => 'bi-palette',
+     'vista' => 'apariencia', 'permiso' => 'config.consultorio'],
 ];
 ?>
 <aside class="menu-lateral">

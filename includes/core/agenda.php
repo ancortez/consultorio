@@ -74,6 +74,10 @@ final class Agenda
 
         $ocupadas = Conexion::todos($sql, $params);
 
+        // Bloqueos que caen ese dia: vacaciones, comida, un congreso.
+        // Se leen una sola vez y se comparan contra cada hueco.
+        $bloqueos = AgendaExtra::bloqueos($fecha, $fecha, $idDentista);
+
         $espacios = [];
         $ahora    = time();
 
@@ -94,6 +98,18 @@ final class Agenda
             if ($inicio < $ahora) {
                 $motivo = 'Ya paso';
             } else {
+                // El bloqueo gana sobre todo lo demas: si el consultorio
+                // esta cerrado, da igual que el hueco este libre.
+                foreach ($bloqueos as $b) {
+                    if ($inicio < strtotime($b['fecha_fin'])
+                        && $fin > strtotime($b['fecha_inicio'])) {
+                        $motivo = $b['motivo'];
+                        break;
+                    }
+                }
+            }
+
+            if ($motivo === null) {
                 foreach ($ocupadas as $o) {
                     $oi = strtotime($o['fecha_inicio']);
                     $of = strtotime($o['fecha_fin']);
@@ -153,6 +169,12 @@ final class Agenda
         // Los minutos deben caer en punto o a la media.
         if (!in_array((int) date('i', $ini), [0, 30], true)) {
             return 'Las citas empiezan en punto o a la media hora.';
+        }
+
+        // Un bloqueo cierra el horario aunque no haya ninguna cita.
+        $bloqueo = AgendaExtra::estaBloqueado($inicio, $fin, $idDentista);
+        if ($bloqueo !== null) {
+            return 'Ese horario esta bloqueado: ' . $bloqueo['motivo'] . '.';
         }
 
         $sql = 'SELECT vp.nombre_completo, c.fecha_inicio

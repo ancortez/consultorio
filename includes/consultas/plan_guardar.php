@@ -21,6 +21,13 @@ $oclusion     = limpiarEspacios(paramMayus('oclusion'));
 $traumatismos = limpiarEspacios(paramMayus('traumatismos'));
 $secuelas     = limpiarEspacios(paramMayus('secuelas_traumatismos'));
 $observaciones = limpiarEspacios(paramMayus('observaciones'));
+$descripcion   = limpiarEspacios(paramMayus('descripcion'));
+
+// Sin descripcion el plan se vuelve "PT-0007" a secas en las listas.
+// Se rellena con la misma frase que propone el formulario.
+if ($descripcion === null || $descripcion === '') {
+    $descripcion = 'PLAN DE TRATAMIENTO ' . strtoupper(fecha($fecha));
+}
 
 // Los renglones vienen como JSON: son una lista de longitud variable y
 // mandarlos como campos sueltos obligaria a inventar nombres numerados.
@@ -48,6 +55,13 @@ if ($errores) { Respuesta::validacion($errores); }
 // ---------------------------------------------------------------------
 $subtotal = 0.0;
 $limpios  = [];
+
+// Catalogo de organos dentarios. Se lee una vez y sirve de filtro: un
+// numero que no este aqui simplemente no se guarda.
+$catalogoDientes = [];
+foreach (Conexion::todos('SELECT id_diente FROM diente') as $d) {
+    $catalogoDientes[(int) $d['id_diente']] = true;
+}
 
 foreach ($renglones as $r) {
     $idProc = (int) ($r['id_procedimiento'] ?? 0);
@@ -79,11 +93,26 @@ foreach ($renglones as $r) {
 
     $subtotal += $importe;
 
+    // Organos dentarios. Llegan como arreglo desde el selector de la
+    // arcada. Se filtra contra el catalogo para que un numero inventado
+    // no entre a la base, y se guarda la lista ordenada.
+    $dientes = [];
+    if ((int) $proc['aplica_por_diente'] === 1 && !empty($r['dientes'])) {
+        foreach ((array) $r['dientes'] as $n) {
+            $n = (int) $n;
+            if (isset($catalogoDientes[$n])) { $dientes[$n] = true; }
+        }
+        $dientes = array_keys($dientes);
+        sort($dientes);
+    }
+
     $limpios[] = [
         'id_procedimiento' => $idProc,
         'id_tratamiento'   => $proc['id_tratamiento'],
-        'id_diente'        => ((int) $proc['aplica_por_diente'] === 1 && !empty($r['id_diente']))
-                              ? (int) $r['id_diente'] : null,
+        'dientes'          => $dientes ? implode(',', $dientes) : null,
+        // Se conserva el primero para el odontograma y los reportes,
+        // que lo consultan por llave foranea.
+        'id_diente'        => $dientes ? $dientes[0] : null,
         'cara'             => !empty($r['cara']) ? mb_substr((string) $r['cara'], 0, 1) : null,
         'cantidad'         => $cantidad,
         'precio_unitario'  => $precio,
@@ -110,12 +139,14 @@ try {
         Conexion::consulta(
             'UPDATE plan_tratamiento
                 SET id_usuario_dentista = :d, fecha = :f, id_estado_plan = :e,
+                    descripcion = :descr,
                     descuento = :desc, subtotal = :sub, total = :tot, saldo = :tot2,
                     diagnostico = :diag, oclusion = :ocl,
                     traumatismos = :tra, secuelas_traumatismos = :sec,
                     observaciones = :obs
               WHERE id_plan_tratamiento = :id',
             [':d' => $idDentista, ':f' => $fecha, ':e' => $idEstado,
+             ':descr' => $descripcion,
              ':desc' => $descuento, ':sub' => $subtotal,
              ':tot' => $total, ':tot2' => $total,
              ':diag' => $diagnostico, ':ocl' => $oclusion,
@@ -138,6 +169,30 @@ try {
                 . 'Crea un plan nuevo en lugar de modificar este.');
         }
 
+        // Lo mismo por el lado del dinero: si ya le abonaron a algun
+        // concepto, rehacer el plan dejaria pagos apuntando a renglones
+        // que dejaron de existir.
+        $conAbono = (int) Conexion::valor(
+            'SELECT COUNT(*) FROM v_cargo_saldo
+              WHERE id_plan_tratamiento = :p AND aplicado > 0',
+            [':p' => $idPlan]
+        );
+        if ($conAbono > 0) {
+            $pdo->rollBack();
+            Respuesta::error(
+                "Este plan ya tiene pagos aplicados en $conAbono concepto(s). "
+                . 'Crea un plan nuevo en lugar de modificar este.');
+        }
+
+        // Los cargos sin abonos se retiran antes de borrar los
+        // renglones: al borrarlos, la llave del cargo se quedaria en
+        // NULL y la sincronizacion los volveria a crear duplicados.
+        foreach (Conexion::todos(
+            'SELECT id_cargo FROM v_cargo_saldo WHERE id_plan_tratamiento = :p',
+            [':p' => $idPlan]) as $c) {
+            Cargos::cancelar((int) $c['id_cargo'], 'El plan se volvio a capturar.');
+        }
+
         Conexion::consulta(
             'DELETE FROM plan_tratamiento_detalle WHERE id_plan_tratamiento = :p',
             [':p' => $idPlan]
@@ -148,13 +203,14 @@ try {
 
         Conexion::consulta(
             'INSERT INTO plan_tratamiento
-                (id_registro_paciente, id_usuario_dentista, folio, fecha,
-                 id_estado_plan, descuento, subtotal, total, saldo,
+                (id_registro_paciente, id_usuario_dentista, folio, descripcion,
+                 fecha, id_estado_plan, descuento, subtotal, total, saldo,
                  diagnostico, oclusion, traumatismos, secuelas_traumatismos,
                  observaciones)
-             VALUES (:r, :d, :fo, :f, :e, :desc, :sub, :tot, :tot2,
+             VALUES (:r, :d, :fo, :descr, :f, :e, :desc, :sub, :tot, :tot2,
                      :diag, :ocl, :tra, :sec, :obs)',
             [':r' => $idExpediente, ':d' => $idDentista, ':fo' => $folio,
+             ':descr' => $descripcion,
              ':f' => $fecha, ':e' => $idEstado, ':desc' => $descuento,
              ':sub' => $subtotal, ':tot' => $total, ':tot2' => $total,
              ':diag' => $diagnostico, ':ocl' => $oclusion,
@@ -169,11 +225,12 @@ try {
         Conexion::consulta(
             'INSERT INTO plan_tratamiento_detalle
                 (id_plan_tratamiento, id_tratamiento, id_procedimiento,
-                 id_diente, cara, cantidad, precio_unitario, descuento,
+                 dientes, id_diente, cara, cantidad, precio_unitario, descuento,
                  importe, orden, fecha_programada, proxima_cita, notas)
-             VALUES (:p, :t, :proc, :die, :cara, :cant, :pre, :desc,
+             VALUES (:p, :t, :proc, :dts, :die, :cara, :cant, :pre, :desc,
                      :imp, :ord, :fp, :px, :nt)',
             [':p' => $idPlan, ':t' => $r['id_tratamiento'], ':proc' => $r['id_procedimiento'],
+             ':dts' => $r['dientes'],
              ':die' => $r['id_diente'], ':cara' => $r['cara'], ':cant' => $r['cantidad'],
              ':pre' => $r['precio_unitario'], ':desc' => $r['descuento'],
              ':imp' => $r['importe'], ':ord' => $orden++,
@@ -189,16 +246,24 @@ try {
     Respuesta::error('No se pudo guardar el plan de tratamiento.', 500);
 }
 
+// Los cargos del plan se ponen al dia. Solo se cobran si el plan ya
+// esta aceptado: mientras es una propuesta, no hay nada que deber.
+$cargos = Cargos::sincronizarPlan($idPlan);
+
 // El plan se imprime y se firma, asi que hay que escanearlo de regreso.
+// El pendiente cuelga del plan: en el expediente aparece dentro de su
+// bloque, junto al consentimiento y las radiografias del mismo plan.
 $pendiente = Documentos::crearPendiente(
     $idExpediente,
     'PLAN_TRATAMIENTO',
-    'PLAN DE TRATAMIENTO DEL ' . strtoupper(fecha($fecha)),
+    $descripcion,
     'plan_tratamiento',
+    $idPlan,
     $idPlan
 );
 
 Bitacora::registrar('consultas', $accion, 'plan_tratamiento', (string) $idPlan, [
+    'cargos'      => $cargos,
     'expediente'  => $idExpediente,
     'total'       => $total,
     'renglones'   => count($limpios),

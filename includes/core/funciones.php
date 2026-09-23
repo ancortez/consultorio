@@ -194,3 +194,103 @@ function ocupacionPorEdad(?string $fechaNacim): ?int
     );
     return $id !== null ? (int) $id : null;
 }
+
+/**
+ * El monto escrito con letra, como lo pide un recibo.
+ *
+ * No es un adorno: es lo que impide que a un recibo de $500 se le
+ * agregue un cero despues de firmado. Por eso los centavos van como
+ * fraccion sobre cien y no redondeados.
+ */
+function montoEnLetra(float $monto): string
+{
+    $entero   = (int) floor(abs($monto));
+    $centavos = (int) round((abs($monto) - $entero) * 100);
+
+    // El redondeo de los centavos puede empujar el entero.
+    if ($centavos === 100) { $entero++; $centavos = 0; }
+
+    $texto = $entero === 0 ? 'cero' : numeroEnLetra($entero);
+
+    return mb_strtoupper(
+        ($monto < 0 ? 'menos ' : '') . $texto
+        . ' pesos ' . sprintf('%02d', $centavos) . '/100 M.N.',
+        'UTF-8'
+    );
+}
+
+/**
+ * Un entero en palabras, hasta cientos de millones.
+ *
+ * Se arma por grupos de tres cifras (millones, miles, unidades), que
+ * es como se lee en espaniol y evita una tabla de casos especiales.
+ */
+function numeroEnLetra(int $n): string
+{
+    if ($n === 0)   { return 'cero'; }
+    if ($n < 0)     { return 'menos ' . numeroEnLetra(-$n); }
+
+    $unidades = ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis',
+                 'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece',
+                 'catorce', 'quince', 'dieciseis', 'diecisiete', 'dieciocho',
+                 'diecinueve', 'veinte'];
+
+    $decenas  = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta',
+                 'sesenta', 'setenta', 'ochenta', 'noventa'];
+
+    $centenas = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos',
+                 'quinientos', 'seiscientos', 'setecientos', 'ochocientos',
+                 'novecientos'];
+
+    /** Un grupo de tres cifras: 0 a 999. */
+    $tercia = static function (int $x) use ($unidades, $decenas, $centenas): string {
+        if ($x === 0)   { return ''; }
+        if ($x === 100) { return 'cien'; }
+
+        $partes = [];
+
+        $c = intdiv($x, 100);
+        $r = $x % 100;
+        if ($c > 0) { $partes[] = $centenas[$c]; }
+
+        if ($r > 0) {
+            if ($r <= 20) {
+                $partes[] = $unidades[$r];
+            } elseif ($r < 30) {
+                // Del 21 al 29 va junto: veintiuno, veintidos...
+                $partes[] = 'veinti' . $unidades[$r - 20];
+            } else {
+                $d = intdiv($r, 10);
+                $u = $r % 10;
+                $partes[] = $u > 0
+                    ? $decenas[$d] . ' y ' . $unidades[$u]
+                    : $decenas[$d];
+            }
+        }
+
+        return implode(' ', $partes);
+    };
+
+    $millones = intdiv($n, 1000000);
+    $miles    = intdiv($n % 1000000, 1000);
+    $resto    = $n % 1000;
+
+    $partes = [];
+
+    if ($millones > 0) {
+        $partes[] = $millones === 1
+            ? 'un millon'
+            : $tercia($millones) . ' millones';
+    }
+
+    if ($miles > 0) {
+        // "un mil" no se dice: es "mil".
+        $partes[] = $miles === 1 ? 'mil' : $tercia($miles) . ' mil';
+    }
+
+    if ($resto > 0) {
+        $partes[] = $tercia($resto);
+    }
+
+    return implode(' ', $partes);
+}

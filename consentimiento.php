@@ -8,8 +8,13 @@
  * Al abrirlo se crea el pendiente de digitalizacion, porque a partir de
  * ese momento existe una hoja que alguien tiene que escanear de regreso.
  *
+ * El consentimiento pertenece a un plan de tratamiento: es el permiso
+ * para ESE tratamiento, no un permiso general de por vida. Por eso se
+ * pide con el plan y queda guardado dentro de su bloque en el expediente.
+ *
  * Uso:
  *   /consentimiento.php?id=EXPEDIENTE
+ *                      &plan=ID_PLAN_TRATAMIENTO
  *                      &tutor=ID_EXPEDIENTE_TUTOR
  *                      &domicilio=ID_DOMICILIO
  *                      &dentista=ID_USUARIO
@@ -21,6 +26,7 @@ Auth::exigirLogin();
 Auth::exigirPermiso('paciente.ver');
 
 $idExpediente = (int) ($_GET['id'] ?? 0);
+$idPlan       = (int) ($_GET['plan'] ?? 0);
 $idTutor      = (int) ($_GET['tutor'] ?? 0);
 $idDomicilio  = (int) ($_GET['domicilio'] ?? 0);
 $idDentista   = (int) ($_GET['dentista'] ?? 0);
@@ -28,6 +34,20 @@ $idDentista   = (int) ($_GET['dentista'] ?? 0);
 if ($idExpediente <= 0) {
     http_response_code(400);
     exit('Falta el expediente.');
+}
+
+// El plan debe ser de este paciente. Si no coincide se ignora y el
+// documento queda como general, en vez de colgarlo del expediente ajeno.
+$plan = $idPlan > 0
+    ? Conexion::uno(
+        'SELECT id_plan_tratamiento, folio, fecha
+           FROM plan_tratamiento
+          WHERE id_plan_tratamiento = :p AND id_registro_paciente = :r',
+        [':p' => $idPlan, ':r' => $idExpediente])
+    : null;
+
+if ($plan === null) {
+    $idPlan = 0;
 }
 
 // ---------------------------------------------------------------------
@@ -96,19 +116,23 @@ $negocio = Conexion::uno(
 // ---------------------------------------------------------------------
 // Pendiente de digitalizacion
 //
-// El consentimiento se firma una sola vez por expediente. crearPendiente
+// El consentimiento se firma una sola vez por plan. crearPendiente
 // devuelve null si ya existe uno (pendiente o ya digitalizado), asi que
 // reimprimirlo o volver a consultarlo no acumula faltantes.
 // ---------------------------------------------------------------------
 $pendiente = Documentos::crearPendiente(
     $idExpediente,
     'CONSENTIMIENTO',
-    'CONSENTIMIENTO IMPRESO EL ' . strtoupper(fechaLarga()),
-    'expediente_tutor',
-    $tutor['id_expediente_tutor'] ?? null
+    $plan
+        ? 'CONSENTIMIENTO DEL PLAN ' . strtoupper((string) $plan['folio'])
+        : 'CONSENTIMIENTO IMPRESO EL ' . strtoupper(fechaLarga()),
+    'plan_tratamiento',
+    $idPlan ?: null,
+    $idPlan ?: null
 );
 
 Bitacora::registrar('paciente', 'IMPRIME', 'consentimiento', (string) $idExpediente, [
+    'plan'     => $plan['folio'] ?? null,
     'tutor'    => $tutor['nombre_completo'] ?? null,
     'dentista' => $dentista['nombre_completo'] ?? null,
 ]);
@@ -353,7 +377,8 @@ function campo(?string $valor, int $anchoMinimo = 200): string
         </span>
     <?php else: ?>
         <span class="aviso" style="background:#eef7f2;border-color:#bfe6d1;color:#1f6b48">
-            Este consentimiento ya estaba registrado en el expediente.
+            Este consentimiento ya estaba registrado en el expediente<?=
+                $plan ? ', dentro del plan ' . e($plan['folio']) : '' ?>.
         </span>
     <?php endif; ?>
     <?php if ($tutor === null): ?>

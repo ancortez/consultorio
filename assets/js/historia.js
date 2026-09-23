@@ -14,6 +14,71 @@ const Historia = (() => {
   let existeHistoria = false;
 
   /* -------------------------------------------------------------------
+     Prellenado
+
+     Lo que sale asi en la gran mayoria de los ninios sanos. No es un
+     diagnostico: es el punto de partida que la doctora corrige donde
+     haga falta, para no picar veinte botones identicos cada vez.
+
+     Por eso el prellenado NO se aplica solo al abrir la pantalla: si
+     lo hiciera, una historia sin capturar y una historia "todo normal"
+     se verian igual y no habria forma de distinguirlas.
+     ------------------------------------------------------------------- */
+  const HABITUAL = {
+    // Antecedentes no patologicos
+    embarazo_normal: 1,
+    tipo_parto: 1,          // Natural
+    tipo_nacimiento: 1,     // A termino
+    complicaciones_parto: 0,
+    lactancia_materna: 1,
+    formula: 1,
+    dieta_completa: 1,
+
+    // Antecedentes patologicos
+    estado_salud: 1,        // Bueno
+    enfermedad_cronica: 0,
+    discapacidad: 0,
+    alergia: 0,
+    tratamiento_medico: 0,
+    cirugias: 0,
+
+    // Antecedentes odontologicos y habitos
+    experiencia_previa: 0,
+    recibio_prevencion: 0,
+    usa_pasta_dental: 1,
+    otro_higiene: 0,
+
+    // Examen bucal
+    labios: 1,              // Competentes
+    frenillos: 1,           // Normales
+    lengua: 1,              // Normal
+    tipo_denticion: 2,      // Mixta
+  };
+
+  /**
+   * Marca los valores habituales.
+   *
+   * @param {boolean} soloVacios  true = respeta lo que ya este marcado.
+   *        Es lo que se quiere siempre: prellenar no debe pisar una
+   *        respuesta que alguien ya dio.
+   */
+  function prellenar(soloVacios = true) {
+    const form = document.getElementById('formHistoria');
+    let puestos = 0;
+
+    Object.entries(HABITUAL).forEach(([campo, valor]) => {
+      const oculto = form.querySelector(`input[type="hidden"][name="${campo}"]`);
+      if (!oculto) return;
+      if (soloVacios && oculto.value !== '') return;
+
+      const grupo = oculto.closest('.grupo-sino');
+      if (grupo) { elegir(grupo, valor); puestos++; }
+    });
+
+    return puestos;
+  }
+
+  /* -------------------------------------------------------------------
      Grupos de si/no y de opciones
      ------------------------------------------------------------------- */
 
@@ -89,6 +154,17 @@ const Historia = (() => {
     pasos?.aplicarModo(existeHistoria ? 'colapsable' : 'pasos');
 
     document.getElementById('hcImprimir').classList.toggle('d-none', !existeHistoria);
+    document.getElementById('hcPrellenar').classList.toggle('d-none', existeHistoria);
+    document.getElementById('hcAvisoPendiente').classList.toggle('d-none', existeHistoria);
+
+    // La pestania tambien avisa, para que se note sin entrar.
+    const solapa = document.querySelector('[data-bs-target="#tab-historia"]');
+    solapa?.classList.toggle('con-pendientes', !existeHistoria);
+    if (solapa) {
+      solapa.title = existeHistoria
+        ? 'Historia clinica capturada'
+        : 'Falta capturar la historia clinica';
+    }
 
     if (historia) {
       Object.entries(historia).forEach(([campo, valor]) => {
@@ -107,10 +183,12 @@ const Historia = (() => {
       });
 
       const pie = document.getElementById('hcCaptura');
-      if (pie && historia.capturo) {
-        pie.textContent =
-          `Última captura: ${App.fechaHora(historia.fecha_modif || historia.fecha_captura)}`
-          + ` por ${historia.capturo}`;
+      if (pie) {
+        const cuando = historia.fecha_modif || historia.fecha_captura;
+        pie.innerHTML =
+          `<i class="bi bi-clock-history me-1"></i>`
+          + `Última actualización: <b>${App.esc(App.fechaHora(cuando))}</b>`
+          + (historia.capturo ? ` por ${App.esc(historia.capturo)}` : '');
       }
     }
 
@@ -186,10 +264,7 @@ const Historia = (() => {
           'Historia clínica guardada',
           '¿Quieres imprimirla ahora para recoger las firmas del tutor y del doctor?',
           'Sí, imprimir');
-        if (r) {
-          App.abrirVentana(
-            `${App.URL_BASE}/historia_imprimir.php?id=${idExpediente}`, 880, 1020, 'historia');
-        }
+        if (r) imprimir();
       } else {
         App.alerta.toast('Historia clínica actualizada');
       }
@@ -200,6 +275,55 @@ const Historia = (() => {
     } catch (e) {
       App.marcarErrores(form, e.errores);
     }
+  }
+
+  /* -------------------------------------------------------------------
+     Impresion
+
+     Antes de imprimir hay que saber quien firma: la hoja lleva el
+     nombre y la cedula del doctor que atendio, y no siempre es quien
+     capturo la historia en la computadora.
+     ------------------------------------------------------------------- */
+  async function imprimir() {
+    let dentistas = [];
+    try {
+      const r = await App.api('catalogo/dentistas.php', {});
+      dentistas = r.datos;
+    } catch (e) { return; }
+
+    const abrir = (id) => App.abrirVentana(
+      `${App.URL_BASE}/historia_imprimir.php?id=${idExpediente}`
+      + (id ? `&dentista=${id}` : ''),
+      880, 1020, 'historia');
+
+    // Con un solo dentista no hay nada que preguntar.
+    if (dentistas.length <= 1) {
+      abrir(dentistas[0]?.id_usuario);
+      return;
+    }
+
+    const opciones = {};
+    dentistas.forEach((d) => {
+      opciones[d.id_usuario] = d.cedula_prof
+        ? `${d.nombre_completo} — Ced. ${d.cedula_prof}`
+        : d.nombre_completo;
+    });
+
+    const r = await Swal.fire({
+      icon: 'question',
+      title: '¿Quién atiende al paciente?',
+      text: 'Su nombre y cédula saldrán impresos en la hoja para firma.',
+      input: 'select',
+      inputOptions: opciones,
+      inputValue: String(dentistas[0].id_usuario),
+      showCancelButton: true,
+      confirmButtonText: 'Imprimir',
+      confirmButtonColor: '#7b2d8e',
+      cancelButtonText: 'Cancelar',
+      cancelButtonColor: '#6c6577',
+    });
+
+    if (r.isConfirmed) abrir(r.value);
   }
 
   /* -------------------------------------------------------------------
@@ -236,9 +360,29 @@ const Historia = (() => {
       },
     });
 
-    document.getElementById('hcImprimir').addEventListener('click', () => {
-      App.abrirVentana(
-        `${App.URL_BASE}/historia_imprimir.php?id=${idExpediente}`, 880, 1020, 'historia');
+    document.getElementById('hcImprimir').addEventListener('click', imprimir);
+
+    // Los dos botones de prellenado hacen lo mismo: uno vive en el
+    // encabezado y el otro dentro del aviso, que es donde la mirada
+    // esta cuando la historia no existe.
+    ['hcPrellenar', 'hcPrellenarAviso'].forEach((id) => {
+      document.getElementById(id)?.addEventListener('click', () => {
+        const puestos = prellenar(true);
+
+        if (!puestos) {
+          App.alerta.info('Nada que prellenar',
+            'Todas las preguntas con valor habitual ya estan contestadas.');
+          return;
+        }
+
+        App.alerta.toast(`${puestos} respuesta(s) prellenadas. Revisa y corrige.`);
+        document.getElementById('hcAvisoPendiente').classList.add('d-none');
+      });
+    });
+
+    document.getElementById('hcEmpezar')?.addEventListener('click', () => {
+      document.getElementById('hcAvisoPendiente').classList.add('d-none');
+      document.querySelector('[name="motivo_consulta"]')?.focus();
     });
 
     // Se carga al abrir la pestania, no antes: son varias consultas y

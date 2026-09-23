@@ -25,11 +25,17 @@ $fechaInicial = $_GET['fecha'] ?? date('Y-m-d');
             &middot; <?= sprintf('%02d:00 a %02d:00', Agenda::HORA_INICIO, Agenda::HORA_FIN) ?>
         </p>
     </div>
-    <?php if (Auth::puede('consultas.agenda') || $usuarioSesion['es_dentista']): ?>
-    <button class="btn btn-morado" id="btnNuevaCita">
-        <i class="bi bi-calendar-plus me-1"></i> Nueva cita
-    </button>
-    <?php endif; ?>
+    <div class="d-flex gap-2">
+        <a class="btn btn-light"
+           href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=semana">
+            <i class="bi bi-calendar3-week me-1"></i> Ver la semana
+        </a>
+        <?php if (Auth::puede('consultas.agenda') || $usuarioSesion['es_dentista']): ?>
+        <button class="btn btn-morado" id="btnNuevaCita">
+            <i class="bi bi-calendar-plus me-1"></i> Nueva cita
+        </button>
+        <?php endif; ?>
+    </div>
 </div>
 
 <div class="card mb-3">
