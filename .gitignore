@@ -4,6 +4,9 @@
 .env.*
 !.env.example
 
+# La direccion del servidor: es de esta computadora, no del proyecto.
+.servidor
+
 # Respaldos: traen el expediente clinico completo.
 *.sql.gz
 *.tar.gz.enc

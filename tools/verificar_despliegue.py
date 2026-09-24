@@ -21,6 +21,7 @@ respald = (prod / 'respaldar.sh').read_text(encoding='utf-8')
 restaur = (prod / 'restaurar.sh').read_text(encoding='utf-8')
 desplie = (prod / 'desplegar.sh').read_text(encoding='utf-8')
 minio   = (raiz / 'infra/minio/docker-compose.produccion.yml').read_text(encoding='utf-8')
+esquema = (raiz / 'db/01_schema.sql').read_text(encoding='utf-8')
 
 # ---------- 1. Nada expuesto salvo Caddy ----------
 # Se buscan todos los 'ports:' y se revisa que, salvo 80 y 443 de
@@ -294,6 +295,172 @@ for archivo in glob.glob('infra/minio/docker-compose*.yml'):
         fallos.append(f'{archivo}: no apunta a quay.io')
 
 print('  ok   MinIO sale de quay.io y la version se puede fijar')
+
+# ---------- 13. El arranque tiene margen ----------
+# Sin start_period, Docker cuenta los reintentos del healthcheck desde
+# el segundo cero. La primera vez, MySQL crea su directorio de datos y
+# corre los .sql de db/; si se le acaban los reintentos a medio armar,
+# el contenedor queda "unhealthy" y la app ni arranca. Todo estaba
+# bien: solo faltaba tiempo.
+for archivo in ('infra/produccion/docker-compose.produccion.yml',
+                'docker-compose.yml'):
+    texto = pathlib.Path(archivo).read_text(encoding='utf-8')
+    if 'healthcheck:' not in texto: continue
+
+    bloque = texto[texto.index('healthcheck:'):]
+    bloque = bloque[:bloque.index('\n\n')] if '\n\n' in bloque else bloque
+
+    if 'start_period' not in bloque:
+        fallos.append(f'{archivo}: el healthcheck no da start_period '
+                      'para la primera inicializacion')
+
+    m = re.search(r'start_period:\s*(\d+)s', bloque)
+    if m and int(m.group(1)) < 120:
+        fallos.append(f'{archivo}: start_period de {m.group(1)}s es corto '
+                      'para armar 69 tablas en un servidor lento')
+print('  ok   el arranque de MySQL tiene margen para la primera vez')
+
+# ---------- 14. Cuando algo falla, se ven los logs ----------
+# "Revisa los logs" obliga a un paso mas justo cuando la persona ya
+# lleva rato peleando. El instalador los muestra.
+# Se exige la definicion Y que se llame: una funcion que existe pero
+# que nadie invoca no muestra nada.
+if not re.search(r'^mostrar_logs\(\)\s*\{', instala, re.M):
+    fallos.append('el instalador no define mostrar_logs')
+elif instala.count('mostrar_logs "') < 2:
+    fallos.append('mostrar_logs existe pero no se usa en los dos arranques')
+if instala.count('Revisa: docker compose logs') > 0:
+    fallos.append('el instalador sigue diciendo "revisa los logs" sin mostrarlos')
+print('  ok   el instalador muestra los logs al fallar')
+
+# ---------- 15. Se puede saber que version corre ----------
+# Sin esto no hay forma de distinguir, mirando la pantalla, si lo que
+# corre es el archivo recien subido o el que ya estaba.
+if 'VERSION_INSTALADOR' not in instala:
+    fallos.append('el instalador no dice su version al arrancar')
+print('  ok   el instalador anuncia su version')
+
+# ---------- 16. Apache puede leer el codigo ----------
+# El error mas desconcertante del despliegue: PHP dice "Permission
+# denied" sobre un archivo que esta perfectamente ahi.
+#
+# La cadena es esta. En macOS los archivos del proyecto suelen quedar
+# en 600 (solo el dueno lee). "rsync -a" incluye -p, que conserva los
+# permisos, asi que llegan al servidor igual de cerrados. Dentro del
+# contenedor Apache corre como www-data, que no es el dueno: no puede
+# abrir ni index.php. Un chown no alcanza, porque el problema no es de
+# quien es el archivo sino de que nadie mas puede leerlo.
+subir = (raiz / 'subir-al-servidor.command').read_text(encoding='utf-8')
+
+if '--chmod=' not in subir:
+    fallos.append('subir-al-servidor no normaliza permisos: el codigo llegaria '
+                  'en 600 y Apache no podria leerlo')
+else:
+    # No basta con que exista --chmod: hay que leer los numeros. Un
+    # "--chmod=D700,F600" normaliza, pero normaliza a lo mismo que
+    # causaba el problema. Lo que importa son los dos ultimos digitos
+    # (grupo y otros): si alguno es 0, Apache sigue sin poder leer.
+    # Se lee el argumento --chmod en si, no el archivo entero: el
+    # comentario que lo explica arriba tambien menciona D755 y F644, y
+    # daria por bueno un --chmod que no los trae.
+    argumento = re.search(r'--chmod=(\S+)', sin_comentarios(subir))
+    modos = dict(re.findall(r'([DF])(\d{3})', argumento.group(1) if argumento else ''))
+    for letra, quien in (('D', 'carpetas'), ('F', 'archivos')):
+        modo = modos.get(letra)
+        if modo is None:
+            fallos.append(f'--chmod no dice el modo de las {quien}')
+            continue
+        # Bit de lectura = 4. Carpetas necesitan ademas entrar (1).
+        falta = 5 if letra == 'D' else 4
+        for i, etiqueta in ((1, 'grupo'), (2, 'otros')):
+            if int(modo[i]) & falta != falta:
+                fallos.append(f'--chmod deja las {quien} en {modo}: '
+                              f'"{etiqueta}" no puede leerlas y Apache '
+                              'corre como otro usuario')
+
+# --chmod deja los guiones sin permiso de ejecucion: hay que devolverselo.
+if '--chmod=' in subir and 'chmod +x' not in subir:
+    fallos.append('subir-al-servidor normaliza permisos pero no devuelve '
+                  'el +x a los guiones')
+
+# El instalador es la segunda red: arregla lo que ya este mal en el
+# servidor, sin importar como llego.
+if not re.search(r'find "\$DESTINO" -type f -exec chmod 6\d\d', instala):
+    fallos.append('el instalador no normaliza los permisos de los archivos')
+if not re.search(r'find "\$DESTINO" -type d -exec chmod 7\d\d', instala):
+    fallos.append('el instalador no normaliza los permisos de las carpetas')
+print('  ok   el codigo queda legible para Apache (al subir y al instalar)')
+
+# storage/ es la unica carpeta donde la aplicacion escribe, y quien
+# escribe ahi es Apache: el dueno tiene que ser www-data (uid 33
+# dentro del contenedor), no el usuario del servidor.
+if 'chown -R 33:33' not in instala:
+    fallos.append('el instalador no le da storage/ a www-data: la app no '
+                  'podria escribir sus logs')
+if not re.search(r'chmod -R 7\d\d "\$DESTINO/storage"', instala):
+    fallos.append('storage/ no queda escribible')
+# Y que el compose no lo monte de solo lectura, que seria el mismo
+# problema por otra puerta.
+if re.search(r'storage:/var/www/storage:ro', compose):
+    fallos.append('storage se monta de solo lectura: la app no podria escribir')
+print('  ok   storage/ escribible por Apache, montado sin :ro')
+
+# El chmod general de arriba deja todo en 644, y ahi viven las
+# contrasenias de la base. Tienen que volver a 600.
+if instala.count('chmod 600') < 2:
+    fallos.append('el instalador no vuelve a cerrar los .env despues de '
+                  'normalizar permisos')
+print('  ok   los .env vuelven a 600 tras la normalizacion')
+
+# ---------- 17. "Arriba" no es lo mismo que "funcionando" ----------
+# MySQL corre los .sql de db/ UNA SOLA VEZ: cuando su volumen esta
+# vacio. Si esa vez algo sale mal —que los archivos no se puedan leer,
+# por ejemplo— MySQL crea igual su directorio de datos y sigue. El
+# volumen ya no esta vacio, asi que en los arranques siguientes ni lo
+# intenta. Queda una base existente y sin una sola tabla.
+#
+# Docker reporta todo verde: el contenedor esta sano, responde al
+# ping. Nadie se entera hasta que alguien intenta entrar y recibe un
+# 500 en blanco. Por eso el instalador tiene que CONTAR las tablas.
+if 'information_schema.tables' not in instala:
+    fallos.append('el instalador no comprueba que la base tenga tablas: '
+                  'un esquema vacio pasaria por instalacion exitosa')
+if not re.search(r'TABLAS.*-lt\s*\d+', instala):
+    fallos.append('el instalador no compara el numero de tablas contra un minimo')
+else:
+    minimo = int(re.search(r'TABLAS.*-lt\s*(\d+)', instala).group(1))
+    reales = len(re.findall(r'CREATE TABLE', esquema, re.I)) + \
+             len(re.findall(r'CREATE.*?VIEW', esquema, re.I))
+    if minimo < 10:
+        fallos.append(f'el minimo de tablas ({minimo}) es tan bajo que no '
+                      'distingue una base vacia de una armada')
+    elif minimo > reales:
+        fallos.append(f'el instalador exige {minimo} tablas pero el esquema '
+                      f'solo crea {reales}: fallaria siempre')
+    print(f'  ok   el instalador cuenta las tablas (exige {minimo}, '
+          f'el esquema crea {reales})')
+
+# Y que, al encontrarlas vacias, diga como rehacerla. Un diagnostico
+# sin salida obliga a la persona a venir a preguntar.
+if 'docker volume rm' not in instala:
+    fallos.append('el instalador detecta la base vacia pero no dice como rehacerla')
+print('  ok   si la base quedo vacia, el instalador explica como rehacerla')
+
+# La pantalla de acceso tiene que contestar 200 por el camino real
+# (HTTPS, dominio publico), no por un atajo interno que podria
+# funcionar cuando el de verdad no.
+# Se mira la linea del curl, no el archivo entero: el instalador
+# imprime "entra a https://$DOMINIO" al terminar, y esa linea daria
+# por buena una comprobacion hecha contra localhost.
+llamada = re.search(r"curl[^\n]*\n?[^\n]*login\.php[^\n]*", instala)
+if llamada is None:
+    fallos.append('el instalador no comprueba que la pantalla de acceso responda')
+elif 'https://$DOMINIO' not in llamada.group(0):
+    fallos.append('la comprobacion final no usa el dominio publico por HTTPS: '
+                  'un atajo interno puede funcionar cuando el camino real no')
+if "500)" not in instala:
+    fallos.append('el instalador no distingue un 500 de una falta de respuesta')
+print('  ok   comprobacion final por HTTPS, distinguiendo 500 de sin respuesta')
 
 print()
 for a in avisos: print('  ~   ', a)

@@ -123,11 +123,29 @@ services:
       - ../../db:/docker-entrypoint-initdb.d:ro
     networks:
       - interna
+    # ---------------------------------------------------------------
+    # Revision de salud
+    #
+    # start_period es lo importante aqui. La PRIMERA vez que arranca,
+    # MySQL crea su directorio de datos y despues corre los .sql de
+    # db/: 69 tablas, 112 llaves foraneas, 454 colonias y los
+    # catalogos. En un servidor compartido eso puede tardar varios
+    # minutos.
+    #
+    # Sin start_period, Docker empieza a contar los reintentos desde el
+    # segundo cero y se le acaban mientras la base todavia se esta
+    # armando. El contenedor queda marcado "unhealthy" y la aplicacion,
+    # que espera a que este sana, ni siquiera arranca. Todo estaba
+    # bien: solo faltaba tiempo.
+    #
+    # Durante start_period los fallos NO cuentan. Pasado ese periodo,
+    # se exigen 12 revisiones cada 10 segundos.
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASS}"]
+      start_period: 300s
       interval: 10s
-      timeout: 5s
-      retries: 20
+      timeout: 10s
+      retries: 12
 
   # -------------------------------------------------------------------
   # phpMyAdmin: solo por tunel SSH

@@ -217,14 +217,23 @@ solo. Solo define de dónde:
 export REPO_GIT="https://github.com/tuusuario/consultorio.git"
 ```
 
-**Si no usas git todavía**, súbelo desde tu Mac. En **otra ventana** de
-Terminal, en tu computadora:
+**Si no usas git todavía**, hay un guion que lo sube por ti. En **otra
+ventana** de Terminal, en tu computadora:
 
 ```bash
 cd ~/Proyectos/consultorio
-rsync -avz --exclude '.git' --exclude '.env' --exclude 'storage/uploads' \
-      ./ root@TU_IP:/opt/consultorio/
+./subir-al-servidor.command
 ```
+
+La primera vez te pide la dirección del servidor y la recuerda. Sube
+todo respetando la estructura de carpetas, y al terminar **comprueba
+que los archivos clave llegaron a su lugar** y que la versión del
+instalador de allá es la misma de acá.
+
+Existe por una razón concreta: escribir las rutas a mano es fácil de
+equivocar, y un archivo que aterriza en la carpeta de al lado deja el
+servidor corriendo la versión vieja sin que nada avise. El síntoma es
+desconcertante — arreglas algo, lo subes, y el error es idéntico.
 
 ---
 
@@ -280,7 +289,13 @@ base de datos.** No hay forma de recuperarlo.
 
 ### Subir cambios
 
-Desde tu Mac haces `git push`. Después, en el servidor:
+**Sin git**, desde tu Mac:
+
+```bash
+./subir-al-servidor.command
+```
+
+**Con git**, haces `git push`. Después, en el servidor:
 
 ```bash
 ssh consultorio@TU_IP
@@ -432,12 +447,56 @@ y la restauración están hechos para funcionar entre máquinas distintas.
 |---|---|---|
 | "No es seguro" en el navegador | El certificado no se emitió | Revisa que `dig +short tudominio` dé tu IP. Luego `docker compose -f docker-compose.produccion.yml logs caddy` |
 | El navegador ni siquiera conecta (dominio `.dev`) | Ver la nota de abajo | Espera a que Caddy emita el certificado y recarga |
-| "No encontré el sistema" al instalar | El proyecto no está en `/opt/consultorio` | Súbelo con el `rsync` del paso 4 y vuelve a correr el instalador |
+| "No encontré el sistema" al instalar | El proyecto no está en `/opt/consultorio` | Corre `./subir-al-servidor.command` desde tu Mac |
+| Arreglas algo, lo subes, y **el error es idéntico** | El archivo no llegó a su carpeta | Fíjate en la `Version:` que imprime el instalador al arrancar. Si no es la de tu Mac, usa `./subir-al-servidor.command` |
 | El sitio no carga | Algo se cayó | `docker compose -f docker-compose.produccion.yml ps`. Lo que no diga "Up", revisa sus logs. |
 | Error 500 | Falla de PHP | `docker compose -f docker-compose.produccion.yml logs --tail 50 app` |
 | No suben documentos | MinIO caído | `cd ../minio && docker compose -f docker-compose.produccion.yml ps` |
 | `pull access denied for minio/minio` | Docker Hub borró esas imágenes en sept. 2026 | Ya está corregido: el compose apunta a `quay.io`. Ver `docs/almacenamiento-de-archivos.md` |
+| `container consultorio_db is unhealthy` en el primer arranque | MySQL está armando las 69 tablas y todavía no termina | No falló: le faltó tiempo. Espera 2 minutos y `docker compose -f docker-compose.produccion.yml up -d` |
+| `Permission denied` sobre un archivo que sí existe | Ver la nota de abajo | Vuelve a correr el instalador, o el arreglo de mano |
 | Todo va lento | Poca RAM | `free -h` y `docker stats`. Si la RAM está al tope, sube de plan. |
+
+### "Permission denied" sobre un archivo que está perfectamente ahí
+
+El síntoma es desconcertante porque el mensaje señala un archivo que
+puedes ver con `ls`:
+
+```
+Warning: require_once(/var/www/html/includes/core/bootstrap.php):
+Failed to open stream: Permission denied
+```
+
+La cadena es esta. En tu Mac, los archivos del proyecto suelen quedar
+con permiso `600`: solo el dueño los lee. Al subirlos, `rsync -a`
+**conserva** esos permisos, porque `-a` incluye `-p`. Del otro lado, el
+servidor web corre como un usuario distinto (`www-data`), que no es el
+dueño: no puede abrir ni `index.php`. Un `chown` no alcanza, porque el
+problema no es *de quién* es el archivo sino que **nadie más puede
+leerlo**.
+
+Ya está resuelto en dos lugares: el guion de subida normaliza los
+permisos al subir (`--chmod=D755,F644`) y el instalador los vuelve a
+normalizar al instalar, sin importar cómo llegaron. Si te lo topas en
+un servidor que ya estaba armado, el arreglo de mano:
+
+```bash
+cd /opt/consultorio
+sudo find . -type d -exec chmod 755 {} +
+sudo find . -type f -exec chmod 644 {} +
+sudo chmod +x infra/produccion/*.sh
+sudo chmod 600 infra/produccion/.env infra/minio/.env
+sudo chown -R 33:33 storage && sudo chmod -R 775 storage
+```
+
+No hace falta reiniciar nada: el código está montado desde el disco, así
+que el cambio se ve al recargar la página.
+
+Las dos líneas del final tienen su razón. Los `.env` vuelven a `600`
+porque el `chmod` general los dejó legibles para todos, y ahí viven las
+contraseñas de la base. Y `storage/` se le da a `33:33` porque es la
+única carpeta donde la aplicación **escribe**, y quien escribe ahí es el
+servidor web, no tú.
 
 ### El comando que resuelve la mayoría
 

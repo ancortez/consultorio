@@ -29,6 +29,23 @@ error() { echo "    ${ROJO}!!${FIN}   $*" >&2; }
 
 morir() { error "$*"; exit 1; }
 
+# Muestra los ultimos renglones del contenedor que fallo. La causa casi
+# siempre esta ahi, y pedirle a alguien que vaya a buscarla es un paso
+# de mas justo cuando ya lleva media hora peleando.
+mostrar_logs() {
+    local carpeta="$1" archivo="$2"
+    echo
+    error "Lo que dicen los contenedores:"
+    echo
+    sudo -u "$USUARIO" bash -c "cd '$carpeta' && \
+        docker compose -f '$archivo' ps" 2>&1 | sed 's/^/        /'
+    echo
+    sudo -u "$USUARIO" bash -c "cd '$carpeta' && \
+        docker compose -f '$archivo' logs --tail 30 --no-color" 2>&1 \
+        | tail -40 | sed 's/^/        /'
+    echo
+}
+
 # ---------------------------------------------------------------------
 # Revisiones antes de tocar nada
 # ---------------------------------------------------------------------
@@ -39,6 +56,11 @@ if ! grep -qi ubuntu /etc/os-release 2>/dev/null; then
     read -rp "    ¿Continuar de todas formas? [s/N] " r
     [[ ${r,,} == s ]] || exit 1
 fi
+
+# Version de este instalador. Se imprime al arrancar para poder
+# distinguir de un vistazo si lo que esta corriendo es el archivo que
+# acabas de subir o el que ya estaba en el servidor.
+VERSION_INSTALADOR="2.1.0"
 
 USUARIO="${USUARIO_SISTEMA:-consultorio}"
 DESTINO="/opt/consultorio"
@@ -52,6 +74,7 @@ ORIGEN="$(cd "$AQUI/../.." && pwd)"
 echo
 echo "${NEGRITA}  Instalador del Sistema Consultorio Dental${FIN}"
 echo "  ----------------------------------------"
+echo "  Version:   ${NEGRITA}v$VERSION_INSTALADOR${FIN}"
 echo "  Servidor:  $(hostname)"
 echo "  Usuario:   $USUARIO"
 echo "  Carpeta:   $DESTINO"
@@ -283,9 +306,32 @@ aviso "sin el 127.0.0.1: delante. Revisa el compose antes de cambiarlo."
 # ---------------------------------------------------------------------
 # 7. Claves
 # ---------------------------------------------------------------------
-paso "Generando claves"
+paso "Acomodando permisos"
 
 chown -R "$USUARIO:$USUARIO" "$DESTINO"
+
+# Apache corre DENTRO del contenedor como www-data, que no es el dueno
+# de estos archivos. Si el proyecto llego con permisos restrictivos
+# (pasa siempre que se sube desde una Mac con rsync -a), Apache no
+# puede leer ni index.php y el navegador muestra "Permission denied"
+# sobre archivos que estan perfectamente ahi.
+find "$DESTINO" -type d -exec chmod 755 {} +
+find "$DESTINO" -type f -exec chmod 644 {} +
+ok "codigo legible para el servidor web"
+
+# Los guiones vuelven a ser ejecutables.
+chmod +x "$DESTINO"/infra/produccion/*.sh 2>/dev/null || true
+chmod +x "$DESTINO"/*.command 2>/dev/null || true
+
+# storage/ es la unica carpeta donde la aplicacion escribe. Se le da a
+# www-data (uid 33 dentro del contenedor), no al usuario del servidor:
+# quien escribe ahi es Apache.
+mkdir -p "$DESTINO/storage/logs" "$DESTINO/storage/uploads"
+chown -R 33:33 "$DESTINO/storage"
+chmod -R 775 "$DESTINO/storage"
+ok "storage escribible por el servidor web"
+
+paso "Generando claves"
 
 # openssl con base64 y sin caracteres raros: las contrasenias van a
 # viajar por archivos .env y lineas de comando, y un '$' o una comilla
@@ -296,6 +342,9 @@ ENV_APP="$DESTINO/infra/produccion/.env"
 ENV_MINIO="$DESTINO/infra/minio/.env"
 
 if [[ -f $ENV_APP ]]; then
+    # El chmod general de arriba los dejo en 644. Vuelven a 600: tienen
+    # las contrasenias de la base.
+    chmod 600 "$ENV_APP" "$ENV_MINIO" 2>/dev/null || true
     aviso "Ya existe $ENV_APP: se conserva, no se tocan las claves."
 else
     DB_PASS="$(clave)"
@@ -381,16 +430,120 @@ chown -R "$USUARIO:$USUARIO" "$EXTRA"
 # 9. Arranque
 # ---------------------------------------------------------------------
 paso "Levantando MinIO"
-sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/minio' && \
-    docker compose -f docker-compose.produccion.yml up -d" \
-    || morir "MinIO no levanto. Revisa: docker compose logs"
+if ! sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/minio' && \
+        docker compose -f docker-compose.produccion.yml up -d"; then
+    mostrar_logs "$DESTINO/infra/minio" "docker-compose.produccion.yml"
+    morir "MinIO no levanto."
+fi
 ok "MinIO arriba"
 
 paso "Levantando el sistema"
-sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/produccion' && \
-    docker compose -f docker-compose.produccion.yml up -d --build" \
-    || morir "El sistema no levanto. Revisa: docker compose logs"
-ok "sistema arriba"
+echo "    La primera vez, MySQL arma la base desde cero: 69 tablas y"
+echo "    los catalogos. Puede tardar varios minutos. Ten paciencia."
+echo
+
+if ! sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/produccion' && \
+        docker compose -f docker-compose.produccion.yml up -d --build"; then
+
+    mostrar_logs "$DESTINO/infra/produccion" "docker-compose.produccion.yml"
+
+    # La falla mas comun en el primer arranque tiene nombre propio.
+    if docker inspect consultorio_db --format '{{.State.Health.Status}}' \
+            2>/dev/null | grep -q starting; then
+        aviso "MySQL TODAVIA se esta armando. No fallo: le falto tiempo."
+        aviso "Espera un par de minutos y corre:"
+        echo "        cd $DESTINO/infra/produccion"
+        echo "        docker compose -f docker-compose.produccion.yml up -d"
+    fi
+
+    morir "El sistema no levanto."
+fi
+ok "contenedores arriba"
+
+# ---------------------------------------------------------------------
+# 9b. Que la base se haya armado de verdad
+# ---------------------------------------------------------------------
+# "Los contenedores estan arriba" y "el sistema funciona" no son lo
+# mismo, y la diferencia se paga cara.
+#
+# MySQL corre los .sql de db/ UNA SOLA VEZ: cuando su volumen esta
+# vacio. Si esa vez algo sale mal —por ejemplo, que los .sql no se
+# puedan leer— MySQL crea igual su directorio de datos y sigue
+# adelante. El volumen ya no esta vacio, asi que en los arranques
+# siguientes ni lo intenta. Quedas con una base existente y sin una
+# sola tabla, y el sistema no lo dice hasta que alguien intenta entrar
+# y se topa con un error 500 en blanco.
+#
+# Por eso aqui se cuenta. Es la unica prueba que no se puede fingir.
+paso "Comprobando que la base se haya armado"
+
+# Las claves se leen del .env, no de las variables de arriba: cuando el
+# instalador se vuelve a correr sobre una instalacion que ya existia,
+# esas variables no se generaron y estarian vacias.
+BD_CLAVE="$(grep -E '^DB_ROOT_PASS=' "$ENV_APP" | cut -d= -f2-)"
+BD_NOMBRE="$(grep -E '^DB_NAME=' "$ENV_APP" | cut -d= -f2-)"
+BD_NOMBRE="${BD_NOMBRE:-consultorio_dental}"
+
+esperar_base() {
+    local intento
+    for intento in $(seq 1 60); do
+        if docker exec consultorio_db mysqladmin ping -h localhost \
+                -uroot -p"$BD_CLAVE" --silent &>/dev/null; then
+            return 0
+        fi
+        sleep 5
+    done
+    return 1
+}
+
+if ! esperar_base; then
+    mostrar_logs "$DESTINO/infra/produccion" "docker-compose.produccion.yml"
+    morir "MySQL no respondio en 5 minutos."
+fi
+
+TABLAS=$(docker exec consultorio_db mysql -uroot -p"$BD_CLAVE" -N -B -e \
+    "SELECT COUNT(*) FROM information_schema.tables
+      WHERE table_schema='$BD_NOMBRE';" 2>/dev/null || echo 0)
+
+if [[ ${TABLAS:-0} -lt 60 ]]; then
+    echo
+    aviso "La base existe pero tiene $TABLAS tabla(s). Deberian ser mas de 60."
+    echo
+    echo "    Lo que paso: MySQL no pudo cargar los archivos de db/ en su"
+    echo "    primer arranque, y ya no lo va a volver a intentar solo."
+    echo
+    echo "    Como esta vacia, no hay nada que perder. Para rehacerla:"
+    echo
+    echo "        cd $DESTINO/infra/produccion"
+    echo "        docker compose -f docker-compose.produccion.yml down"
+    echo "        docker volume rm produccion_db_data"
+    echo "        docker compose -f docker-compose.produccion.yml up -d"
+    echo
+    echo "    Los permisos ya quedaron bien en este mismo instalador, asi"
+    echo "    que esta vez si va a cargar."
+    echo
+    morir "La base quedo sin esquema."
+fi
+ok "base armada: $TABLAS tablas y vistas"
+
+# Y que el sistema conteste de verdad, no solo que el contenedor viva.
+# Se pregunta por HTTPS al dominio: es el camino que va a usar la
+# doctora, no un atajo interno que podria funcionar cuando el de
+# verdad no. Un 500 aqui significa que PHP arranco y reviento, que es
+# distinto de que no conteste nadie.
+CODIGO="$(curl -s -o /dev/null -w '%{http_code}' -m 20 \
+          "https://$DOMINIO/login.php" 2>/dev/null || echo 000)"
+case "$CODIGO" in
+    200) ok "la pantalla de acceso responde en https://$DOMINIO" ;;
+    500) aviso "el sistema contesta pero con error 500. Los detalles:"
+         echo
+         tail -n 20 "$DESTINO/storage/logs/php-error.log" 2>/dev/null \
+             || echo "    (sin log todavia)"
+         echo ;;
+    000) aviso "nadie contesto en $DOMINIO. Si acabas de apuntar el DNS,"
+         aviso "dale unos minutos a Caddy para emitir el certificado." ;;
+    *)   aviso "la pantalla de acceso respondio $CODIGO" ;;
+esac
 
 # ---------------------------------------------------------------------
 # 10. Respaldos automaticos

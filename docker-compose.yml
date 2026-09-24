@@ -50,11 +50,15 @@ services:
       # Los .sql se ejecutan en orden alfabetico la primera vez que
       # se crea el volumen. Para recargar: docker compose down -v
       - ./db:/docker-entrypoint-initdb.d:ro
+    # La primera vez, MySQL corre los .sql de db/: 69 tablas y los
+    # catalogos. Durante start_period los fallos no cuentan, asi que
+    # el arranque inicial tiene margen aunque la maquina vaya lenta.
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${DB_ROOT_PASS:-root}"]
+      start_period: 180s
       interval: 5s
-      timeout: 5s
-      retries: 20
+      timeout: 10s
+      retries: 12
 
   phpmyadmin:
     image: phpmyadmin:5
