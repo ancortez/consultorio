@@ -140,6 +140,8 @@ paso "Revisando que nada haya aterrizado fuera de lugar"
 FALTANTES=0
 for archivo in \
     "infra/produccion/instalar-servidor.sh" \
+    "infra/produccion/enlazar-git.sh" \
+    "infra/produccion/permisos.sh" \
     "infra/produccion/docker-compose.produccion.yml" \
     "infra/produccion/Caddyfile" \
     "infra/minio/docker-compose.produccion.yml" \
@@ -158,13 +160,42 @@ if (( FALTANTES > 0 )); then
     morir "Faltan $FALTANTES archivo(s). Algo salio mal en la subida."
 fi
 
+# ---------------------------------------------------------------------
+# ¿Hace falta seguir subiendo a mano?
+# ---------------------------------------------------------------------
+# Subir por rsync funciona, pero cada version es volver a hacer esto.
+# Con el servidor enlazado al repositorio, actualizar es un comando
+# alla y nada aqui. Se avisa justo ahora, que es cuando se nota el
+# trabajo repetido, y solo si de verdad no esta enlazado.
+ENLAZADO=1
+ssh "$SERVIDOR" "test -d $DESTINO/.git" 2>/dev/null || ENLAZADO=0
+
 echo
 echo "${VERDE}${NEGRITA}  Listo.${FIN}"
 echo
-echo "  Ahora, en el servidor:"
-echo "      ${NEGRITA}ssh $SERVIDOR${FIN}"
-echo "      ${NEGRITA}cd $DESTINO/infra/produccion${FIN}"
-echo "      ${NEGRITA}bash instalar-servidor.sh${FIN}"
+
+if [[ $ENLAZADO -eq 0 ]]; then
+    echo "  ${AMARILLO}Este servidor no esta enlazado con git.${FIN}"
+    echo "  Por eso hay que subir los archivos a mano cada vez."
+    echo
+    echo "  Para no volver a hacerlo (respalda y no pierde los .env):"
+    echo "      ${NEGRITA}ssh $SERVIDOR${FIN}"
+    echo "      ${NEGRITA}cd $DESTINO/infra/produccion${FIN}"
+    echo "      ${NEGRITA}./enlazar-git.sh${FIN}"
+    echo
+    echo "  Y de ahi en adelante, para cada version:  ./desplegar.sh"
+    echo
+    echo "  Antes de enlazar, asegurate de haber hecho ${NEGRITA}git push${FIN}:"
+    echo "  el servidor va a tomar el codigo del repositorio, no de aqui."
+else
+    echo "  Ahora, en el servidor:"
+    echo "      ${NEGRITA}ssh $SERVIDOR${FIN}"
+    echo "      ${NEGRITA}cd $DESTINO/infra/produccion${FIN}"
+    echo "      ${NEGRITA}./desplegar.sh${FIN}"
+fi
+
+echo
+echo "  Si es la PRIMERA instalacion:  bash instalar-servidor.sh"
 echo
 echo "  Fijate que al arrancar diga ${NEGRITA}Version: v$VERSION_LOCAL${FIN}."
 echo "  Si dice otra, es que esta corriendo un archivo viejo."

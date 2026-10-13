@@ -308,28 +308,13 @@ aviso "sin el 127.0.0.1: delante. Revisa el compose antes de cambiarlo."
 # ---------------------------------------------------------------------
 paso "Acomodando permisos"
 
-chown -R "$USUARIO:$USUARIO" "$DESTINO"
-
-# Apache corre DENTRO del contenedor como www-data, que no es el dueno
-# de estos archivos. Si el proyecto llego con permisos restrictivos
-# (pasa siempre que se sube desde una Mac con rsync -a), Apache no
-# puede leer ni index.php y el navegador muestra "Permission denied"
-# sobre archivos que estan perfectamente ahi.
-find "$DESTINO" -type d -exec chmod 755 {} +
-find "$DESTINO" -type f -exec chmod 644 {} +
-ok "codigo legible para el servidor web"
-
-# Los guiones vuelven a ser ejecutables.
-chmod +x "$DESTINO"/infra/produccion/*.sh 2>/dev/null || true
-chmod +x "$DESTINO"/*.command 2>/dev/null || true
-
-# storage/ es la unica carpeta donde la aplicacion escribe. Se le da a
-# www-data (uid 33 dentro del contenedor), no al usuario del servidor:
-# quien escribe ahi es Apache.
-mkdir -p "$DESTINO/storage/logs" "$DESTINO/storage/uploads"
-chown -R 33:33 "$DESTINO/storage"
-chmod -R 775 "$DESTINO/storage"
-ok "storage escribible por el servidor web"
+# La receta vive en permisos.sh, no aqui.
+#
+# Era la misma en dos sitios —el instalador y el enlace con git— y una
+# receta repetida en dos archivos es una receta que un dia dice dos
+# cosas distintas. Teniendola en uno, cualquiera de los dos caminos
+# deja el servidor igual.
+bash "$DESTINO/infra/produccion/permisos.sh" "$DESTINO"
 
 paso "Generando claves"
 

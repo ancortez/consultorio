@@ -285,6 +285,72 @@ base de datos.** No hay forma de recuperarlo.
 
 ---
 
+## Si el servidor se instaló a mano y quieres enlazarlo con git
+
+Pasa cuando la primera instalación se subió con `rsync` o
+`subir-al-servidor.command`: en el servidor están los archivos, pero no
+el repositorio. `desplegar.sh` necesita un `git pull` para traer los
+cambios, y sin repositorio se salta ese paso y avisa que hay que
+subirlos a mano.
+
+Para averiguar en cuál de los dos casos estás:
+
+```bash
+ssh root@TU_SERVIDOR
+cd /opt/consultorio
+git remote -v        # si no dice nada, no está enlazado
+```
+
+Para enlazarlo, **sin perder nada de lo que hay en el servidor**:
+
+```bash
+cd /opt/consultorio/infra/produccion
+./enlazar-git.sh
+```
+
+Respalda primero, crea el repositorio, baja el código y vuelve a dejar
+los permisos como Apache los necesita.
+
+**Lo que no toca:** `git reset --hard` solo pisa archivos que el
+repositorio conoce, y los importantes están todos en `.gitignore`.
+Sobreviven los dos `.env` —con las contraseñas de la base—, `storage/`
+con los archivos subidos, y los respaldos. El guion los lista al
+terminar para que lo veas, y además deja una copia aparte de los
+`.env`.
+
+### Si el repositorio es privado
+
+`git` va a pedir credenciales y el guion se detiene explicando esto
+mismo. La forma limpia en un servidor es una **llave de despliegue**:
+es de solo lectura, vale únicamente para ese repositorio y se revoca
+desde GitHub sin tocar tu cuenta.
+
+```bash
+# 1. En el servidor
+ssh-keygen -t ed25519 -C 'vps-consultorio' -f ~/.ssh/github -N ''
+cat ~/.ssh/github.pub
+```
+
+```
+# 2. En GitHub
+   El repositorio > Settings > Deploy keys > Add deploy key
+   Pega lo que salió. DEJA SIN MARCAR "Allow write access":
+   el servidor solo necesita leer.
+```
+
+```bash
+# 3. De vuelta en el servidor
+printf 'Host github.com\n  IdentityFile ~/.ssh/github\n' >> ~/.ssh/config
+cd /opt/consultorio/infra/produccion
+REPO=git@github.com:ancortez/consultorio.git ./enlazar-git.sh
+```
+
+No uses tu contraseña de GitHub ni la dejes escrita en el servidor: si
+alguien entra al VPS, se lleva el acceso a todos tus repositorios. La
+llave de despliegue solo abre este.
+
+---
+
 ## Cómo se usa de aquí en adelante
 
 ### Subir cambios

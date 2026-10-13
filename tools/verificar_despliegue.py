@@ -399,22 +399,73 @@ if '--chmod=' in subir and 'chmod +x' not in subir:
     fallos.append('subir-al-servidor normaliza permisos pero no devuelve '
                   'el +x a los guiones')
 
-# El instalador es la segunda red: arregla lo que ya este mal en el
-# servidor, sin importar como llego.
-if not re.search(r'find "\$DESTINO" -type f -exec chmod 6\d\d', instala):
-    fallos.append('el instalador no normaliza los permisos de los archivos')
-if not re.search(r'find "\$DESTINO" -type d -exec chmod 7\d\d', instala):
-    fallos.append('el instalador no normaliza los permisos de las carpetas')
+# La segunda red: arreglar lo que ya este mal en el servidor, sin
+# importar como llego.
+#
+# La receta vivia copiada dentro de instalar-servidor.sh y ahora esta
+# en permisos.sh, porque hay DOS caminos que la necesitan: la
+# instalacion desde cero y el enlace con git de una carpeta que se
+# subio a mano. Dos copias de la misma receta es una receta que un dia
+# dice dos cosas distintas, asi que lo que se comprueba es el guion
+# unico... y que los dos caminos lo llamen. Sin lo segundo, el guion
+# podria estar perfecto y no correrlo nadie.
+permisos = raiz/'infra/produccion/permisos.sh'
+if not permisos.exists():
+    fallos.append('falta infra/produccion/permisos.sh')
+    perm = ''
+else:
+    perm = permisos.read_text(encoding='utf-8')
+
+if not re.search(r'-type f .*-exec chmod 6\d\d', perm):
+    fallos.append('permisos.sh no normaliza los permisos de los archivos')
+if not re.search(r'-type d .*-exec chmod 7\d\d', perm):
+    fallos.append('permisos.sh no normaliza los permisos de las carpetas')
+
+for guion, comoSeLlama in [('instalar-servidor.sh', instala),
+                           ('enlazar-git.sh',
+                            (raiz/'infra/produccion/enlazar-git.sh').read_text(encoding='utf-8')
+                            if (raiz/'infra/produccion/enlazar-git.sh').exists() else '')]:
+    if 'permisos.sh' not in comoSeLlama:
+        fallos.append(f'{guion} no llama a permisos.sh: deja el servidor '
+                      'con permisos distintos segun por donde se entre')
 print('  ok   el codigo queda legible para Apache (al subir y al instalar)')
+
+# ---------- El guion de enlace tiene que LLEGAR al servidor ----------
+# Huevo y gallina: enlazar-git.sh vive en el repositorio, y hace falta
+# justo cuando el servidor todavia no esta enlazado a ese repositorio.
+# La unica forma de que llegue la primera vez es la subida por rsync,
+# asi que subir-al-servidor tiene que comprobarlo entre los archivos
+# clave. Se me paso al escribirlo y Angel lo cazo.
+#
+# Con la RUTA ENTRECOMILLADA, que es como aparece en la lista de
+# archivos clave. Buscar "enlazar-git.sh" a secas no sirve: el nombre
+# sale tambien en el texto del pie que le dice a uno que lo corra, asi
+# que la comprobacion pasaba aunque el archivo ya no se revisara. Lo
+# probe quitandolo de la lista y no se entero. La misma trampa de
+# siempre: buscar una palabra en vez del mecanismo.
+for ruta, porque in [
+        ('"infra/produccion/enlazar-git.sh"',
+         'sin el, no hay forma de enlazar un servidor subido a mano'),
+        ('"infra/produccion/permisos.sh"',
+         'que es lo que enlazar-git.sh necesita para terminar')]:
+    if ruta not in subir:
+        fallos.append(f'subir-al-servidor no comprueba que llegue {ruta}: '
+                      + porque)
+print('  ok   los guiones del enlace viajan en la subida manual')
 
 # storage/ es la unica carpeta donde la aplicacion escribe, y quien
 # escribe ahi es Apache: el dueno tiene que ser www-data (uid 33
 # dentro del contenedor), no el usuario del servidor.
-if 'chown -R 33:33' not in instala:
-    fallos.append('el instalador no le da storage/ a www-data: la app no '
+if 'chown -R 33:33' not in perm:
+    fallos.append('permisos.sh no le da storage/ a www-data: la app no '
                   'podria escribir sus logs')
-if not re.search(r'chmod -R 7\d\d "\$DESTINO/storage"', instala):
+if not re.search(r'chmod -R 7\d\d "\$DESTINO/storage"', perm):
     fallos.append('storage/ no queda escribible')
+# Y si ese chown falla por no ser root, tiene que AVISARLO. Falla en
+# silencio y el sintoma —no se suben documentos— no se parece nada a
+# la causa.
+if 'chown -R 33:33' in perm and 'no se pudo dar storage' not in perm:
+    fallos.append('permisos.sh se calla si no puede dar storage/ a www-data')
 # Y que el compose no lo monte de solo lectura, que seria el mismo
 # problema por otra puerta.
 if re.search(r'storage:/var/www/storage:ro', compose):
