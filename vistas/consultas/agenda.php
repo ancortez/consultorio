@@ -16,7 +16,40 @@ $soloYo = $usuarioSesion['es_dentista']
     && !Auth::puede('consultas.agenda');
 
 $fechaInicial = $_GET['fecha'] ?? date('Y-m-d');
+
+// Llegando desde la ficha de un paciente, la cita se abre con el ya
+// puesto: el dato lo sabemos y pedirlo de nuevo es hacer repetir
+// trabajo a quien esta en recepcion con el tutor enfrente.
+$pacientePrevio = paramInt('paciente')
+    ? Conexion::uno(
+        'SELECT id_registro_paciente, nombre_completo, num_expediente
+           FROM v_paciente WHERE id_registro_paciente = :r',
+        [':r' => paramInt('paciente')])
+    : null;
 ?>
+<?php /* Llegando con "?nueva=1" —el boton de la vista de semana— la
+         cita se abre sola. La marca va en el HTML y no en el
+         JavaScript leyendo la direccion porque asi el permiso lo
+         decide PHP: quien no puede agendar no recibe la marca, y el
+         modal no se abre aunque alguien escriba el parametro a mano. */ ?>
+<?php if (paramInt('nueva')
+         && (Auth::puede('consultas.agenda') || $usuarioSesion['es_dentista'])): ?>
+<div id="agAbrirNueva" class="d-none"></div>
+<?php endif; ?>
+
+<?php /* Llegando con "?cita=N" —el boton Modificar del detalle, en la
+         vista de semana— esa cita se abre para editarla. Se manda solo
+         el id; los datos los tiene el listado del dia, que de todas
+         formas hay que cargar. */ ?>
+<?php if (paramInt('cita')): ?>
+<div id="agAbrirCita" class="d-none" data-id="<?= paramInt('cita') ?>"></div>
+<?php endif; ?>
+
+<?php if ($pacientePrevio): ?>
+<div id="agPacientePrevio" class="d-none"
+     data-id="<?= (int) $pacientePrevio['id_registro_paciente'] ?>"
+     data-nombre="<?= e($pacientePrevio['nombre_completo']) ?>"></div>
+<?php endif; ?>
 <div class="d-flex align-items-center justify-content-between mb-3">
     <div>
         <h1 class="titulo-vista">Agenda</h1>
@@ -63,8 +96,15 @@ $fechaInicial = $_GET['fecha'] ?? date('Y-m-d');
                 <select class="form-select" id="agDentista" <?= $soloYo ? 'disabled' : '' ?>>
                     <?php if (!$soloYo): ?><option value="">Todos</option><?php endif; ?>
                     <?php foreach ($dentistas as $d): ?>
+                        <?php /* Llegando de la vista de semana se respeta el
+                                 dentista que alla estaba filtrado: cambiarlo
+                                 por "Todos" a mitad de camino haria que la
+                                 agenda se viera distinta de la que se acaba
+                                 de dejar. */ ?>
                         <option value="<?= (int) $d['id_usuario'] ?>"
-                            <?= $soloYo ? 'selected' : '' ?>>
+                            <?= $soloYo
+                                || paramInt('dentista') === (int) $d['id_usuario']
+                                    ? 'selected' : '' ?>>
                             <?= e($d['nombre_completo']) ?>
                         </option>
                     <?php endforeach; ?>
@@ -259,3 +299,5 @@ $fechaInicial = $_GET['fecha'] ?? date('Y-m-d');
     </div>
   </div>
 </div>
+
+<?php require __DIR__ . '/_modal_detalle_cita.php'; ?>

@@ -15,7 +15,7 @@ if (!$idConsulta) {
 }
 
 $c = Conexion::uno(
-    'SELECT id_consulta, cerrada, motivo, diagnostico
+    'SELECT id_consulta, cerrada, motivo, plan_indicaciones
        FROM consulta WHERE id_consulta = :c AND estatus = 1',
     [':c' => $idConsulta]
 );
@@ -27,10 +27,14 @@ if ((int) $c['cerrada'] === 1) {
     Respuesta::error('Esta consulta ya estaba cerrada.');
 }
 
-if (empty($c['diagnostico'])) {
+// El diagnostico salio de la consulta: vive en el plan de tratamiento,
+// que es donde la doctora lo razona. Lo que una consulta si tiene que
+// dejar por escrito es QUE SE HIZO: sin eso no sirve como registro
+// clinico ni para la siguiente cita ni ante nadie.
+if (empty($c['plan_indicaciones'])) {
     Respuesta::error(
-        'Captura el diagnostico antes de cerrar la consulta. '
-        . 'Una consulta sin diagnostico no sirve como registro clinico.');
+        'Captura el tratamiento realizado antes de cerrar la consulta. '
+        . 'Una consulta sin eso no sirve como registro clinico.');
 }
 
 Conexion::consulta(

@@ -20,8 +20,9 @@ if (!$idExpediente)     { Respuesta::error('Falta el expediente del paciente.');
 if ($nombres === null)  { $errores['nombres']       = 'Captura el nombre.'; }
 if ($paterno === null)  { $errores['ap_paterno']    = 'Captura el apellido paterno.'; }
 if (!$idParentesco)     { $errores['id_parentesco'] = 'Selecciona el parentesco.'; }
-if ($rfc !== null && !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
-    $errores['rfc'] = 'El RFC no tiene el formato correcto.';
+if ($rfc !== null && !rfcConForma($rfc)) {
+    $errores['rfc'] = 'El RFC no tiene el formato correcto. Con o sin homoclave: '
+                      . 'COMA861125 o COMA8611257K1.';
 }
 if ($tel !== '' && strlen($tel) < 10) {
     $errores['telefono'] = 'El telefono debe tener 10 digitos.';

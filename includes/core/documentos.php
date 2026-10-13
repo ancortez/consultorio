@@ -361,19 +361,35 @@ final class Documentos
             throw new RuntimeException('No se pudo leer el archivo.');
         }
 
-        $ext  = Almacen::extension($archivo['name']);
+        // Antes de guardar, la imagen se reduce. Lo que llega de una
+        // camara o de un sensor de rayos X no tiene el tamano con que
+        // conviene guardarlo: 5 MB por foto, con mil pacientes, son
+        // decenas de gigabytes de resolucion que ninguna pantalla va a
+        // mostrar y que hay que respaldar cada semana.
+        //
+        // El tipo de documento decide cuanto se reduce: una radiografia
+        // conserva mas detalle porque se amplia para leerla.
+        $original = $contenido;
+        $optimo   = Imagen::optimizar(
+            $contenido, Almacen::extension($archivo['name']), (string) $doc['clave']);
+
+        $contenido = $optimo['contenido'];
+        $ext       = $optimo['ext'];
+        $mime      = $optimo['mime'];
+
         $ruta = Almacen::rutaDocumento(
             (int) $doc['id_registro_paciente'], $doc['clave'], $ext);
-        $mime = Almacen::TIPOS[$ext];
 
         Almacen::subir($ruta, $contenido, $mime);
 
         // La fotografia del paciente ademas se recorta a un cuadrado
         // centrado en la cara, que es lo que se muestra en el circulo
         // de la tarjeta. El original completo se conserva aparte.
+        // El recorte sale del original, no de la version reducida: el
+        // circulo es chico y encadenar dos compresiones se nota.
         if ($doc['clave'] === 'FOTO_PACIENTE') {
             self::generarAvatar(
-                (int) $doc['id_registro_paciente'], $contenido);
+                (int) $doc['id_registro_paciente'], $original);
         }
 
         // Si ya habia un archivo (se esta reemplazando), se borra el
@@ -394,7 +410,10 @@ final class Documentos
             [':ruta' => $ruta,
              ':nom'  => mb_substr($archivo['name'], 0, 200),
              ':mime' => $mime,
-             ':tam'  => $archivo['size'],
+             // El tamano y el hash son los de lo que de verdad quedo
+             // guardado, no los del archivo que llego. Si se anotara el
+             // original, el hash no serviria para comprobar nada.
+             ':tam'  => strlen($contenido),
              ':hash' => hash('sha256', $contenido),
              ':u'    => Auth::id(),
              ':id'   => $idDocumento]
@@ -410,9 +429,54 @@ final class Documentos
         }
 
         Bitacora::registrar('expediente', 'DIGITALIZA', 'documento',
-            (string) $idDocumento, ['ruta' => $ruta, 'tamano' => $archivo['size']]);
+            (string) $idDocumento, ['ruta' => $ruta, 'tamano' => strlen($contenido)]);
+
+        // La hoja del plan firmada es la prueba de que el tutor acepto.
+        // Hasta que no entra, el plan sigue siendo una propuesta.
+        self::aceptarPlanSiCorresponde($doc);
 
         return ['id_documento' => $idDocumento, 'ruta' => $ruta];
+    }
+
+    /**
+     * Pasa el plan a "Aceptado" cuando entra su hoja firmada.
+     *
+     * El estatus del plan dejo de capturarse a mano en octubre 2026.
+     * La razon: nadie puede saber si un plan fue aceptado hasta que hay
+     * una firma, y un campo de captura invitaba a marcarlo antes de
+     * tiempo. Cuando eso pasa, el estatus deja de significar nada y los
+     * reportes de cuantos planes se aceptan quedan inservibles.
+     *
+     * Ahora lo mueve un hecho comprobable: existe un archivo escaneado
+     * de la hoja que el tutor firmo.
+     *
+     * Solo avanza desde Propuesto. Un plan que ya esta En proceso o
+     * Terminado NO retrocede a Aceptado porque alguien vuelva a escanear
+     * la hoja: eso borraria el avance real del tratamiento.
+     */
+    private static function aceptarPlanSiCorresponde(array $doc): void
+    {
+        if ($doc['clave'] !== 'PLAN_TRATAMIENTO'
+            || empty($doc['id_plan_tratamiento'])) {
+            return;
+        }
+
+        $idPlan = (int) $doc['id_plan_tratamiento'];
+
+        $filas = Conexion::consulta(
+            'UPDATE plan_tratamiento
+                SET id_estado_plan = 2
+              WHERE id_plan_tratamiento = :p
+                AND id_estado_plan = 1',
+            [':p' => $idPlan]
+        )->rowCount();
+
+        if ($filas > 0) {
+            Bitacora::registrar('consultas', 'PLAN_ACEPTADO', 'plan_tratamiento',
+                (string) $idPlan,
+                ['motivo' => 'se digitalizo la hoja firmada',
+                 'documento' => (int) $doc['id_documento']]);
+        }
     }
 
     /**
@@ -422,7 +486,16 @@ final class Documentos
      * Si algo falla no se interrumpe la subida: la foto original ya
      * quedo guardada y el avatar es un extra.
      */
-    private static function generarAvatar(int $idExpediente, string $contenido): void
+    /**
+     * Publica, no privada: la usa tools/reparar_heic.php.
+     *
+     * Ese guion convierte a JPEG las fotos de iPhone que quedaron sin
+     * convertir, y la del paciente lleva ademas su recorte circular, que
+     * se habia generado del HEIC y por lo tanto salio vacio. Volver a
+     * recortar desde el guion es lo que completa la reparacion; copiar
+     * el recorte alla seria una segunda version de la misma regla.
+     */
+    public static function generarAvatar(int $idExpediente, string $contenido): void
     {
         try {
             $recorte = Imagen::recorteRetrato($contenido);

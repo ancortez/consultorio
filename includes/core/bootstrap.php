@@ -19,8 +19,13 @@ require_once __DIR__ . '/imagen.php';
 require_once __DIR__ . '/documentos.php';
 require_once __DIR__ . '/agenda.php';
 require_once __DIR__ . '/tema.php';
+require_once __DIR__ . '/ficha.php';
 require_once __DIR__ . '/cargos.php';
 require_once __DIR__ . '/caja.php';
 require_once __DIR__ . '/agenda_extra.php';
+require_once __DIR__ . '/tutoria.php';
+require_once __DIR__ . '/planes.php';
+require_once __DIR__ . '/esquema.php';
+require_once __DIR__ . '/historia_clinica.php';
 
 Sesion::iniciar();

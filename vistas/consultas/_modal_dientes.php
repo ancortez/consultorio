@@ -40,13 +40,74 @@ foreach (Conexion::todos('SELECT id_diente, nombre_diente FROM diente') as $d) {
     $nombres[(int) $d['id_diente']] = $d['nombre_diente'];
 }
 
+/*
+ * La forma del diente segun su posicion.
+ *
+ * Antes todos eran el mismo hexagono. Un odontograma se lee por la
+ * forma —el incisivo es una pala, el molar tiene cuatro cuspides— y
+ * con treinta y dos hexagonos identicos hay que ir leyendo el numero
+ * de cada uno para ubicarse, que es justo lo que el dibujo deberia
+ * ahorrar.
+ *
+ * El ultimo digito de la notacion FDI dice que diente es dentro del
+ * cuadrante: 1 y 2 incisivos, 3 canino, 4 y 5 premolares, 6 a 8
+ * molares. En los temporales (51-85) el 4 y el 5 ya son molares,
+ * porque no hay premolares en la denticion de leche.
+ */
+$formaDiente = static function (int $n): string {
+    $pos = $n % 10;
+    $temporal = $n >= 51;
+
+    if ($pos <= 2) return 'incisivo';
+    if ($pos === 3) return 'canino';
+    if ($pos <= 5) return $temporal ? 'molar' : 'premolar';
+    return 'molar';
+};
+
+/*
+ * Cada forma es un SVG de 40x52: corona arriba, raices abajo.
+ *
+ * Van dibujados a mano y no con una tipografia de iconos porque hacen
+ * falta DOS zonas pintables —corona y raiz— y un icono es una sola
+ * silueta. Ademas asi el diente seleccionado cambia de color sin
+ * cambiar de forma.
+ */
+$svgDiente = static function (string $forma): string {
+    $coronas = [
+        // Pala ancha y plana: el borde incisal es recto.
+        'incisivo' => 'M8,4 h24 a3,3 0 0 1 3,3 v14 '
+                    . 'c0,7 -4,11 -15,11 s-15,-4 -15,-11 v-14 a3,3 0 0 1 3,-3 z',
+        // Punta: la cuspide unica del canino.
+        'canino'   => 'M20,2 l14,8 v11 c0,7 -5,11 -14,11 s-14,-4 -14,-11 v-11 z',
+        // Dos cuspides.
+        'premolar' => 'M9,6 q5,-4 11,0 q6,-4 11,0 v15 '
+                    . 'c0,7 -5,11 -11,11 s-11,-4 -11,-11 z',
+        // Cuatro cuspides: la corona cuadrada del molar.
+        'molar'    => 'M7,6 q4,-4 8,0 q5,-4 10,0 q4,-4 8,0 v15 '
+                    . 'c0,7 -6,11 -13,11 s-13,-4 -13,-11 z',
+    ];
+
+    // Una raiz en los de adelante, dos en los de atras.
+    $raices = in_array($forma, ['molar', 'premolar'], true)
+        ? '<path class="rz" d="M14,31 l-3,17 q-1,3 2,3 q3,0 3,-3 l1,-17 z"/>'
+        . '<path class="rz" d="M26,31 l3,17 q1,3 -2,3 q-3,0 -3,-3 l-1,-17 z"/>'
+        : '<path class="rz" d="M16,31 l-2,18 q0,3 4,3 q4,0 4,-3 l-2,-18 z"/>';
+
+    return '<svg viewBox="0 0 40 52" class="dibujo-diente">'
+         . $raices
+         . '<path class="cr" d="' . $coronas[$forma] . '"/>'
+         . '</svg>';
+};
+
 /** Dibuja una fila de dientes de un cuadrante. */
-$fila = static function (array $nums, string $clase) use ($nombres): void {
+$fila = static function (array $nums, string $clase)
+        use ($nombres, $formaDiente, $svgDiente): void {
     foreach ($nums as $n) {
         printf(
-            '<button type="button" class="diente %s" data-diente="%d" title="%s">'
-            . '<i class="bi bi-hexagon-fill"></i><span>%d</span></button>',
-            $clase, $n, e($nombres[$n] ?? ''), $n
+            '<button type="button" class="diente %s %s" data-diente="%d" title="%s">'
+            . '%s<span>%d</span></button>',
+            $clase, $formaDiente($n), $n, e($nombres[$n] ?? ''),
+            $svgDiente($formaDiente($n)), $n
         );
     }
 };

@@ -7,3 +7,5 @@
  */
 require __DIR__ . '/../paciente/_modal_ocupacion.php';
 require __DIR__ . '/../paciente/_modal_colonia.php';
+require __DIR__ . '/_modal_album.php';
+require __DIR__ . '/_modal_subir_doc.php';

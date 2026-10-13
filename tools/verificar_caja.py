@@ -6,6 +6,7 @@ se prueba con un puerto a Python de la logica: el reparto de un abono
 contra los cargos y el arqueo del turno. Son las dos cuentas donde un
 error se traduce en dinero mal registrado.
 """
+import sys
 import re, pathlib, math
 
 raiz = pathlib.Path('.')
@@ -246,3 +247,11 @@ for a in avisos: print('  ~   ', a)
 for f in fallos: print('  !!  ', f)
 print()
 print('*** TODO EN ORDEN ***' if not fallos else f'*** {len(fallos)} PROBLEMA(S) ***')
+
+# Salir con error cuando hay fallos.
+#
+# Sin esto el verificador IMPRIME el problema y devuelve 0, asi que
+# cualquier guion que lo encadene con && sigue de largo y el fallo se
+# queda en la pantalla, leido por nadie. Un verificador que siempre
+# dice que si no verifica nada.
+sys.exit(1 if fallos else 0)

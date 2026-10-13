@@ -141,6 +141,17 @@ class ControlDomicilio {
     // El selector modal escribe el id y dispara change sobre el visible.
     this.coloniaTexto.addEventListener('change', () => this.actualizarBloqueo());
 
+    /*
+       El boton de "capturar nuevo domicilio" ya no existe en ninguna
+       pantalla: el expediente acepta uno por persona desde que se
+       unifico, y ese boton ofrecia capturar un segundo que el sistema
+       no iba a guardar como segundo.
+
+       La escucha se queda con el "?." porque el componente es generico
+       y puede volver a hacer falta —una pantalla de proveedores, por
+       ejemplo—. Sin el boton, esta linea no hace nada; con el, vuelve a
+       funcionar sin tocar nada aqui.
+    */
     this.btnNuevo?.addEventListener('click', () => this.limpiar());
 
     this.form.addEventListener('submit', async (ev) => {
@@ -923,9 +934,28 @@ const NuevaConsulta = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('btnNuevaConsulta')?.addEventListener('click', () => {
-    const caja = document.querySelector('.tab-content[data-id-expediente]');
-    if (caja) NuevaConsulta.desdePaciente(caja.dataset.idExpediente);
+  // Delegado y por atributo, no por id.
+  //
+  // Antes buscaba un unico boton por id y leia el expediente del
+  // contenedor de pestanias. Las pestanias se fueron, el selector
+  // quedo apuntando a nada, y el boton dejo de hacer nada sin dar
+  // error. Ademas ahora hay DOS botones de nueva consulta en la misma
+  // pantalla —el de arriba y el de la tarjeta— y getElementById solo
+  // encuentra el primero.
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-nueva-consulta]');
+    if (!b) return;
+    NuevaConsulta.desdePaciente(b.dataset.nuevaConsulta);
+  });
+
+  // Estado de cuenta: ventana centrada, no pestania nueva. Proporcion
+  // de hoja carta, que es como esta armado el documento.
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-estado-cuenta]');
+    if (!b) return;
+    App.abrirVentana(
+      `${App.URL_BASE}/estado_cuenta.php?id=${b.dataset.estadoCuenta}`,
+      900, 1020, 'estadocuenta');
   });
 
   document.getElementById('planNuevaConsulta')?.addEventListener('click', (ev) => {
@@ -998,11 +1028,35 @@ const Dientes = (() => {
     document.getElementById('dientesProcedimiento').textContent =
       cfg.procedimiento ?? '—';
 
-    // Si lo que trae son dientes temporales, se abre en esa pestania:
-    // buscarlos a mano cada vez seria una molestia diaria.
-    const hayTemporal = [...elegidos].some((n) => n >= 51);
+    /*
+       Con que denticion abrir.
+
+       Es un consultorio pediatrico: abrir siempre en permanente obliga
+       a cambiar de pestania en la mayoria de los pacientes, varias
+       veces al dia. Se decide asi, en este orden:
+
+         1. Si el renglon YA trae dientes, manda lo que trae. Alguien ya
+            eligio y no hay nada que adivinar.
+         2. Si no, manda la edad del paciente.
+
+       Los cortes son los de la erupcion dental: hasta los 6 anos la
+       boca es temporal; de 6 a 12 es mixta, y ahi se abre en temporal
+       porque es donde esta el trabajo de un odontopediatra; de 12 en
+       adelante, permanente.
+
+       Siempre se puede cambiar a mano: esto decide donde EMPIEZA, no
+       que se puede elegir.
+    */
+    let temporal;
+    if (elegidos.size > 0) {
+      temporal = [...elegidos].some((n) => n >= 51);
+    } else {
+      const edad = Number(cfg.edad);
+      temporal = Number.isFinite(edad) && edad > 0 ? edad < 12 : false;
+    }
+
     const pestania = document.querySelector(
-      `[data-bs-target="${hayTemporal ? '#dent-temporal' : '#dent-permanente'}"]`);
+      `[data-bs-target="${temporal ? '#dent-temporal' : '#dent-permanente'}"]`);
     if (pestania) bootstrap.Tab.getOrCreateInstance(pestania).show();
 
     pintarSeleccion();
@@ -1058,6 +1112,464 @@ const Dientes = (() => {
   document.addEventListener('DOMContentLoaded', iniciar);
 
   return { pedir, etiqueta };
+})();
+
+/* =====================================================================
+   Visor de album
+
+   Lo usan el panel del plan, el expediente electronico y la consulta.
+   Vive aqui por la misma razon que el selector de dientes: son tres
+   pantallas y un solo visor, y tenerlo duplicado garantizaba que tarde
+   o temprano se vieran distintos.
+
+   Quien lo abre solo pasa la lista de imagenes y un titulo. El visor no
+   sabe si vienen de un plan, de una consulta o del expediente.
+   ===================================================================== */
+const Album = (() => {
+
+  let modal   = null;
+  let lista   = [];
+  let indice  = 0;
+
+  function caja() { return document.getElementById('modalAlbumVer'); }
+
+  /**
+   * @param {object}   cfg
+   * @param {string}   cfg.titulo
+   * @param {object[]} cfg.imagenes  cada una con id_documento y, si hay,
+   *                                 descripcion / nombre_original.
+   * @param {number}   [cfg.desde]   en cual abrir. 0 por omision.
+   */
+  function abrir(cfg) {
+    if (!caja() || !cfg.imagenes?.length) return;
+
+    modal = modal ?? bootstrap.Modal.getOrCreateInstance(caja());
+    lista = cfg.imagenes;
+
+    document.getElementById('albVerTitulo').textContent =
+      `${cfg.titulo ?? 'Álbum'} · ${lista.length} elemento${lista.length > 1 ? 's' : ''}`;
+
+    document.getElementById('albVerTira').innerHTML = lista.map((d, j) => `
+      <button type="button" class="mini" data-mini="${j}"
+              title="${App.esc(d.descripcion ?? d.nombre_original ?? '')}">
+        <img src="${App.URL_BASE}/archivo.php?id=${d.id_documento}" alt="">
+      </button>`).join('');
+
+    mostrar(cfg.desde ?? 0);
+    modal.show();
+  }
+
+  function mostrar(i) {
+    if (!lista.length) return;
+
+    /*
+       Hacia donde va, para animarla hacia ese lado.
+
+       Se calcula ANTES de normalizar el indice: ahi todavia se sabe si
+       pidieron "la siguiente" o "la anterior". Despues de dar la vuelta
+       —de la ultima a la primera— la resta de indices dice lo
+       contrario de lo que paso.
+    */
+    const haciaAdelante = i > indice;
+
+    // Da la vuelta en los extremos: llegar a la ultima y seguir lleva a
+    // la primera. Comparar la radiografia de hoy con la primera del
+    // tratamiento es justo lo que se hace, y con tope habria que
+    // recorrer todo de regreso.
+    const antes = indice;
+    indice = (i + lista.length) % lista.length;
+    const d = lista[indice];
+
+    const img = document.getElementById('albVerImagen');
+
+    /*
+       La imagen entra deslizandose desde el lado por el que viene.
+
+       No es adorno: con dos radiografias parecidas, cambiar sin
+       movimiento deja la duda de si de verdad cambio algo. El
+       desplazamiento dice "esta es otra, y esta a la derecha de la
+       anterior", que es justo lo que hace falta al comparar.
+
+       Solo si de verdad cambio de imagen: repintar la misma —al abrir,
+       o al picar la miniatura que ya esta activa— no deberia moverse.
+    */
+    if (antes !== indice) {
+      img.classList.remove('entra-izq', 'entra-der');
+      // Forzar un reflow reinicia la animacion. Sin esto, dos pasos
+      // seguidos en la misma direccion solo se animan la primera vez:
+      // el navegador ve la misma clase y no vuelve a empezar.
+      void img.offsetWidth;
+      img.classList.add(haciaAdelante ? 'entra-der' : 'entra-izq');
+    }
+
+    img.src =
+      `${App.URL_BASE}/archivo.php?id=${d.id_documento}`;
+    document.getElementById('albVerDescripcion').textContent =
+      d.descripcion || d.nombre_original || d.nombre_documento || '';
+    document.getElementById('albVerContador').textContent =
+      `${indice + 1} de ${lista.length}`;
+    // El enlace conserva su href —para "abrir en otra pestania" del menu
+    // del boton derecho, y para que se vea a donde lleva— pero el clic
+    // normal abre una ventana a la medida de la imagen. Ver abajo.
+    document.getElementById('albVerAbrir').href =
+      `${App.URL_BASE}/archivo.php?id=${d.id_documento}`;
+
+    caja().querySelectorAll('.tira-miniaturas .mini').forEach((m, j) => {
+      m.classList.toggle('activa', j === indice);
+    });
+    caja().querySelector('.tira-miniaturas .mini.activa')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+
+  /** Solo imagenes: un PDF no se puede mostrar como miniatura. */
+  function soloImagenes(docs) {
+    return (docs ?? []).filter(
+      (d) => (d.tipo_mime || '').startsWith('image/') && Number(d.estado) !== 0);
+  }
+
+  function iniciar() {
+    if (!caja()) return;
+
+    caja().addEventListener('click', (ev) => {
+      const m = ev.target.closest('[data-mini]');
+      if (m) { mostrar(Number(m.dataset.mini)); return; }
+      if (ev.target.closest('#albVerAnterior'))  mostrar(indice - 1);
+      if (ev.target.closest('#albVerSiguiente')) mostrar(indice + 1);
+
+      /*
+         "Abrir en pestania nueva" abre una VENTANA a la medida.
+
+         Una pestania nueva deja la imagen pegada arriba a la izquierda
+         y con el navegador entero alrededor: para mirar una radiografia
+         eso es peor que el visor que se acaba de dejar. Una ventana del
+         tamanio de la imagen, centrada sobre la pantalla, ensenia la
+         radiografia y nada mas.
+
+         Se mide la imagen que ya esta cargada en el visor, que es
+         gratis: pedir el tamanio al servidor seria un viaje de ida y
+         vuelta para algo que ya tenemos delante.
+      */
+      const abrir = ev.target.closest('#albVerAbrir');
+      if (!abrir) return;
+
+      ev.preventDefault();
+
+      const img = document.getElementById('albVerImagen');
+      const anchoReal = img.naturalWidth  || 900;
+      const altoReal  = img.naturalHeight || 700;
+
+      // Margen para la barra del navegador y un respiro alrededor.
+      App.abrirVentana(abrir.href, anchoReal + 40, altoReal + 120,
+        `imagen${indice}`);
+    });
+
+    // Las flechas del teclado son lo natural en un visor de imagenes.
+    caja().addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowLeft')  mostrar(indice - 1);
+      if (ev.key === 'ArrowRight') mostrar(indice + 1);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', iniciar);
+
+  return { abrir, soloImagenes };
+})();
+
+/* =====================================================================
+   Detalle de una cita
+   =====================================================================
+   Vive aqui por la misma razon que el album y el visor: son dos
+   pantallas —la agenda del dia y la de la semana— y un solo detalle.
+   Tenerlo duplicado garantizaba que tarde o temprano una ofreciera un
+   cambio de estatus que la otra no, y nadie entenderia por que.
+
+   Quien lo abre pasa la cita y dos cosas que hacer: que ocurre al
+   cambiar el estatus y que ocurre al pedir "Modificar". El componente
+   no sabe si lo llamaron desde el dia o desde la semana.
+   ===================================================================== */
+const DetalleCita = (() => {
+
+  /* Que se puede hacer desde cada estatus.
+
+     Estan aqui y no en cada pantalla porque son reglas del negocio, no
+     de la vista: una cita cancelada no se "confirma", y una atendida ya
+     no cambia. Repetir la tabla en dos sitios es repetir la regla.
+
+     Los numeros son estado_cita: 1 pendiente, 2 confirmada, 3 en sala,
+     4 atendida, 5 cancelada, 6 no asistio. */
+  const SIGUIENTES = {
+    1: [[2, 'Confirmar', 'bi-check2-circle'],
+        [3, 'En sala',   'bi-door-open'],
+        [6, 'No asistió', 'bi-person-x'],
+        [5, 'Cancelar',  'bi-x-circle']],
+    2: [[3, 'En sala',    'bi-door-open'],
+        [4, 'Atendida',   'bi-clipboard2-check'],
+        [6, 'No asistió', 'bi-person-x'],
+        [5, 'Cancelar',   'bi-x-circle']],
+    3: [[4, 'Atendida',   'bi-clipboard2-check'],
+        [6, 'No asistió', 'bi-person-x']],
+    // Atendida, cancelada y no asistio no llevan a ningun lado: lo que
+    // ya paso, paso. Para corregir un error esta "Modificar".
+    4: [], 5: [], 6: [],
+  };
+
+  function caja() { return document.getElementById('modalDetalleCita'); }
+
+  let modal = null;
+  let actual = null;
+  let alCambiar = null;
+  let alModificar = null;
+
+  /**
+   * @param {object}   cita        tal como la devuelve el listado
+   * @param {object}   acciones
+   * @param {Function} acciones.alCambiar    (idCita, idEstado) => Promise
+   * @param {Function} acciones.alModificar  (cita) => void
+   */
+  function abrir(cita, acciones = {}) {
+    if (!caja() || !cita) return;
+
+    actual      = cita;
+    alCambiar   = acciones.alCambiar ?? null;
+    alModificar = acciones.alModificar ?? null;
+
+    modal = modal ?? bootstrap.Modal.getOrCreateInstance(caja());
+    pintar();
+    modal.show();
+  }
+
+  function pintar() {
+    const c = actual;
+
+    // El listado del dia lo llama nombre_completo y el de la semana
+    // paciente. Se aceptan los dos en vez de uniformar las consultas:
+    // tocar las dos para esto arriesgaba romper lo que ya funciona.
+    const nombre = c.nombre_completo ?? c.paciente ?? '';
+
+    const enlace = document.getElementById('dcNombre');
+    enlace.textContent = nombre;
+    enlace.href = `${App.URL_BASE}/index.php?modulo=paciente`
+                + `&vista=detalle_paciente&id=${c.id_registro_paciente}`;
+
+    document.getElementById('dcSub').textContent = [
+      c.num_expediente,
+      c.telefono,
+      c.edad != null ? `${c.edad} años` : null,
+    ].filter(Boolean).join(' · ');
+
+    const chip = document.getElementById('dcEstado');
+    chip.textContent = c.nombre_estado ?? '';
+    chip.style.background = `${c.color ?? '#999'}1f`;
+    chip.style.color = c.color ?? '#999';
+
+    const inicio = String(c.fecha_inicio);
+    document.getElementById('dcCuando').textContent =
+      `${App.fecha(inicio.substring(0, 10))} · ${inicio.substring(11, 16)}`
+      + (c.fecha_fin ? ` a ${String(c.fecha_fin).substring(11, 16)}` : '');
+
+    document.getElementById('dcDentista').textContent =
+      (c.dentista ?? '') + (c.nombre_sala ? ` · ${c.nombre_sala}` : '');
+
+    document.getElementById('dcMotivo').textContent =
+      c.motivo || c.nombre_procedimiento || 'Sin motivo capturado';
+
+    // La caja de la nota se esconde entera si no hay nota: un titulo
+    // "Nota de la cita" sobre un hueco vacio es ruido.
+    const hayNota = !!(c.notas && String(c.notas).trim());
+    document.getElementById('dcNotaCaja').classList.toggle('d-none', !hayNota);
+    document.getElementById('dcNota').textContent = c.notas ?? '';
+
+    pintarAcciones();
+  }
+
+  function pintarAcciones() {
+    const caja2 = document.getElementById('dcAcciones');
+    const puede = SIGUIENTES[Number(actual.id_estado_cita)] ?? [];
+
+    if (!alCambiar || !puede.length) {
+      caja2.innerHTML = puede.length ? '' : `
+        <div class="dc-cerrada">
+          Esta cita ya no cambia de estatus. Usa <b>Modificar</b> si hay
+          que corregir algo.
+        </div>`;
+      return;
+    }
+
+    caja2.innerHTML = puede.map(([id, texto, icono]) => `
+      <button type="button" class="btn btn-sm ${
+        id === 5 ? 'btn-outline-danger' : 'btn-outline-morado'}"
+              data-estatus="${id}">
+        <i class="bi ${icono} me-1"></i>${texto}
+      </button>`).join('');
+  }
+
+  function iniciar() {
+    if (!caja()) return;
+
+    caja().addEventListener('click', async (ev) => {
+      const boton = ev.target.closest('[data-estatus]');
+      if (!boton || !alCambiar) return;
+
+      const nuevo = Number(boton.dataset.estatus);
+
+      if (nuevo === 5) {
+        const ok = await App.alerta.confirmar(
+          '¿Cancelar esta cita?',
+          'El espacio queda libre para otro paciente.',
+          'Sí, cancelar');
+        if (!ok) return;
+      }
+
+      // Se desactivan TODOS mientras viaja la peticion. Sin esto, dos
+      // clics seguidos mandan dos cambios de estatus y el segundo puede
+      // llegar despues del primero y dejar la cita en el estado
+      // equivocado.
+      caja().querySelectorAll('[data-estatus]')
+            .forEach((b) => { b.disabled = true; });
+
+      try {
+        await alCambiar(actual.id_cita, nuevo);
+        modal.hide();
+      } catch (e) {
+        caja().querySelectorAll('[data-estatus]')
+              .forEach((b) => { b.disabled = false; });
+      }
+    });
+
+    document.getElementById('dcModificar')?.addEventListener('click', () => {
+      if (!alModificar) return;
+      const c = actual;
+      modal.hide();
+      // Se espera a que el modal termine de cerrarse antes de abrir el
+      // otro: dos modales de Bootstrap solapandose dejan el fondo
+      // oscuro pegado y la pantalla inutilizable.
+      caja().addEventListener('hidden.bs.modal',
+        () => alModificar(c), { once: true });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', iniciar);
+
+  return { abrir };
+})();
+
+
+/* =====================================================================
+   Campos de ficha: dato plano con su lapicito
+
+   El dato se ve como texto. Al picar el lapiz, SOLO ese campo se vuelve
+   editable; lo demas sigue siendo texto. Al aceptar se envia el
+   formulario de la seccion al endpoint de siempre, asi que la
+   validacion y la bitacora no cambian en nada.
+
+   Lo pinta Ficha::campo() en PHP; aqui vive lo que hace al picarlo.
+   ===================================================================== */
+const CamposFicha = (() => {
+
+  /** El campo que esta abierto ahora mismo, si hay alguno. */
+  let abierto = null;
+
+  function editor(campo)  { return campo.querySelector('.cf-editor'); }
+  function entrada(campo) { return campo.querySelector('input, select'); }
+
+  function abrir(campo) {
+    // Uno a la vez. Dos campos abiertos invitan a editar los dos y
+    // despues a dudar de cual se guardo.
+    if (abierto && abierto !== campo) cerrar(abierto, false);
+
+    campo.classList.add('editando');
+    editor(campo).classList.remove('d-none');
+
+    const el = entrada(campo);
+    el.focus();
+    if (el.select) el.select();
+
+    abierto = campo;
+  }
+
+  /**
+   * @param {boolean} guardado  false = se cancelo, hay que devolver el
+   *        valor original. Sin esto, cancelar dejaria lo tecleado en el
+   *        campo y el siguiente guardado de la seccion lo mandaria.
+   */
+  function cerrar(campo, guardado) {
+    if (!guardado) {
+      const el = entrada(campo);
+      if (el.dataset.original !== undefined) el.value = el.dataset.original;
+    }
+    campo.classList.remove('editando');
+    editor(campo).classList.add('d-none');
+    if (abierto === campo) abierto = null;
+  }
+
+  async function aceptar(campo) {
+    const el = entrada(campo);
+
+    if (!el.checkValidity()) { el.reportValidity(); return; }
+
+    const form = campo.closest('form');
+    if (!form) { cerrar(campo, true); return; }
+
+    // Se manda la seccion COMPLETA, no el campo suelto. Reutiliza el
+    // endpoint que ya existia y evita inventar uno generico que
+    // escriba cualquier columna por nombre, que es justo el tipo de
+    // atajo que termina dejando escribir columnas que no debia.
+    const ruta = form.dataset.endpoint;
+    if (!ruta) { cerrar(campo, true); return; }
+
+    try {
+      await App.api(ruta, App.formADatos(form));
+
+      // El texto plano se actualiza con lo que se acaba de guardar.
+      const valor = el.tagName === 'SELECT'
+        ? (el.options[el.selectedIndex]?.textContent.trim() ?? '')
+        : el.value.trim();
+
+      const vista = campo.querySelector('.cf-valor');
+      vista.textContent = valor || 'Sin capturar';
+      vista.classList.toggle('vacio', valor === '');
+
+      el.dataset.original = el.value;
+      cerrar(campo, true);
+      App.alerta.toast('Guardado');
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  }
+
+  function iniciar() {
+    document.querySelectorAll('.campo-ficha input, .campo-ficha select')
+      .forEach((el) => { el.dataset.original = el.value; });
+
+    document.addEventListener('click', (ev) => {
+      const campo = ev.target.closest('.campo-ficha');
+      if (!campo) return;
+
+      if (ev.target.closest('.cf-lapiz'))     { abrir(campo); return; }
+      if (ev.target.closest('.cf-ok'))        { aceptar(campo); return; }
+      if (ev.target.closest('.cf-cancelar'))  { cerrar(campo, false); }
+    });
+
+    // Enter guarda, Escape cancela. En un campo suelto es lo que
+    // cualquiera intenta antes de buscar el boton.
+    document.addEventListener('keydown', (ev) => {
+      const campo = ev.target.closest?.('.campo-ficha.editando');
+      if (!campo) return;
+
+      if (ev.key === 'Enter' && ev.target.tagName !== 'TEXTAREA') {
+        ev.preventDefault();
+        aceptar(campo);
+      }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        cerrar(campo, false);
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', iniciar);
+
+  return { abrir };
 })();
 
 /* =====================================================================

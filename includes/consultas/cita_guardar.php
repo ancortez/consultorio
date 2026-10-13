@@ -21,7 +21,7 @@ $hora         = trim((string) param('hora', ''));
 $idProc       = paramInt('id_procedimiento') ?: null;
 $duracion     = paramInt('duracion_min') ?? Agenda::BLOQUE;
 $motivo       = limpiarEspacios(paramMayus('motivo'));
-$notas        = limpiarEspacios(paramMayus('notas'));
+$notas        = paramTexto('notas');
 
 // La duracion sale del procedimiento previsto. Apartar media hora
 // para todo es lo que hace que una agenda se retrase desde la tercera

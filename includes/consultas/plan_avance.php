@@ -30,17 +30,36 @@ $plan = Conexion::uno(
 );
 
 if ($plan !== null) {
-    $faltan = (int) Conexion::valor(
-        'SELECT COUNT(*) FROM plan_tratamiento_detalle
-          WHERE id_plan_tratamiento = :p AND estado_avance IN (0, 1)',
-        [':p' => $plan['id_plan_tratamiento']]
-    );
+    $idPlan = (int) $plan['id_plan_tratamiento'];
+    $estado = Planes::estadoDe($idPlan);
 
-    Conexion::consulta(
-        'UPDATE plan_tratamiento SET id_estado_plan = :e
-          WHERE id_plan_tratamiento = :p AND id_estado_plan NOT IN (5)',
-        [':e' => $faltan === 0 ? 4 : 3, ':p' => $plan['id_plan_tratamiento']]
-    );
+    /*
+       Un plan ya cerrado NO se mueve de aqui.
+
+       Antes la condicion era "NOT IN (5)": protegia a los cancelados y
+       se olvidaba de los TERMINADOS. Entonces desmarcar un concepto de
+       un tratamiento cerrado hace meses lo devolvia a En proceso, y ese
+       paciente reaparecia como activo en el listado y en sus cuentas.
+
+       Ahora la regla la decide Planes, que es donde vive: terminado y
+       cancelado son finales, y lo son para todos los caminos que
+       intenten moverlos, no solo para este.
+    */
+    if ($estado !== null && Planes::puedeAvanzarAuto($estado)) {
+        $faltan = Planes::conceptosPendientes($idPlan);
+
+        Conexion::consulta(
+            'UPDATE plan_tratamiento
+                SET id_estado_plan = :e,
+                    fecha_terminado = CASE WHEN :e2 = :fin
+                        THEN NOW() ELSE fecha_terminado END
+              WHERE id_plan_tratamiento = :p',
+            [':e'  => $faltan === 0 ? Planes::TERMINADO : Planes::EN_PROCESO,
+             ':e2' => $faltan === 0 ? Planes::TERMINADO : Planes::EN_PROCESO,
+             ':fin' => Planes::TERMINADO,
+             ':p'  => $idPlan]
+        );
+    }
 }
 
 Bitacora::registrar('consultas', 'CAMBIO', 'plan_tratamiento_detalle',

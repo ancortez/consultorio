@@ -168,6 +168,55 @@ function nombreLimpio(string $clave): ?string
 }
 
 /**
+ * Limpia un texto largo CONSERVANDO los renglones.
+ *
+ * limpiarEspacios() usa \s+, que incluye el salto de linea. Sirve para
+ * un nombre, donde "JUAN   PEREZ" tiene que volverse "JUAN PEREZ".
+ *
+ * En una receta hace estrago. La doctora escribe:
+ *
+ *     AMOXICILINA 500 MG
+ *     1 CADA 8 HORAS POR 7 DIAS
+ *
+ *     PARACETAMOL SI HAY DOLOR
+ *
+ * y al guardarse queda todo en un renglon corrido, ilegible en la hoja
+ * impresa. Esta version limpia DENTRO de cada renglon y deja la
+ * estructura en pie:
+ *
+ *   - espacios y tabulaciones repetidos dentro de un renglon -> uno
+ *   - espacios al final de cada renglon -> fuera
+ *   - tres o mas renglones en blanco seguidos -> dos
+ *   - saltos de Windows (\r\n) -> \n
+ */
+function limpiarTexto(?string $texto): ?string
+{
+    if ($texto === null) {
+        return null;
+    }
+
+    $t = str_replace(["\r\n", "\r"], "\n", $texto);
+
+    // \h es "espacio horizontal": espacio y tabulador, nunca el salto.
+    $t = preg_replace('/\h+/u', ' ', $t);
+    $t = preg_replace('/ *\n */u', "\n", $t);
+    $t = preg_replace('/\n{3,}/u', "\n\n", $t);
+    $t = trim($t);
+
+    return $t === '' ? null : $t;
+}
+
+/**
+ * Lee un parametro de texto largo en mayusculas, con los renglones
+ * intactos. Es el equivalente de paramMayus() para recetas, notas de
+ * evolucion e indicaciones.
+ */
+function paramTexto(string $clave): ?string
+{
+    return limpiarTexto(mayus((string) param($clave, '')));
+}
+
+/**
  * Decide la ocupacion que corresponde por edad, segun la regla acordada:
  *   menos de 3 anios  -> NINGUNA
  *   de 3 a 15 anios   -> ESTUDIANTE
@@ -193,6 +242,79 @@ function ocupacionPorEdad(?string $fechaNacim): ?int
         [':c' => $clave]
     );
     return $id !== null ? (int) $id : null;
+}
+
+/**
+ * ¿Es un RFC con forma de RFC?
+ *
+ * Acepta las dos longitudes, CON homoclave y SIN ella:
+ *
+ *     COMA861125       13 caracteres, persona fisica sin homoclave
+ *     COMA8611257K1    con homoclave
+ *
+ * Por que las dos. La homoclave la asigna el SAT y aparece en la
+ * constancia; un tutor que no pide factura no siempre la tiene a mano,
+ * y lo que si recuerda son sus iniciales y su fecha de nacimiento. La
+ * regla anterior exigia los tres caracteres finales, asi que ese tutor
+ * no podia guardar su RFC en absoluto: o lo inventaba —que es peor que
+ * no tenerlo— o se quedaba el campo vacio.
+ *
+ * Tres o cuatro letras al principio: cuatro para persona fisica
+ * (dos del apellido paterno, una del materno, una del nombre) y tres
+ * para persona moral. La Ñ y el & son validos en razones sociales.
+ *
+ * Esto comprueba la FORMA, no que el RFC exista ni que los digitos de
+ * la fecha sean una fecha real. Para eso haria falta preguntarle al
+ * SAT, y aqui el dato es informativo: va en la factura si algun dia se
+ * pide, y una validacion que rechaza un RFC bueno cuesta mas que una
+ * que deja pasar uno con una errata.
+ */
+function rfcConForma(string $rfc): bool
+{
+    return (bool) preg_match('/^[A-ZÑ&]{3,4}\d{6}([A-Z0-9]{3})?$/u', $rfc);
+}
+
+/**
+ * El ordinal femenino abreviado, como se escribe a mano en el consultorio:
+ * "1RA CITA", "2DA CITA", "3RA CITA".
+ *
+ * Por que una tabla y no una regla: en espaniol la terminacion no sale
+ * de una cuenta. Es RA, DA, RA, TA, TA, TA, MA, VA, NA, MA, y del 11 al
+ * 19 vuelve a seguir a la unidad salvo el 11 y el 12, que son VA
+ * (undecima, duodecima) y no "1RA"/"2DA". Cualquier regla aritmetica
+ * que se invente aqui se equivoca en esos dos, y el 11 y el 12 no son
+ * raros: son la cita de un plan largo de ortodoncia.
+ *
+ * Pasando de 20 se deja de abreviar. Un plan con 21 consultas existe,
+ * pero "21RA" no se escribe asi en ningun lado, y escribir mal el
+ * expediente por completar una tabla no vale la pena.
+ */
+function ordinalCorto(int $n): string
+{
+    $tabla = [
+        1 => '1RA',   2 => '2DA',   3 => '3RA',   4 => '4TA',   5 => '5TA',
+        6 => '6TA',   7 => '7MA',   8 => '8VA',   9 => '9NA',  10 => '10MA',
+       11 => '11VA', 12 => '12VA', 13 => '13RA', 14 => '14TA', 15 => '15TA',
+       16 => '16TA', 17 => '17MA', 18 => '18VA', 19 => '19NA', 20 => '20MA',
+    ];
+
+    if ($n < 1) {
+        return '1RA';
+    }
+    return $tabla[$n] ?? ('No. ' . $n);
+}
+
+/**
+ * El motivo que se propone para una consulta de plan de tratamiento.
+ *
+ * Se arma aqui y no en la pantalla porque el ordinal depende de cuantas
+ * consultas lleva el plan, que es un dato de la base. La pantalla lo
+ * recibe ya escrito y solo lo copia al campo.
+ */
+function motivoDeCitaDePlan(string $folioPlan, int $consultasPrevias): string
+{
+    return ordinalCorto($consultasPrevias + 1)
+        . ' CITA PLAN DE TRATAMIENTO ' . mb_strtoupper($folioPlan, 'UTF-8');
 }
 
 /**

@@ -15,6 +15,20 @@ $genero  = paramInt('id_genero');
 $rfc     = paramMayus('rfc');
 $idOcupacion = paramInt('id_ocupacion');
 
+/*
+   "Requiere tutor" viaja con los demas datos generales, pero NO se
+   escribe como los demas: pasa por Tutoria::decidir(), que ademas
+   apunta la edad a la que se decidio. Esa edad es lo que evita volver
+   a preguntar en cada visita a partir de los 24.
+
+   Una cadena vacia significa "sin definir" y se deja tal cual: es
+   distinto de "no lleva tutor", y confundirlos haria desaparecer el
+   bloque del tutor de un expediente que nadie ha revisado.
+*/
+$tutorCrudo = param('requiere_tutor');
+$requiereTutor = ($tutorCrudo === null || $tutorCrudo === '')
+    ? null : (int) $tutorCrudo;
+
 $errores = [];
 if (!$idPersona)      { Respuesta::error('Falta el identificador del paciente.'); }
 if ($nombres === null) { $errores['nombres']    = 'Captura el nombre.'; }
@@ -26,8 +40,9 @@ if ($nacim !== null) {
         $errores['fecha_nacim'] = 'Fecha invalida.';
     }
 }
-if ($rfc !== null && !preg_match('/^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/', $rfc)) {
-    $errores['rfc'] = 'El RFC no tiene el formato correcto.';
+if ($rfc !== null && !rfcConForma($rfc)) {
+    $errores['rfc'] = 'El RFC no tiene el formato correcto. Con o sin homoclave: '
+                      . 'COMA861125 o COMA8611257K1.';
 }
 if ($errores) {
     Respuesta::validacion($errores);
@@ -52,6 +67,17 @@ try {
          ':fn' => $nacim, ':g' => $genero, ':rfc' => $rfc,
          ':ocu' => $idOcupacion, ':id' => $idPersona]
     );
+
+    if ($requiereTutor !== null && $idExpediente) {
+        // La edad se recalcula del dato que se acaba de guardar, no del
+        // que traia la pantalla: si en el mismo guardado corrigieron la
+        // fecha de nacimiento, la edad buena es la nueva.
+        $edad = $nacim !== null
+            ? (new DateTime($nacim))->diff(new DateTime('today'))->y
+            : null;
+
+        Tutoria::decidir($idExpediente, $requiereTutor === 1, $edad);
+    }
 
     $pdo->commit();
 } catch (Throwable $e) {

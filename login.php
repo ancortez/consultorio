@@ -46,8 +46,10 @@ if (isset($_GET['expiro']) && $avisoSesion === null) {
 <body class="pantalla-login">
 
 <div class="caja-login">
-    <div class="logo"><i class="bi bi-heart-pulse"></i></div>
-    <h1 class="h5 text-center mb-1 texto-morado fw-semibold">Consultorio Dental</h1>
+    <div class="logo">
+        <img src="<?= URL_BASE . APP_LOGO ?>" alt="">
+    </div>
+    <h1 class="h5 text-center mb-1 texto-morado fw-semibold"><?= e(APP_NOMBRE) ?></h1>
     <p class="text-center text-secondary small mb-4">Acceso al sistema</p>
 
     <?php if ($avisoSesion): ?>

@@ -122,3 +122,4 @@ $puedeAgendar = Auth::puede('consultas.agenda') || $usuarioSesion['es_dentista']
 </div>
 
 <?php require __DIR__ . '/_modales_semana.php'; ?>
+<?php require __DIR__ . '/_modal_detalle_cita.php'; ?>

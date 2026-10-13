@@ -2,7 +2,7 @@
 /**
  * Plan de tratamiento listo para imprimir y firmar.
  *
- * Una hoja carta con el diagnostico arriba y el desglose de
+ * Una hoja carta con los datos del paciente arriba y el desglose de
  * procedimientos abajo, igual que el formato de papel del consultorio.
  * Si el plan trae muchos conceptos, la tabla continua en una segunda
  * hoja sin cortar renglones a la mitad.
@@ -24,11 +24,13 @@ if ($idPlan <= 0) {
 $plan = Conexion::uno(
     'SELECT pt.*, ep.nombre_estado, u.nombre_completo AS dentista, u.cedula_prof,
             vp.nombre_completo AS paciente, vp.num_expediente, vp.edad,
-            vp.id_registro_paciente
+            vp.id_registro_paciente, rp.requiere_tutor
        FROM plan_tratamiento pt
        JOIN estado_plan ep ON ep.id_estado_plan = pt.id_estado_plan
        JOIN usuario u ON u.id_usuario = pt.id_usuario_dentista
        JOIN v_paciente vp ON vp.id_registro_paciente = pt.id_registro_paciente
+       JOIN registro_paciente rp
+         ON rp.id_registro_paciente = pt.id_registro_paciente
       WHERE pt.id_plan_tratamiento = :p',
     [':p' => $idPlan]
 );
@@ -45,6 +47,19 @@ $renglones = Conexion::todos(
       WHERE d.id_plan_tratamiento = :p
       ORDER BY d.orden, d.id_plan_detalle',
     [':p' => $idPlan]
+);
+
+/*
+   ¿Firma el tutor o el propio paciente?
+
+   Misma regla que la ficha y que el consentimiento: sale de Tutoria,
+   nunca de mirar la edad aqui. Un adulto que respondio que actua por su
+   cuenta recibe una hoja que le pide SU firma; pedirle la de su padre
+   convierte el papel en algo que no puede firmar.
+*/
+$firmaElPaciente = !Tutoria::llevaTutor(
+    $plan['edad'] !== null ? (int) $plan['edad'] : null,
+    $plan['requiere_tutor'] !== null ? (int) $plan['requiere_tutor'] : null
 );
 
 $tutor = Conexion::uno(
@@ -220,10 +235,9 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario"
-       href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $plan['id_registro_paciente'] ?>#tab-planes">
-        Volver
-    </a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=paciente&vista=detalle_paciente&id='
+                     . (int) $plan['id_registro_paciente']; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
 </div>
 
 <div class="hoja">
@@ -260,37 +274,9 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
                     <span class="et">Fecha</span>
                     <span class="va"><?= e(fecha($plan['fecha'])) ?></span>
                 </div>
-                <div class="dato" style="flex:0 0 150px">
-                    <span class="et">Estatus</span>
-                    <span class="va"><?= e($plan['nombre_estado']) ?></span>
-                </div>
                 <div class="dato ancho">
                     <span class="et">Descripci&oacute;n</span>
                     <span class="va"><?= e($plan['descripcion'] ?? '') ?></span>
-                </div>
-            </div>
-        </div>
-
-        <div class="seccion">
-            <h2>Diagn&oacute;stico</h2>
-            <div class="fila">
-                <div class="dato ancho">
-                    <span class="et">Dx</span>
-                    <span class="va"><?= e($plan['diagnostico'] ?? '') ?></span>
-                </div>
-            </div>
-            <div class="fila">
-                <div class="dato">
-                    <span class="et">Oclusi&oacute;n</span>
-                    <span class="va"><?= e($plan['oclusion'] ?? '') ?></span>
-                </div>
-                <div class="dato">
-                    <span class="et">Traumatismos dentales</span>
-                    <span class="va"><?= e($plan['traumatismos'] ?? '') ?></span>
-                </div>
-                <div class="dato">
-                    <span class="et">Secuelas</span>
-                    <span class="va"><?= e($plan['secuelas_traumatismos'] ?? '') ?></span>
                 </div>
             </div>
         </div>
@@ -350,15 +336,6 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
             </div>
         </div>
 
-        <?php if (!empty($plan['observaciones'])): ?>
-        <div class="seccion">
-            <h2>Observaciones</h2>
-            <div style="font-size:8.5pt;line-height:1.6;padding:.1cm .1cm">
-                <?= nl2br(e($plan['observaciones'])) ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
         <div class="leyenda">
             Declaro que se me explic&oacute; el plan de tratamiento propuesto, los
             procedimientos que incluye, sus alternativas y su costo. Entiendo que el
@@ -371,8 +348,11 @@ Bitacora::registrar('consultas', 'IMPRIME', 'plan_tratamiento', (string) $idPlan
     <div class="firmas">
         <div class="firma">
             <div class="linea"></div>
-            <div class="nombre"><?= e($tutor['nombre'] ?? '') ?></div>
-            <div class="cargo">Nombre y firma de padre o tutor</div>
+            <div class="nombre"><?= e($firmaElPaciente
+                ? $plan['paciente'] : ($tutor['nombre'] ?? '')) ?></div>
+            <div class="cargo"><?= $firmaElPaciente
+                ? 'Nombre y firma del paciente'
+                : 'Nombre y firma de padre o tutor' ?></div>
         </div>
         <div class="firma">
             <div class="linea"></div>

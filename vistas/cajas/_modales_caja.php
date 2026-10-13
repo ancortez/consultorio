@@ -150,3 +150,48 @@
     </div>
   </div>
 </div>
+
+<?php /* ============ Fichas ya pagadas del paciente ============
+
+         "Ya le pague eso" es de las frases mas comunes del mostrador, y
+         hasta ahora la unica forma de contestarla era imprimir el
+         estado de cuenta completo o ir a buscar el cobro en el corte
+         del dia en que se hizo, con el tutor esperando enfrente.
+
+         Los cobros CANCELADOS salen tambien, marcados. Esconderlos
+         dejaria un hueco en la lista, y un hueco se explica mucho peor
+         que un renglon que dice "se cancelo este dia por esto". */ ?>
+<div class="modal fade" id="modalFichas" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-receipt me-2"></i>
+          Fichas pagadas de <span id="fiPaciente"></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Forma</th>
+                <th class="text-end">Importe</th>
+                <th style="width:3.5rem"></th>
+              </tr>
+            </thead>
+            <tbody id="fiLista"></tbody>
+          </table>
+        </div>
+        <div class="form-text mt-2">
+          Las &uacute;ltimas 20. Para la lista completa, el
+          <b>estado de cuenta</b>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

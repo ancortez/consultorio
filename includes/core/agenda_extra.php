@@ -270,7 +270,40 @@ final class AgendaExtra
     }
 
     /**
-     * Arma el mensaje de WhatsApp.
+     * La plantilla con la que se arma el recordatorio.
+     *
+     * Vive en la tabla parametro para que la doctora la pueda cambiar
+     * sin tocar codigo: el tono con el que se le escribe a un paciente
+     * es suyo, no mio. Si nunca la ha tocado, se usa esta.
+     */
+    public const PLANTILLA_POR_OMISION =
+        "Hola, le escribimos de {consultorio}.\n\n"
+        . "Le recordamos la cita de {paciente} el {fecha} a las {hora}"
+        . " con {dentista}.\n\n"
+        . "Si necesita cambiarla, responda a este mensaje. Gracias.";
+
+    /**
+     * Las etiquetas que se pueden usar, con lo que significan.
+     *
+     * Esta lista es la unica fuente: la usa el armado del mensaje, los
+     * botones de la pantalla de configuracion y la vista previa. Tener
+     * tres listas separadas garantizaba que tarde o temprano una
+     * ofreciera una etiqueta que las otras no supieran sustituir.
+     */
+    public static function etiquetas(): array
+    {
+        return [
+            '{paciente}'    => 'Nombre de pila del paciente',
+            '{paciente_completo}' => 'Nombre completo del paciente',
+            '{fecha}'       => 'Fecha larga de la cita',
+            '{hora}'        => 'Hora de la cita',
+            '{dentista}'    => 'Quien la atiende',
+            '{consultorio}' => 'Nombre del consultorio',
+        ];
+    }
+
+    /**
+     * Arma el mensaje de WhatsApp a partir de la plantilla.
      *
      * Se manda a mano a proposito: recepcion lo revisa antes de
      * enviarlo. Mandar solo es facil de programar y dificil de
@@ -278,14 +311,53 @@ final class AgendaExtra
      */
     public static function mensaje(array $cita, string $consultorio): string
     {
-        $cuando = fechaLarga((string) $cita['fecha_inicio']);
-        $hora   = date('g:i a', strtotime((string) $cita['fecha_inicio']));
+        $plantilla = (string) parametro(
+            'recordatorio_mensaje', self::PLANTILLA_POR_OMISION);
 
-        $nombre = trim(explode(' ', (string) $cita['paciente'])[0] ?? '');
+        // Una plantilla vaciada por error dejaria al paciente con un
+        // mensaje en blanco. Se cae de regreso a la de siempre.
+        if (trim($plantilla) === '') {
+            $plantilla = self::PLANTILLA_POR_OMISION;
+        }
 
-        return "Hola, le escribimos de $consultorio.\n\n"
-             . "Le recordamos la cita de $nombre el $cuando a las $hora"
-             . " con " . $cita['dentista'] . ".\n\n"
-             . "Si necesita cambiarla, responda a este mensaje. Gracias.";
+        return self::sustituir($plantilla, [
+            'paciente_completo' => (string) $cita['paciente'],
+            'paciente'    => trim(explode(' ', (string) $cita['paciente'])[0] ?? ''),
+            'fecha'       => fechaLarga((string) $cita['fecha_inicio']),
+            'hora'        => date('g:i a', strtotime((string) $cita['fecha_inicio'])),
+            'dentista'    => (string) $cita['dentista'],
+            'consultorio' => $consultorio,
+        ]);
+    }
+
+    /**
+     * Cambia las etiquetas por sus valores, en UNA sola pasada.
+     *
+     * Lo primero que escribi fue un str_replace por etiqueta, ordenando
+     * las mas largas primero "para que {paciente} no se sustituya
+     * dentro de {paciente_completo}". Al portarlo a Python y correrlo
+     * resulto que ese problema no existe: la llave de cierre ya lo
+     * impide, porque despues de "{paciente" viene "_" y no "}".
+     *
+     * Lo que si existe es peor y no lo habia visto. Sustituyendo una
+     * por una, el valor que entra en la primera vuelta queda expuesto
+     * a las siguientes: un paciente apuntado como "MARIA {hora}" —y en
+     * recepcion se teclea de todo— saldria con la hora de la cita
+     * incrustada en su propio nombre. Lo que escribe el paciente no
+     * debe poder convertirse en instrucciones para el mensaje.
+     *
+     * Una sola pasada lo cierra: cada etiqueta se mira una vez, se
+     * cambia por su valor, y ese valor ya no se vuelve a tocar.
+     */
+    public static function sustituir(string $plantilla, array $valores): string
+    {
+        return preg_replace_callback(
+            '/\{(\w+)\}/',
+            // Una etiqueta que no conocemos se deja tal cual, no se
+            // borra: asi quien escribio "{telefono}" ve que no funciono
+            // y lo corrige, en vez de mandar un mensaje con un hueco.
+            static fn (array $m): string => $valores[$m[1]] ?? $m[0],
+            $plantilla
+        ) ?? $plantilla;
     }
 }

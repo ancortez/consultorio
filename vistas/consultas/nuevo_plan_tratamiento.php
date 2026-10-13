@@ -10,16 +10,23 @@ $idPlan       = paramInt('plan');
 
 $paciente = $idExpediente
     ? Conexion::uno(
-        'SELECT vp.*,
-                (SELECT GROUP_CONCAT(a.nombre_antecedente SEPARATOR ", ")
-                   FROM expediente_antecedente ea
-                   JOIN antecedente a ON a.id_antecedente = ea.id_antecedente
-                  WHERE ea.id_registro_paciente = vp.id_registro_paciente
-                    AND ea.estatus = 1 AND a.requiere_alerta = 1) AS alertas
-           FROM v_paciente vp
+        'SELECT vp.* FROM v_paciente vp
           WHERE vp.id_registro_paciente = :r',
         [':r' => $idExpediente])
     : null;
+
+/*
+   Las alertas salen de la HISTORIA CLINICA, no de expediente_antecedente.
+
+   Esa tabla se lleno con los datos de prueba y nadie la captura en el
+   uso real: el aviso salia en los pacientes inventados y no salia en
+   los de verdad. Justo al reves de para lo que sirve.
+
+   Las que importan —alergia, enfermedad cronica, discapacidad,
+   tratamiento medico— son cuatro preguntas que la doctora si contesta
+   en la historia, y de ahi se leen ahora.
+*/
+$alertasClinicas = $idExpediente ? AlertasClinicas::de($idExpediente) : [];
 
 if ($paciente === null) {
     echo '<div class="alert alert-warning d-flex align-items-center gap-2">'
@@ -34,17 +41,34 @@ $dentistas = Conexion::todos(
     'SELECT id_usuario, nombre_completo FROM usuario
       WHERE es_dentista = 1 AND estatus = 1 ORDER BY nombre_completo');
 
-$estadosPlan = Conexion::todos('SELECT * FROM estado_plan ORDER BY id_estado_plan');
 
 // El folio se necesita en el encabezado y en el aviso de nueva consulta.
 // Se lee aqui y no por AJAX porque el titulo no puede aparecer vacio y
 // llenarse un segundo despues.
-$folioPlan = $idPlan
-    ? (string) Conexion::valor(
-        'SELECT folio FROM plan_tratamiento
+$datosPlan = $idPlan
+    ? Conexion::uno(
+        'SELECT folio, id_estado_plan, motivo_cancelacion,
+                fecha_cancelacion, fecha_terminado
+           FROM plan_tratamiento
           WHERE id_plan_tratamiento = :p AND id_registro_paciente = :r',
         [':p' => $idPlan, ':r' => $idExpediente])
-    : '';
+    : null;
+
+$folioPlan   = (string) ($datosPlan['folio'] ?? '');
+$estadoPlan  = $datosPlan !== null ? (int) $datosPlan['id_estado_plan'] : 0;
+
+/*
+   Que se puede hacer con este plan.
+
+   Lo decide Planes, no esta vista. La misma pregunta se la hacen la
+   pantalla —para ensenar o esconder el boton— y el endpoint que lo
+   ejecuta: calculada por separado, acabarian discrepando y el sintoma
+   seria un boton que sale y al picarlo dice que no se puede.
+*/
+$planCerrado  = $estadoPlan > 0 && Planes::esFinal($estadoPlan);
+$puedeCancelar = $estadoPlan > 0 && Planes::puedeCancelar($estadoPlan);
+$puedeTerminar = $estadoPlan > 0 && Planes::puedeTerminar($estadoPlan);
+$conceptosSinHacer = $idPlan ? Planes::conceptosPendientes($idPlan) : 0;
 
 // Dientes agrupados para el selector: temporales y permanentes.
 $dientes = Conexion::todos(
@@ -75,25 +99,121 @@ $dientes = Conexion::todos(
             <i class="bi bi-clipboard2-plus me-1"></i> Nueva consulta
         </button>
         <?php endif; ?>
+        <?php /* El consentimiento, por separado.
+
+                 Al CREAR el plan se imprimen los dos de golpe —ver
+                 planImprimir— porque se firman juntos. Pero al volver a
+                 un plan ya hecho, lo que suele faltar es solo uno de
+                 los dos: se traspapelo el consentimiento, o hubo que
+                 rehacer la hoja. Tener los dos botones evita imprimir
+                 de mas. */ ?>
+        <?php if ($idPlan && !$planCerrado): ?>
+        <button type="button" class="btn btn-outline-morado" id="planConsentimiento"
+                data-plan="<?= $idPlan ?>" data-expediente="<?= $idExpediente ?>">
+            <i class="bi bi-file-earmark-check me-1"></i> Imprimir consentimiento
+        </button>
+        <?php endif; ?>
+
         <button type="button" class="btn btn-outline-morado <?= $idPlan ? '' : 'd-none' ?>"
                 id="planImprimir">
             <i class="bi bi-printer me-1"></i> Imprimir para firma
         </button>
+
+        <?php /* Cerrar el plan: terminarlo o cancelarlo.
+
+                 Van detras de los tres puntos porque son las dos cosas
+                 que no se deshacen, y no se ponen al lado de lo que se
+                 usa a diario. */ ?>
+        <?php if (($puedeCancelar || $puedeTerminar) && Auth::puede('consultas.plan')): ?>
+        <div class="dropdown">
+            <button type="button" class="btn btn-light" data-bs-toggle="dropdown"
+                    title="Cerrar este plan">
+                <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <?php if ($puedeTerminar): ?>
+                <li>
+                    <button type="button" class="dropdown-item" id="planTerminar"
+                            data-plan="<?= $idPlan ?>"
+                            data-pendientes="<?= $conceptosSinHacer ?>">
+                        <i class="bi bi-check2-all me-2"></i> Dar por terminado
+                    </button>
+                </li>
+                <?php endif; ?>
+                <?php if ($puedeCancelar): ?>
+                <li>
+                    <button type="button" class="dropdown-item text-danger"
+                            id="planCancelar" data-plan="<?= $idPlan ?>">
+                        <i class="bi bi-x-circle me-2"></i> Cancelar el plan
+                    </button>
+                </li>
+                <?php endif; ?>
+            </ul>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
-<?php if (!empty($paciente['alertas'])): ?>
+<?php /* Un plan cerrado lo dice, y dice por que.
+
+         Sin este aviso, quien abre un plan cancelado ve una pantalla
+         normal con los botones apagados y no entiende que pasa. El
+         motivo es lo que contesta "¿por que este paciente no siguio?"
+         dentro de seis meses. */ ?>
+<?php if ($planCerrado): ?>
+<div class="aviso-plan-cerrado <?= $estadoPlan === Planes::CANCELADO
+        ? 'cancelado' : 'terminado' ?> mb-3">
+    <i class="bi bi-<?= $estadoPlan === Planes::CANCELADO
+        ? 'x-circle-fill' : 'check-circle-fill' ?>"></i>
+    <div>
+        <b>Este plan est&aacute;
+            <?= $estadoPlan === Planes::CANCELADO ? 'cancelado' : 'terminado' ?>
+            <?php
+            $cuando = $estadoPlan === Planes::CANCELADO
+                ? $datosPlan['fecha_cancelacion'] : $datosPlan['fecha_terminado'];
+            ?>
+            <?= $cuando ? ' desde el ' . e(fecha($cuando)) : '' ?>.
+        </b>
+        <?php if ($estadoPlan === Planes::CANCELADO && !empty($datosPlan['motivo_cancelacion'])): ?>
+        <div class="mt-1"><?= e($datosPlan['motivo_cancelacion']) ?></div>
+        <?php endif; ?>
+        <div class="mt-1" style="font-size:11.5px">
+            Ya no cambia de estatus. Si hace falta retomar el tratamiento,
+            se captura un plan nuevo: as&iacute; el expediente conserva lo
+            que pas&oacute;.
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if ($alertasClinicas): ?>
 <div class="aviso-almacen mb-3">
     <i class="bi bi-exclamation-triangle-fill"></i>
     <div>
         <b>Alertas cl&iacute;nicas del paciente</b>
-        <div class="mt-1"><?= e($paciente['alertas']) ?></div>
+        <?php /* Cada una en su renglon, con su detalle. Antes salian
+                 todas pegadas en una linea separada por comas, y
+                 "ALERGIA, DIABETES" no dice a que es alergico, que es
+                 justo el dato que hace falta antes de anestesiar. */ ?>
+        <div class="mt-1">
+            <?php foreach ($alertasClinicas as $al): ?>
+            <div>
+                <b><?= e($al['titulo']) ?>:</b>
+                <?= $al['detalle'] !== ''
+                    ? e($al['detalle'])
+                    : '<i>sin especificar en la historia</i>' ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
         <div class="mt-1" style="font-size:11.5px">
             Verifica antes de planear procedimientos con anestesia.
         </div>
     </div>
 </div>
 <?php endif; ?>
+
+<div class="row g-3">
+  <div class="<?= $idPlan ? 'col-8' : 'col-12' ?>">
 
 <form id="formPlan" autocomplete="off">
     <input type="hidden" name="id_plan_tratamiento" id="planId" value="<?= $idPlan ?: '' ?>">
@@ -121,7 +241,8 @@ $dientes = Conexion::todos(
                     </div>
                 </div>
 
-                <div class="col-4">
+                <div class="col-4" data-edad-paciente="<?= $paciente['edad'] !== null
+                         ? (int) $paciente['edad'] : '' ?>">
                     <label class="form-label">Paciente</label>
                     <input type="text" class="form-control" readonly
                            value="<?= e($paciente['nombre_completo']) ?>">
@@ -147,15 +268,43 @@ $dientes = Conexion::todos(
                     <input type="date" class="form-control" name="fecha"
                            value="<?= date('Y-m-d') ?>">
                 </div>
+                <?php /* El estatus ya no se elige a mano.
+
+                         Un plan que se acaba de capturar es, por
+                         definicion, un plan propuesto: todavia no se lo
+                         han enseniado al tutor. Dejarlo como campo
+                         invitaba a marcarlo "Aceptado" antes de que
+                         nadie firmara nada, y entonces el estatus
+                         dejaba de significar algo.
+
+                         Lo mueven los hechos: escanear la hoja firmada
+                         lo pasa a Aceptado, y registrar una consulta
+                         suya lo pasa a En proceso.
+
+                         Aqui decia "Pasa a Aceptado al escanear la hoja
+                         firmada", y era una promesa que el sistema no
+                         siempre cumple. Si se agenda y se registra la
+                         primera consulta del plan antes de escanear la
+                         hoja —que pasa, el papel se queda en el
+                         mostrador—, el plan salta directo a En proceso
+                         y ya no vuelve atras: los estados solo avanzan.
+                         Asi que ese plan nunca estuvo "Aceptado", y
+                         quien leyera el aviso se quedaria esperando un
+                         cambio que no va a llegar.
+
+                         Lo que se dice ahora es lo unico seguro: que
+                         ahora es una propuesta y que lo mueve lo que
+                         ocurra, sin prometer a cual de los dos. */ ?>
                 <div class="col-3">
-                    <label class="form-label">Estatus del plan</label>
-                    <select class="form-select" name="id_estado_plan">
-                        <?php foreach ($estadosPlan as $ep): ?>
-                            <option value="<?= (int) $ep['id_estado_plan'] ?>">
-                                <?= e($ep['nombre_estado']) ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label class="form-label">Estatus</label>
+                    <div class="form-control-plaintext d-flex align-items-center gap-2"
+                         id="plEstatus">
+                        <span class="chip-estado badge-suave">Propuesto</span>
+                    </div>
+                    <div class="form-text">
+                        Avanza solo: con la hoja firmada escaneada o con
+                        su primera consulta.
+                    </div>
                 </div>
             </div>
         </div>
@@ -170,21 +319,47 @@ $dientes = Conexion::todos(
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-12">
-                    <label class="form-label">Diagn&oacute;stico</label>
-                    <textarea class="form-control" name="diagnostico" rows="2"></textarea>
+                    <label class="form-label">
+                        Diagn&oacute;stico <span class="req">*</span>
+                    </label>
+                    <textarea class="form-control" name="diagnostico" rows="3"
+                              placeholder="EL DIAGN&Oacute;STICO QUE SUSTENTA ESTE PLAN"></textarea>
+                    <div class="form-text">
+                        Es lo &uacute;nico obligatorio de este paso. Sin
+                        diagn&oacute;stico, el plan no se puede justificar.
+                    </div>
                 </div>
-                <div class="col-4">
+
+                <?php /* Oclusion y traumatismos son opcionales y casi
+                         siempre van vacios. Ocupaban dos campos de
+                         texto siempre visibles que la mayoria de las
+                         veces se quedaban en blanco, y aun asi habia
+                         que pasar por ellos con el tabulador.
+
+                         Ahora son dos renglones chicos que dicen "No
+                         aplica" hasta que alguien decide lo contrario.
+                         El caso normal no pide ni un clic. */ ?>
+                <div class="col-6">
                     <label class="form-label">Oclusi&oacute;n</label>
-                    <input type="text" class="form-control" name="oclusion" maxlength="150">
+                    <div class="caja-opcional" id="plOclusionCaja">
+                        <span class="valores" id="plOclusionTexto">No aplica</span>
+                        <a href="#" class="enlace-agregar" id="plOclusionAbrir">
+                            <i class="bi bi-pencil"></i> Elegir
+                        </a>
+                    </div>
+                    <input type="hidden" name="oclusion" id="plOclusion">
                 </div>
-                <div class="col-4">
+
+                <div class="col-6">
                     <label class="form-label">Traumatismos dentales</label>
-                    <input type="text" class="form-control" name="traumatismos" maxlength="255">
-                </div>
-                <div class="col-4">
-                    <label class="form-label">Secuelas de traumatismos</label>
-                    <input type="text" class="form-control" name="secuelas_traumatismos"
-                           maxlength="255">
+                    <div class="caja-opcional" id="plTraumaCaja">
+                        <span class="valores" id="plTraumaTexto">No aplica</span>
+                        <a href="#" class="enlace-agregar" id="plTraumaAbrir">
+                            <i class="bi bi-plus-lg"></i> Agregar
+                        </a>
+                    </div>
+                    <div id="plTraumaLista" class="lista-traumatismos"></div>
+                    <input type="hidden" name="traumatismos_json" id="plTraumaJson" value="[]">
                 </div>
             </div>
         </div>
@@ -207,7 +382,11 @@ $dientes = Conexion::todos(
                     <th style="width:45px">#</th>
                     <th>Procedimiento</th>
                     <th style="width:170px">&Oacute;rgano dentario</th>
-                    <th style="width:70px">Cant.</th>
+                    <?php /* 70px no alcanzaban: el campo numerico de
+                             Bootstrap trae sus flechitas de subir y
+                             bajar, y entre eso y el relleno interno el
+                             numero quedaba cortado. */ ?>
+                    <th style="width:95px">Cant.</th>
                     <th style="width:120px">Costo unit.</th>
                     <th style="width:110px">Descuento</th>
                     <th style="width:120px">Importe</th>
@@ -223,72 +402,51 @@ $dientes = Conexion::todos(
         </div>
     </div>
 
-    </section>
+    <?php /* Observaciones y Resumen se quitaron del recorrido.
 
-    <!-- ============ 4. Observaciones ============ -->
-    <section class="paso" data-titulo="Observaciones" data-icono="bi-chat-left-text">
-    <div class="row g-3">
-        <div class="col-12">
-            <div class="card h-100">
-                <div class="card-header"><i class="bi bi-chat-left-text me-2"></i>Observaciones</div>
-                <div class="card-body">
-                    <textarea class="form-control" name="observaciones" rows="4"
-                              placeholder="INFORMACION ADICIONAL SOBRE EL TRATAMIENTO"></textarea>
-                    <div class="form-text">
-                        Lo que no es el procedimiento en s&iacute;: indicaciones,
-                        acuerdos con el tutor, condiciones especiales.
-                    </div>
-                </div>
-            </div>
-        </div>
+             Observaciones era una caja de texto que repetia lo que ya
+             se dice en el diagnostico o en las indicaciones de la
+             consulta, y que en la practica quedaba vacia.
 
-    </div>
-    </section>
+             Resumen mostraba de nuevo, en solo lectura, la misma tabla
+             que acababa de capturarse dos pasos antes. Un paso entero
+             para volver a ver lo mismo. Lo unico suyo que hacia falta
+             —el descuento y el total— vive ahora aqui, al pie de los
+             procedimientos, que es donde se mira mientras se arma el
+             plan y no tres clics despues.
 
-    <!-- ============ 5. Resumen ============ -->
-    <section class="paso" data-titulo="Resumen" data-icono="bi-receipt">
-    <div class="row g-3">
+             La columna observaciones sigue en la base con lo capturado
+             antes del cambio. */ ?>
+
+    <div class="row g-3 mt-1">
         <div class="col-7">
-            <div class="card h-100">
-                <div class="card-header">
-                    <i class="bi bi-list-check me-2"></i>Procedimientos del plan
-                </div>
-                <div class="tabla-con-menu">
-                    <table class="table tabla-sistema">
-                        <thead><tr>
-                            <th style="width:40px">#</th>
-                            <th>Procedimiento</th>
-                            <th style="width:110px">&Oacute;rgano dent.</th>
-                            <th style="width:60px">Cant.</th>
-                            <th style="width:110px" class="text-end">Importe</th>
-                        </tr></thead>
-                        <tbody id="planResumen"></tbody>
-                    </table>
-                </div>
+            <div class="alert alert-light border py-2 small mb-0 d-flex gap-2 h-100
+                        align-items-center">
+                <i class="bi bi-info-circle" style="color:var(--morado-600)"></i>
+                <span>Al guardar se genera el pendiente de escanear
+                      el plan firmado por el tutor.</span>
             </div>
         </div>
 
         <div class="col-5">
-            <div class="card h-100">
-                <div class="card-header"><i class="bi bi-cash-coin me-2"></i>Totales</div>
-                <div class="card-body">
+            <div class="card">
+                <div class="card-body py-2">
                     <div class="dato-identidad">
-                        <i class="bi bi-list-ol"></i>
+                        <i class="bi bi-calculator"></i>
                         <div class="flex-grow-1 d-flex justify-content-between">
                             <span class="etiqueta">Subtotal</span>
-                            <span class="valor" id="planSubtotal">$0.00</span>
+                            <span class="fw-semibold" id="planSubtotal">$0.00</span>
                         </div>
                     </div>
                     <div class="dato-identidad">
                         <i class="bi bi-tag"></i>
-                        <div class="flex-grow-1 d-flex justify-content-between align-items-center">
-                            <span class="etiqueta">Descuento general</span>
-                            <div class="input-group input-group-sm" style="width:130px">
-                                <span class="input-group-text">$</span>
-                                <input type="number" class="form-control text-end"
-                                       name="descuento" id="planDescuento"
-                                       value="0.00" step="0.01" min="0">
-                            </div>
+                        <div class="flex-grow-1 d-flex justify-content-between
+                                    align-items-center gap-2">
+                            <span class="etiqueta">Descuento</span>
+                            <input type="number" class="form-control form-control-sm
+                                   text-end" style="max-width:120px"
+                                   name="descuento" id="planDescuento"
+                                   value="0.00" step="0.01" min="0">
                         </div>
                     </div>
                     <div class="dato-identidad" style="border-top:2px solid var(--gris-100)">
@@ -298,12 +456,6 @@ $dientes = Conexion::todos(
                             <span class="fs-5 fw-semibold" style="color:var(--morado-800)"
                                   id="planTotal">$0.00</span>
                         </div>
-                    </div>
-
-                    <div class="alert alert-light border py-2 small mt-3 mb-0 d-flex gap-2">
-                        <i class="bi bi-info-circle" style="color:var(--morado-600)"></i>
-                        <span>Al guardar se genera el pendiente de escanear
-                              el plan firmado por el tutor.</span>
                     </div>
                 </div>
             </div>
@@ -315,6 +467,62 @@ $dientes = Conexion::todos(
   </div>
 </form>
 
+  </div>
+
+<?php if ($idPlan): ?>
+  <?php /* El entorno del plan.
+
+           Un plan de tratamiento no es un documento que se firma y se
+           archiva: es algo que se ejecuta durante meses, cita por cita.
+           Hasta ahora, para ver que habia pasado con el, habia que
+           salirse al expediente, buscar las consultas, entrar a cada
+           una y volver.
+
+           Las tres tarjetas contestan lo que uno se pregunta estando
+           aqui: que citas ha habido, como se ve la boca ahora, y que
+           se ha ido anotando. */ ?>
+  <div class="col-4">
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-clipboard2-pulse me-2"></i>Consultas del plan</span>
+        <span class="cuenta" id="ppConsultasCuenta">0</span>
+      </div>
+      <div class="card-body py-2" id="ppConsultas">
+        <div class="exp-vacio">Sin consultas todav&iacute;a.</div>
+      </div>
+    </div>
+
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-images me-2"></i>Fotos y radiograf&iacute;as</span>
+        <span class="cuenta" id="ppAlbumCuenta">0</span>
+      </div>
+      <div class="card-body py-2" id="ppAlbum">
+        <div class="exp-vacio">Sin im&aacute;genes.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-journal-text me-2"></i>Notas de evoluci&oacute;n</span>
+        <span class="cuenta" id="ppNotasCuenta">0</span>
+      </div>
+      <div class="card-body py-2" id="ppNotas">
+        <div class="exp-vacio">Sin notas.</div>
+      </div>
+    </div>
+
+  </div>
+<?php endif; ?>
+</div>
+
 <?php require RUTA_VISTAS . '/consultas/_modal_procedimiento.php'; ?>
 
 <?php require RUTA_VISTAS . '/consultas/_modal_dientes.php'; ?>
+
+<?php require RUTA_VISTAS . '/consultas/_modales_diagnostico.php'; ?>
+
+<?php if ($idPlan): ?>
+<?php require RUTA_VISTAS . '/consultas/_modales_panel_plan.php'; ?>
+<?php endif; ?>

@@ -2,7 +2,7 @@
 /**
  * Historia clinica lista para imprimir y firmar.
  *
- * Sale en dos hojas carta, siguiendo el formato de papel del
+ * Sale en una hoja carta, siguiendo el formato de papel del
  * consultorio. Al final lleva las lineas de firma del tutor y del
  * doctor, que es lo que le da valor al expediente.
  *
@@ -25,7 +25,7 @@ if ($idExpediente <= 0) {
 }
 
 $paciente = Conexion::uno(
-    'SELECT vp.*, rp.fecha_apertura
+    'SELECT vp.*, rp.fecha_apertura, rp.requiere_tutor
        FROM v_paciente vp
        JOIN registro_paciente rp ON rp.id_registro_paciente = vp.id_registro_paciente
       WHERE vp.id_registro_paciente = :r',
@@ -76,6 +76,13 @@ $tutores = Conexion::todos(
     [':r' => $idExpediente]
 );
 $tutor = $tutores[0] ?? null;
+
+// Misma regla que la ficha, el consentimiento y la hoja del plan.
+$firmaElPaciente = !Tutoria::llevaTutor(
+    $paciente['edad'] !== null ? (int) $paciente['edad'] : null,
+    $paciente['requiere_tutor'] !== null
+        ? (int) $paciente['requiere_tutor'] : null
+);
 
 $domicilio = Conexion::uno(
     'SELECT CONCAT_WS(", ", vd.calle_numero, vd.colonia,
@@ -133,6 +140,29 @@ function dato(string $etiqueta, $valor, int $ancho = 0): string
         . '<span class="va">' . e($texto) . '</span></div>';
 }
 
+/**
+ * El renglon de un complemento, relleno cuando no aplica.
+ *
+ * Doce preguntas abren otra ("¿alergico? -> ¿a que?") y antes, si la
+ * respuesta era NO, el renglon del complemento salia en blanco o no
+ * salia. En una hoja que se firma eso no se lee como "no aplica": se
+ * lee como "no se pregunto", y seis meses despues nadie puede
+ * distinguir una cosa de la otra. Peor: un blanco se puede llenar a
+ * mano DESPUES de la firma.
+ *
+ * La tabla de rellenos la eligio el consultorio uno por uno y vive en
+ * HistoriaClinica, no aqui: "¿cirugias?" se contesta NINGUNA y "¿hasta
+ * cuando tomo formula?" se contesta N/A, que no es lo mismo.
+ *
+ * Si la respuesta SI pedia complemento y falta, sale en blanco a
+ * proposito: ahi el hueco es real y taparlo seria firmar una
+ * contradiccion.
+ */
+function complemento(array $hc, string $etiqueta, string $campo, int $ancho = 0): string
+{
+    return dato($etiqueta, HistoriaClinica::complementoImpreso($hc, $campo), $ancho);
+}
+
 /** Traduce 1/0/null a Si / No / linea en blanco. */
 function siNoTexto($valor): string
 {
@@ -148,6 +178,18 @@ function opcionTexto($valor, array $mapa): string
 
 $lista = static fn (string $sec): string =>
     isset($porSeccion[$sec]) ? implode(' · ', $porSeccion[$sec]) : '';
+
+/**
+ * Igual que $lista, pero dice "Ninguno" en vez de quedarse vacio.
+ *
+ * Se usa en habitos, y la diferencia importa en un expediente: un
+ * renglon en blanco dice "no se pregunto"; "Ninguno" dice "se pregunto
+ * y no hay". El primero es un hueco, el segundo es un hallazgo.
+ */
+$listaONinguno = static fn (string $sec): string =>
+    isset($porSeccion[$sec]) && $porSeccion[$sec]
+        ? implode(' · ', $porSeccion[$sec])
+        : 'Ninguno';
 ?>
 <!doctype html>
 <html lang="es">
@@ -168,12 +210,18 @@ $lista = static fn (string $sec): string =>
         background: #e9e4ec;
         font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
         color: var(--texto);
-        font-size: 9pt;
+        /* 7.6pt y no 9pt: con todo en una hoja hay que apretar. Es el
+           limite por abajo de lo que una persona lee comoda en papel;
+           mas chico ya obliga a acercarse. */
+        font-size: 7.6pt;
     }
 
     .hoja {
         width: 21.6cm;
         height: 27.9cm;
+        /* Una sola desde octubre 2026. Con lo que salio del formulario
+           lo que queda cabe, y una historia de dos hojas obligaba a
+           imprimir a doble cara o a engrapar. */
         margin: 1rem auto;
         background: #fff;
         box-shadow: 0 6px 30px rgba(0,0,0,.18);
@@ -212,7 +260,7 @@ $lista = static fn (string $sec): string =>
         flex: 0 0 auto;
     }
 
-    .cuerpo { padding: .45cm 1.2cm; flex: 1; overflow: hidden; }
+    .cuerpo { padding: .3cm .9cm; flex: 1; overflow: hidden; }
 
     /* ---------- Secciones ---------- */
     .seccion { margin-bottom: .32cm; }
@@ -236,8 +284,8 @@ $lista = static fn (string $sec): string =>
         align-items: baseline;
         gap: .18cm;
         border-bottom: 1px dotted var(--linea);
-        padding: .07cm 0;
-        min-height: .48cm;
+        padding: .035cm 0;
+        min-height: .36cm;
     }
     .dato .et { color: #8a7a90; font-size: 7pt; white-space: nowrap; }
     .dato .va { font-weight: 600; color: var(--morado-oscuro); font-size: 8.5pt; }
@@ -285,8 +333,7 @@ $lista = static fn (string $sec): string =>
     @media print {
         body { background: #fff; }
         .barra { display: none !important; }
-        .hoja { margin: 0; box-shadow: none; page-break-after: always; }
-        .hoja:last-of-type { page-break-after: auto; }
+        .hoja { margin: 0; box-shadow: none; page-break-after: auto; }
         .seccion, .firmas { page-break-inside: avoid; break-inside: avoid; }
         * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
@@ -296,11 +343,10 @@ $lista = static fn (string $sec): string =>
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario"
-       href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= $idExpediente ?>#tab-historia">
-        Volver
-    </a>
-    <span class="aviso">Dos hojas carta. Imprime a doble cara si quieres una sola.</span>
+    <?php $volverA = URL_BASE . '/index.php?modulo=paciente&vista=historia_clinica&id='
+                     . $idExpediente; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
+    <span class="aviso">Una hoja carta.</span>
 </div>
 
 <?php
@@ -334,11 +380,9 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
             <div class="fila">
                 <?= dato('Fecha de nacimiento', fecha($paciente['fecha_nacim']), 180) ?>
                 <?= dato('Edad', $paciente['edad'] !== null ? $paciente['edad'] . ' años' : '', 110) ?>
-                <?= dato('N&uacute;mero de hijo', $hc['numero_hijo'], 120) ?>
                 <?= dato('Expediente', $paciente['num_expediente'], 140) ?>
             </div>
             <div class="fila">
-                <?= dato('Estatura', $hc['estatura_cm'] ? $hc['estatura_cm'] . ' cm' : '', 130) ?>
                 <?= dato('Peso', $hc['peso_kg'] ? $hc['peso_kg'] . ' kg' : '', 130) ?>
                 <?= dato('Tel&eacute;fono', $paciente['telefono'], 180) ?>
                 <?= dato('Correo', $paciente['correo']) ?>
@@ -355,13 +399,19 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
                 <?= dato('Personaje favorito', $hc['personaje_favorito'], 190) ?>
             </div>
             <div class="fila">
+                <?php /* Un adulto que responde por si mismo no tiene
+                         tutor que anotar: los dos renglones se van, en
+                         vez de salir en blanco pareciendo un dato que
+                         alguien olvido capturar. */ ?>
+                <?php if (!$firmaElPaciente): ?>
                 <?= dato('Nombre del tutor', $tutor['nombre'] ?? '') ?>
                 <?= dato('Parentesco', $tutor['nombre_parentesco'] ?? '', 160) ?>
+                <?php endif; ?>
             </div>
             <div class="fila">
                 <?= dato('&iquest;Qui&eacute;n nos recomend&oacute;?', $hc['quien_recomendo']) ?>
                 <?= dato('&iquest;Primera visita?', siNoTexto($hc['primera_visita_dentista']), 130) ?>
-                <?= dato('&Uacute;ltima visita', $hc['ultima_visita_dentista'], 200) ?>
+                <?= complemento($hc, '&Uacute;ltima visita', 'ultima_visita_dentista', 200) ?>
             </div>
             <div class="fila">
                 <div class="dato ancho">
@@ -381,34 +431,35 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
                     [1 => 'Natural', 2 => 'Cesárea']), 150) ?>
                 <?= dato('Complicaciones', siNoTexto($hc['complicaciones_parto']), 150) ?>
             </div>
-            <?php if (!empty($hc['complicaciones_detalle'])): ?>
+            <?php /* Ya no va dentro de un if.
+
+                     Estaba condicionado a que hubiera texto, asi que en
+                     el caso mas comun —parto sin complicaciones— el
+                     renglon no existia. Ahora sale siempre y dice
+                     NINGUNA: una hoja firmada tiene que contestar la
+                     pregunta, no omitirla. */ ?>
             <div class="fila">
-                <div class="dato ancho">
-                    <span class="et">Complicaciones</span>
-                    <span class="va"><?= e($hc['complicaciones_detalle']) ?></span>
-                </div>
+                <?= complemento($hc, 'Complicaciones', 'complicaciones_detalle') ?>
             </div>
-            <?php endif; ?>
             <div class="fila">
                 <?= dato('Lactancia materna', siNoTexto($hc['lactancia_materna']), 170) ?>
-                <?= dato('Hasta', $hc['lactancia_hasta'], 150) ?>
+                <?= complemento($hc, 'Hasta', 'lactancia_hasta', 150) ?>
                 <?= dato('F&oacute;rmula', siNoTexto($hc['formula']), 130) ?>
-                <?= dato('Hasta', $hc['formula_hasta'], 150) ?>
+                <?= complemento($hc, 'Hasta', 'formula_hasta', 150) ?>
             </div>
             <div class="fila">
                 <?= dato('Alimentaci&oacute;n complementaria', $hc['inicio_alimentacion_complementaria']) ?>
                 <?= dato('Dieta actual', opcionTexto($hc['dieta_completa'],
                     [1 => 'Completa', 0 => 'Incompleta']), 160) ?>
-                <?= dato('Momentos de az&uacute;car al d&iacute;a', $hc['momentos_azucar_dia'], 190) ?>
+                <?= dato('Momentos de az&uacute;car', $hc['momentos_azucar'], 190) ?>
             </div>
-            <?php if (!empty($hc['alimentos_azucar'])): ?>
             <div class="fila">
-                <div class="dato ancho">
-                    <span class="et">Alimentos con az&uacute;car</span>
-                    <span class="va"><?= e($hc['alimentos_azucar']) ?></span>
-                </div>
+                <?php /* El "¿por que?" de la dieta incompleta faltaba por
+                         completo en la hoja impresa: se capturaba y no
+                         salia en ningun lado. */ ?>
+                <?= complemento($hc, '&iquest;Por qu&eacute; incompleta?', 'dieta_porque', 260) ?>
+                <?= complemento($hc, 'Alimentos con az&uacute;car', 'alimentos_azucar') ?>
             </div>
-            <?php endif; ?>
         </div>
 
         <div class="seccion">
@@ -417,42 +468,34 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
                 <?= dato('Estado de salud', opcionTexto($hc['estado_salud'],
                     [1 => 'Bueno', 2 => 'Regular', 3 => 'Malo']), 170) ?>
                 <?= dato('Enfermedad cr&oacute;nica', siNoTexto($hc['enfermedad_cronica']), 170) ?>
-                <?= dato('Especifique', $hc['enfermedad_detalle']) ?>
+                <?= complemento($hc, 'Especifique', 'enfermedad_detalle') ?>
             </div>
             <div class="fila">
                 <?= dato('Discapacidad', siNoTexto($hc['discapacidad']), 150) ?>
-                <?= dato('Especifique', $hc['discapacidad_detalle']) ?>
+                <?= complemento($hc, 'Especifique', 'discapacidad_detalle') ?>
             </div>
             <div class="fila">
                 <?= dato('Alergias', siNoTexto($hc['alergia']), 130) ?>
-                <?= dato('Especifique', $hc['alergia_detalle']) ?>
+                <?= complemento($hc, 'Especifique', 'alergia_detalle') ?>
             </div>
             <div class="fila">
                 <?= dato('Tratamiento m&eacute;dico', siNoTexto($hc['tratamiento_medico']), 170) ?>
-                <?= dato('Especifique', $hc['tratamiento_detalle']) ?>
+                <?= complemento($hc, 'Especifique', 'tratamiento_detalle') ?>
             </div>
             <div class="fila">
                 <?= dato('Cirug&iacute;as', siNoTexto($hc['cirugias']), 130) ?>
-                <?= dato('Especifique', $hc['cirugias_detalle']) ?>
-            </div>
-            <div class="fila">
-                <?= dato('M&eacute;dico tratante', $hc['medico_nombre']) ?>
-                <?= dato('Tel&eacute;fono', $hc['medico_telefono'], 180) ?>
+                <?= complemento($hc, 'Especifique', 'cirugias_detalle') ?>
             </div>
         </div>
-    </div>
 
-    <div class="pie">
-        <span>Expediente <?= e($paciente['num_expediente']) ?> &middot; <?= e($paciente['nombre_completo']) ?></span>
-        <span>Hoja 1 de 2</span>
-    </div>
-</div>
+        <?php /* Aqui empezaba la segunda hoja.
 
-<!-- ================= HOJA 2 ================= -->
-<div class="hoja">
-    <?php $encabezado('Historial cl&iacute;nico'); ?>
-
-    <div class="cuerpo">
+                 Con lo que salio del formulario —numero de hijo,
+                 estatura, el medico tratante, el examen bucal largo y
+                 las anomalias— lo que queda cabe en una sola. Dos
+                 hojas para esto obligaban a imprimir a doble cara o a
+                 engrapar, y una historia clinica que se consulta se
+                 quiere de un vistazo. */ ?>
 
         <div class="seccion">
             <h2>Antecedentes odontol&oacute;gicos</h2>
@@ -464,7 +507,7 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
             </div>
             <div class="fila">
                 <?= dato('Otro elemento de higiene', siNoTexto($hc['otro_higiene']), 200) ?>
-                <?= dato('Especifique', $hc['otro_higiene_detalle']) ?>
+                <?= complemento($hc, 'Especifique', 'otro_higiene_detalle') ?>
             </div>
         </div>
 
@@ -473,57 +516,70 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
             <div class="fila">
                 <div class="dato ancho">
                     <span class="et">Presentes</span>
-                    <span class="va"><?= e($lista('HABITO')) ?></span>
+                    <span class="va"><?= e($listaONinguno('HABITO')) ?></span>
                 </div>
             </div>
         </div>
 
+        <?php /* El examen bucal se redujo a tres hallazgos escritos.
+                 La hoja impresa muestra los campos nuevos, y los
+                 viejos solo si ese paciente los trae: un expediente
+                 capturado antes del cambio tiene que seguir
+                 imprimiendose completo. */ ?>
         <div class="seccion">
-            <h2>Examen bucal &middot; Tejidos blandos</h2>
+            <h2>Examen bucal</h2>
             <div class="fila">
-                <?= dato('Labios', opcionTexto($hc['labios'],
-                    [1 => 'Competentes', 2 => 'Incompetentes']), 170) ?>
-                <?= dato('Lesiones en labios', $hc['labios_lesiones']) ?>
-            </div>
-            <div class="fila">
-                <?= dato('Frenillos', opcionTexto($hc['frenillos'],
-                    [1 => 'Normales', 2 => 'Anormales']), 160) ?>
-                <?= dato('Lengua', opcionTexto($hc['lengua'],
-                    [1 => 'Normal', 2 => 'Macroglosia', 3 => 'Geográfica', 4 => 'Escrotal']), 170) ?>
-                <?= dato('Mucosa', $hc['mucosa']) ?>
-            </div>
-            <div class="fila">
-                <?= dato('Lesiones en tejido gingival', $hc['lesiones_gingival']) ?>
-            </div>
-            <?php if (!empty($hc['observaciones_blandos'])): ?>
-            <div class="fila">
-                <div class="dato ancho">
-                    <span class="et">Observaciones</span>
-                    <span class="va"><?= e($hc['observaciones_blandos']) ?></span>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
+                <?php /* Normal o anormal, primero y a la vista.
 
-        <div class="seccion">
-            <h2>Examen bucal &middot; Tejidos duros</h2>
+                         En una historia vieja este renglon sale en blanco,
+                         y eso es la verdad: de esas no se sabe si el examen
+                         fue normal. Rellenarlo con "Normal" seria afirmar en
+                         nombre de la doctora algo que nadie dijo, en un
+                         papel que ella firma. */ ?>
+                <?= dato('Resultado', opcionTexto($hc['examen_bucal_normal'] ?? null,
+                    [1 => 'Normal', 0 => 'Anormal']), 150) ?>
+                <?= dato('Frenillo', $hc['frenillo_detalle'], 150) ?>
+                <?= dato('Lesiones mucosas', $hc['mucosa'], 190) ?>
+                <?= dato('Lengua', $hc['lengua_detalle'], 150) ?>
+            </div>
             <div class="fila">
                 <?= dato('Tipo de dentici&oacute;n', opcionTexto($hc['tipo_denticion'],
                     [1 => 'Temporal', 2 => 'Mixta', 3 => 'Permanente']), 190) ?>
             </div>
-            <div class="fila">
-                <?= dato('Anomal&iacute;as de n&uacute;mero', $lista('ANOM_NUMERO')) ?>
-                <?= dato('Anomal&iacute;as de tama&ntilde;o', $lista('ANOM_TAMANO')) ?>
-            </div>
-            <div class="fila">
-                <?= dato('Anomal&iacute;as de estructura', $lista('ANOM_ESTRUCTURA')) ?>
-                <?= dato('Anomal&iacute;as de forma', $lista('ANOM_FORMA')) ?>
-            </div>
-            <?php if (!empty($hc['observaciones_duros'])): ?>
+
+            <?php
+            // Lo capturado con el formulario anterior. Se imprime solo
+            // si existe, para no dejar huecos en los expedientes nuevos
+            // ni perder informacion en los viejos.
+            $viejos = array_filter([
+                'Labios'        => opcionTexto($hc['labios'],
+                                    [1 => 'Competentes', 2 => 'Incompetentes']),
+                'Les. labios'   => $hc['labios_lesiones'],
+                'Frenillos'     => opcionTexto($hc['frenillos'],
+                                    [1 => 'Normales', 2 => 'Anormales']),
+                'Lengua (ant.)' => opcionTexto($hc['lengua'],
+                                    [1 => 'Normal', 2 => 'Macroglosia',
+                                     3 => 'Geográfica', 4 => 'Escrotal']),
+                'Les. gingival' => $hc['lesiones_gingival'],
+                'Obs. blandos'  => $hc['observaciones_blandos'],
+                'Obs. duros'    => $hc['observaciones_duros'],
+                'Anom. numero'  => $lista('ANOM_NUMERO'),
+                'Anom. tamano'  => $lista('ANOM_TAMANO'),
+                'Anom. estruct.'=> $lista('ANOM_ESTRUCTURA'),
+                'Anom. forma'   => $lista('ANOM_FORMA'),
+            ], static fn($v) => $v !== null && $v !== '');
+            ?>
+            <?php if ($viejos): ?>
             <div class="fila">
                 <div class="dato ancho">
-                    <span class="et">Observaciones</span>
-                    <span class="va"><?= e($hc['observaciones_duros']) ?></span>
+                    <span class="et">Registrado antes</span>
+                    <?php /* El separador va FUERA de e(): si entrara
+                             dentro, el &middot; se escaparia a
+                             &amp;middot; y se imprimiria el codigo en
+                             lugar del punto. */ ?>
+                    <span class="va"><?= implode(' &middot; ',
+                        array_map(static fn($k, $v) => e("$k: $v"),
+                            array_keys($viejos), $viejos)) ?></span>
                 </div>
             </div>
             <?php endif; ?>
@@ -545,8 +601,11 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
     <div class="firmas">
         <div class="firma">
             <div class="linea"></div>
-            <div class="nombre"><?= e($tutor['nombre'] ?? '') ?></div>
-            <div class="cargo">Nombre y firma de padre o tutor</div>
+            <div class="nombre"><?= e($firmaElPaciente
+                ? $paciente['nombre_completo'] : ($tutor['nombre'] ?? '')) ?></div>
+            <div class="cargo"><?= $firmaElPaciente
+                ? 'Nombre y firma del paciente'
+                : 'Nombre y firma de padre o tutor' ?></div>
         </div>
         <div class="firma">
             <div class="linea"></div>
@@ -560,7 +619,7 @@ $encabezado = static function (string $titulo) use ($negocio, $paciente) { ?>
 
     <div class="pie">
         <span>Capturado el <?= e(fechaHora($hc['fecha_captura'])) ?></span>
-        <span>Hoja 2 de 2 &middot; <?= e(APP_NOMBRE) ?> v<?= e(APP_VERSION) ?></span>
+        <span><?= e(APP_NOMBRE) ?> v<?= e(APP_VERSION) ?></span>
     </div>
 </div>
 

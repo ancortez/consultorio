@@ -42,6 +42,46 @@ $consulta['documentos'] = Conexion::todos(
     [':c' => $idConsulta]
 );
 
+// Los hallazgos traen de una vez los datos de su imagen: la pantalla
+// dibuja la miniatura junto al texto, y pedirla aparte obligaria a una
+// llamada por hallazgo.
+$consulta['hallazgos'] = Conexion::todos(
+    'SELECT h.id_hallazgo, h.tipo, h.descripcion, h.orden, h.fecha_registro,
+            u.nombre_completo AS autor
+       FROM hallazgo h
+       JOIN usuario u ON u.id_usuario = h.id_usuario
+      WHERE h.id_consulta = :c AND h.estatus = 1
+      ORDER BY h.orden, h.id_hallazgo',
+    [':c' => $idConsulta]
+);
+
+// Las imagenes de todos los hallazgos de la consulta, en UNA consulta.
+// Pedirlas por hallazgo seria una llamada por renglon, y una
+// exploracion de seis hallazgos haria seis viajes a la base para
+// dibujar una sola pantalla.
+if ($consulta['hallazgos']) {
+    $imagenes = Conexion::todos(
+        'SELECT d.id_documento, d.id_hallazgo, d.descripcion,
+                d.nombre_original, d.tipo_mime, d.estado
+           FROM documento d
+          WHERE d.id_consulta = :c
+            AND d.id_hallazgo IS NOT NULL
+            AND d.estatus = 1
+          ORDER BY d.id_documento',
+        [':c' => $idConsulta]
+    );
+
+    $porHallazgo = [];
+    foreach ($imagenes as $img) {
+        $porHallazgo[(int) $img['id_hallazgo']][] = $img;
+    }
+
+    foreach ($consulta['hallazgos'] as &$h) {
+        $h['imagenes'] = $porHallazgo[(int) $h['id_hallazgo']] ?? [];
+    }
+    unset($h);
+}
+
 $consulta['recetas'] = Conexion::todos(
     'SELECT r.*, u.nombre_completo AS dentista
        FROM receta r

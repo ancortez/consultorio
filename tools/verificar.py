@@ -355,7 +355,411 @@ ok("los ids que busca el JavaScript existen en las vistas")
 # =====================================================================
 # RESULTADO
 # =====================================================================
+
+# =====================================================================
+#  Claves que la consulta no trae
+# =====================================================================
+# El aviso que vio la clienta en pantalla:
+#
+#     Undefined array key "valor" in _resumen_contacto.php on line 71
+#
+# La columna se llama valor_contacto. Escribirla corta no truena nada:
+# PHP avisa y entrega una cadena vacia, asi que el telefono del
+# paciente simplemente desaparece de la ficha. Un dato que falta sin
+# que nada falle es peor que un error, porque nadie lo busca.
+#
+# Se revisa solo cuando la consulta lista sus columnas una por una.
+# Con "SELECT algo.*" no hay forma de saber desde aqui que trae, y
+# adivinarlo llenaria esto de falsos positivos que acabarian
+# ensenniando a ignorar el verificador.
+import re as _re
+
+# $var = Conexion::todos('SELECT ... FROM ...', ...)  /  ::uno(...)
+PEDIDO = _re.compile(
+    r"\$(\w+)\s*=\s*Conexion::(?:todos|uno)\(\s*'(SELECT\s.*?)'\s*[,)]",
+    _re.S | _re.I)
+
+def _tablaDelAlias(sql: str, alias: str):
+    """Las columnas de la tabla que en esta consulta se llama `alias`."""
+    # FROM tabla alias  |  JOIN tabla alias  |  FROM tabla AS alias
+    m = _re.search(
+        r'\b(?:FROM|JOIN)\s+(\w+)\s+(?:AS\s+)?' + _re.escape(alias) + r'\b',
+        sql, _re.I)
+    if m is None:
+        # Tambien puede ser la tabla misma, sin alias: "FROM pago" y
+        # luego "pago.*".
+        m = _re.search(r'\b(?:FROM|JOIN)\s+(' + _re.escape(alias) + r')\b',
+                       sql, _re.I)
+    if m is None:
+        return None
+    nombre = m.group(1)
+    # Las vistas (v_paciente, v_domicilio) no estan en tablas{}: sus
+    # columnas salen de un SELECT que no se analiza aqui.
+    return tablas.get(nombre)
+
+
+def columnasQueTrae(sql: str):
+    """Los nombres con los que llega cada columna al arreglo de PHP."""
+    # El FROM que cierra la lista de columnas es el que esta FUERA de
+    # todo parentesis. Cortar en el primero que aparezca parte la lista
+    # en el FROM de la primera subconsulta, y todo lo que viene
+    # despues —incluido su AS— se pierde.
+    cuerpo = _re.sub(r'^\s*SELECT\s+', '', sql.strip(), flags=_re.I)
+    hondo = 0
+    for mf in _re.finditer(r'\(|\)|\bFROM\b', cuerpo, _re.I):
+        if mf.group(0) == '(': hondo += 1
+        elif mf.group(0) == ')': hondo -= 1
+        elif hondo == 0:
+            cuerpo = cuerpo[:mf.start()]
+            break
+
+    # Las subconsultas y las funciones traen comas que no separan
+    # columnas: CONCAT_WS(", ", a, b) es UNA columna, no tres.
+    plano, hondo = [], 0
+    actual = ''
+    for ch in cuerpo:
+        if ch == '(': hondo += 1
+        elif ch == ')': hondo -= 1
+        if ch == ',' and hondo == 0:
+            plano.append(actual); actual = ''
+        else:
+            actual += ch
+    plano.append(actual)
+
+    nombres = set()
+    for trozo in plano:
+        trozo = trozo.strip()
+        if not trozo:
+            continue
+        if trozo.endswith('*'):
+            # "cp.*" no es un callejon sin salida: el alias se resuelve
+            # contra el FROM/JOIN y las columnas salen del esquema.
+            #
+            # Saltarse estas consultas dejaba fuera justo la que fallo
+            # en pantalla —SELECT cp.*, mc.nombre... — y una
+            # comprobacion que se rinde ante el caso que la motivo no
+            # sirve de nada. "SELECT *" a secas, sin alias, si se deja
+            # pasar: ahi habria que adivinar la tabla.
+            alias = trozo[:-1].rstrip('.').strip()
+            if not alias:
+                return None
+            tabla = _tablaDelAlias(sql, alias)
+            if tabla is None:
+                return None
+            nombres.update(c.lower() for c in tabla)
+            continue
+        alias = _re.search(r'\bAS\s+(\w+)\s*$', trozo, _re.I)
+        if alias:
+            nombres.add(alias.group(1).lower())
+            continue
+        nombres.add(trozo.split('.')[-1].strip().lower())
+    return nombres
+
+import pathlib as _pathlib
+_raiz = _pathlib.Path(BASE)
+
+revisadas = 0
+for archivo in sorted(_raiz.rglob('*.php')):
+    if 'db/' in str(archivo) or 'tools/' in str(archivo):
+        continue
+    txt = archivo.read_text(encoding='utf-8', errors='ignore')
+
+    for m in PEDIDO.finditer(txt):
+        var, sql = m.group(1), m.group(2)
+        trae = columnasQueTrae(sql)
+        if trae is None:
+            continue
+
+        # Solo lo que va DESPUES de esta consulta y antes de que la
+        # misma variable se reasigne. En documentos.php hay tres
+        # consultas distintas guardadas en $doc, y mezclarlas hacia que
+        # las columnas de una se reclamaran a las otras.
+        desde = m.end()
+        siguiente = PEDIDO.search(txt, desde)
+        while siguiente is not None and siguiente.group(1) != var:
+            siguiente = PEDIDO.search(txt, siguiente.end())
+        ambito = txt[desde:siguiente.start() if siguiente else len(txt)]
+
+        # Los parciales que la vista incluye leen SUS variables: la
+        # consulta de $contactos vive en detalle_paciente.php y
+        # $c['valor_contacto'] se escribe en _resumen_contacto.php.
+        # Mirando un archivo a la vez, el error de la clave mal escrita
+        # cae justo en la rendija entre los dos.
+        piezas = [(archivo, ambito, desde)]
+        for inc in _re.finditer(
+                r"require(?:_once)?\s+__DIR__\s*\.\s*'(/[\w./-]+\.php)'", ambito):
+            hijo = (archivo.parent / inc.group(1).lstrip('/')).resolve()
+            if hijo.exists():
+                piezas.append((hijo, hijo.read_text(encoding='utf-8',
+                                                    errors='ignore'), 0))
+
+        # Donde se leen las claves. Dos formas, y cada una con su
+        # propio alcance:
+        #
+        #   - directo:   $pac['nombres']        -> toda la pieza
+        #   - por lote:  foreach ($lista as $c) -> SOLO dentro del bucle
+        #
+        # Lo segundo importa: $c es el apodo mas usado del proyecto y
+        # hay media docena de bucles que lo reutilizan para cosas
+        # distintas. Sin acotar, las columnas de una consulta se le
+        # reclamaban al bucle de otra y salian cinco fallos inventados.
+        def cuerpoDelForeach(texto: str, desdeAhi: int) -> str:
+            cierre = texto.find('endforeach', desdeAhi)
+            llave  = texto.find('}', desdeAhi)
+            if cierre == -1: cierre = len(texto)
+            if llave  == -1: llave  = len(texto)
+            return texto[desdeAhi:min(cierre, llave)]
+
+        # Las claves que el propio codigo ESCRIBE no son columnas que
+        # falten: son datos que se agregan al renglon despues de
+        # traerlo. El arbol del expediente cuelga casi entero de ahi.
+        escritas = set()
+        for _, cuerpo, _ in piezas:
+            escritas |= {
+                e.group(1).lower() for e in _re.finditer(
+                    r"\$\w+\s*\[\s*'(\w+)'\s*\]\s*(?:=[^=]|\[)", cuerpo)
+            }
+
+        revisadas += 1
+        for donde, cuerpo, base in piezas:
+            tramos = [(var, cuerpo, 0)]
+            for f in _re.finditer(
+                    r'foreach\s*\(\s*\$' + var
+                    + r'\s+as\s+(?:\$\w+\s*=>\s*)?\$(\w+)\s*\)', cuerpo):
+                tramos.append((f.group(1), cuerpoDelForeach(cuerpo, f.end()), f.end()))
+
+            for apodo, tramo, inicio in tramos:
+                for uso in _re.finditer(
+                        r'\$' + apodo + r"\s*\[\s*'(\w+)'\s*\]", tramo):
+                    clave = uso.group(1).lower()
+                    if clave in trae or clave in escritas:
+                        continue
+                    entero = txt if donde == archivo else cuerpo
+                    linea = entero[:base + inicio + uso.start()].count('\n') + 1
+                    # Sin repetir: un parcial incluido tres veces —el
+                    # resumen de contacto se pide una vez por bloque—
+                    # daria el mismo fallo tres veces y pareceria que
+                    # hay tres errores donde hay uno.
+                    aviso = (f'{donde.relative_to(_raiz)}:{linea}: se lee '
+                             f"${apodo}['{uso.group(1)}'] pero la consulta de "
+                             f'${var} no trae esa columna. PHP no truena: '
+                             f'avisa y deja el dato vacio.')
+                    if aviso not in fallos:
+                        fallos.append(aviso)
+
+print(f'  ok   {revisadas} consultas: ninguna clave leida falta en su SELECT')
+
+
 print()
+# ---------- PHP que se colo en un archivo .js ----------
+# Un "<?php" o un "<?= ... ?>" dentro de una plantilla de JavaScript no
+# es codigo: es texto, y se imprime tal cual en la pantalla del usuario.
+# Ni el navegador ni "node --check" se quejan, porque para los dos es
+# una cadena perfectamente valida. Solo se descubre mirando la pantalla,
+# que es la peor forma de descubrir un error.
+for _archivo in sorted(glob.glob('assets/js/*.js')):
+    _texto = open(_archivo, encoding='utf-8').read()
+    for _marca in ('<?php', '<?=', '<?/'):
+        if _marca in _texto:
+            _linea = _texto[:_texto.index(_marca)].count('\n') + 1
+            fallos.append(f'{_archivo}:{_linea}: "{_marca}" dentro de un .js. '
+                          'PHP no corre ahi: se imprimiria en pantalla.')
+print('  ok   ningun .js trae PHP dentro')
+
+
+# ---------- Columnas que las consultas piden y la tabla no tiene ----------
+# Una columna mal escrita en un SELECT es un PDOException, y un
+# PDOException sin atrapar tumba la pagina entera. Lo peor es como se
+# ve: la cortinilla de carga queda ENCIMA del mensaje, asi que el
+# sistema parece "cargando para siempre" sin decir que paso.
+#
+# Esto se escribio despues de que un "AND c.estatus = 1" sobre la tabla
+# cita —que no tiene esa columna, a diferencia de casi todas las demas—
+# dejara la ficha del paciente en blanco.
+from collections import defaultdict as _dd
+
+_esq = open(f'{BASE}/db/01_schema.sql', encoding='utf-8').read()
+
+_cols = _dd(set)
+for _m in re.finditer(r'CREATE TABLE (\w+) \((.*?)\n\) ENGINE', _esq, re.S):
+    for _l in _m.group(2).split('\n'):
+        _c = re.match(r'\s{2}(\w+)\s+[A-Z]', _l)
+        if _c:
+            _cols[_m.group(1)].add(_c.group(1))
+
+# Lo que devuelve una vista no se puede saber leyendo su definicion sin
+# resolver los JOIN, asi que las vistas quedan fuera.
+_vistas = set(re.findall(r'CREATE OR REPLACE VIEW (\w+)', _esq))
+_RESERVADAS = {'ON','WHERE','SET','GROUP','ORDER','LEFT','INNER','JOIN',
+               'RIGHT','OUTER','CROSS','STRAIGHT_JOIN','USING','LIMIT'}
+
+_malas = []
+for _archivo in sorted(glob.glob(f'{BASE}/vistas/**/*.php', recursive=True)
+                     + glob.glob(f'{BASE}/includes/**/*.php', recursive=True)
+                     + glob.glob(f'{BASE}/*.php')):
+    _txt = open(_archivo, encoding='utf-8').read()
+    _rel = os.path.relpath(_archivo, BASE)
+
+    for _sql in re.findall(r"'(SELECT .*?)'", _txt, re.S):
+        _alias = {}
+        for _m in re.finditer(r'\b(?:FROM|JOIN)\s+(\w+)\s+(?:AS\s+)?(\w+)',
+                              _sql, re.I):
+            if _m.group(2).upper() in _RESERVADAS:
+                continue
+            _alias[_m.group(2)] = _m.group(1)
+
+        for _m in re.finditer(r'\b(\w+)\.(\w+)\b', _sql):
+            _a, _c = _m.group(1), _m.group(2)
+            _t = _alias.get(_a)
+            if _t is None or _t in _vistas or _t not in _cols:
+                continue
+            if _c not in _cols[_t]:
+                _malas.append(f'{_rel}: la consulta pide {_t}.{_c}, '
+                              f'que no existe en esa tabla')
+
+# ---------------------------------------------------------------------
+#  Consultas de UNA sola tabla, sin alias
+# ---------------------------------------------------------------------
+# Lo de arriba solo mira "alias.columna". Una consulta de una sola tabla
+# se escribe sin alias y con los nombres pelados:
+#
+#     SELECT enfermedad_cronica, discapacidad
+#       FROM historia_clinica
+#      WHERE id_registro_paciente = :r AND estatus = 1
+#
+# Ahi no hay ningun punto, asi que la revision anterior no veia nada que
+# revisar y daba el visto bueno. Me invente "estatus" y "id_historia" en
+# historia_clinica —que no tiene ninguna de las dos— y el verificador
+# dijo que todo estaba en orden. El error aparecio en la pantalla de la
+# clienta.
+#
+# Solo se revisan las consultas con UNA tabla y ningun JOIN: ahi cada
+# nombre pelado tiene que ser columna de esa tabla, sin ambiguedad
+# posible. Con dos tablas no se puede saber de cual es cada nombre sin
+# resolver la consulta, y adivinarlo llenaria esto de falsos avisos.
+_PALABRAS_SQL = {
+    'select','from','where','and','or','not','in','is','null','as','on',
+    'order','by','group','having','limit','offset','asc','desc','distinct',
+    'case','when','then','else','end','like','between','exists','union',
+    'all','join','left','right','inner','outer','set','update','insert',
+    'into','values','delete','count','sum','avg','min','max','coalesce',
+    'ifnull','if','concat','concat_ws','date','now','curdate','year',
+    'month','day','interval','cast','signed','unsigned','char','decimal',
+    'separator','true','false','default','duplicate','key','replace',
+    'lower','upper','trim','substring','substring_index','ucase','lcase',
+    'timestampdiff','datediff','date_format','str_to_date','greatest',
+    'least','round','abs','length','locate','rand','nullif','div','mod',
+}
+
+_malasSolas = []
+for _archivo in sorted(glob.glob(f'{BASE}/vistas/**/*.php', recursive=True)
+                     + glob.glob(f'{BASE}/includes/**/*.php', recursive=True)
+                     + glob.glob(f'{BASE}/*.php')):
+    _txt = open(_archivo, encoding='utf-8').read()
+    _rel = os.path.relpath(_archivo, BASE)
+
+    for _sql in re.findall(r"'(SELECT .*?)'", _txt, re.S):
+        # Una sola tabla y nada mas: ni JOIN, ni subconsulta, ni un
+        # segundo FROM.
+        _tablasSql = re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', _sql, re.I)
+        if len(_tablasSql) != 1:
+            continue
+
+        _t = _tablasSql[0]
+        if _t in _vistas or _t not in _cols:
+            continue
+
+        # Una tabla puede tener alias aunque sea la unica: "FROM persona p".
+        # Ese alias aparece suelto en "CONCAT_WS(..., p.nombres, ...)" y sin
+        # esto se denunciaba como una columna que no existe. Un verificador
+        # que inventa fallos ensenia a ignorarlo, que es peor que no tenerlo.
+        _apodo = re.search(
+            r'\bFROM\s+' + re.escape(_t) + r'\s+(?:AS\s+)?(\w+)', _sql, re.I)
+        _apodo = _apodo.group(1).lower() if _apodo else None
+        if _apodo in _RESERVADAS or (_apodo or '').upper() in _RESERVADAS:
+            _apodo = None
+
+        # Fuera lo que no son nombres de columna: los marcadores, los
+        # textos entre comillas, los alias declarados con AS y lo que
+        # lleva parentesis detras (que es una funcion).
+        _limpio = re.sub(r':\w+', ' ', _sql)
+        _limpio = re.sub(r'"[^"]*"', ' ', _limpio)
+        _limpio = re.sub(r'\bAS\s+\w+', ' ', _limpio, flags=re.I)
+        _limpio = re.sub(r'\b\w+\s*\(', ' ( ', _limpio)
+
+        for _m in re.finditer(r'\b([a-z_][a-z0-9_]*)\b', _limpio):
+            _c = _m.group(1)
+            if _c in _PALABRAS_SQL or _c == _t or _c == _apodo:
+                continue
+            # Un nombre con punto delante o detras ya lo revisa el
+            # bloque anterior.
+            _i, _f = _m.start(), _m.end()
+            if (_i > 0 and _limpio[_i - 1] == '.') or \
+               (_f < len(_limpio) and _limpio[_f] == '.'):
+                continue
+            if _c not in _cols[_t]:
+                _malasSolas.append(
+                    f'{_rel}: la consulta pide {_c}, que no existe en '
+                    f'{_t} (consulta de una sola tabla)')
+
+for _x in sorted(set(_malas)) + sorted(set(_malasSolas)):
+    fallos.append(_x)
+print(f'  ok   {len(_cols)} tablas: ninguna consulta pide una columna inexistente')
+
+
+# ---------- Dos elementos con el mismo id ----------
+# getElementById devuelve SOLO el primero. El segundo boton queda
+# muerto: no hace nada y no da error, que es la peor combinacion
+# posible para encontrarlo.
+#
+# Esto se escribio despues de que el "+" de la tarjeta de consultas no
+# hiciera nada, porque compartia id con el boton del encabezado.
+#
+# Se revisa por pantalla completa: una vista mas lo que incluye, que es
+# lo que el navegador acaba viendo junto.
+def _incluidos(ruta, vistos=None):
+    """El texto de una vista con sus require resueltos."""
+    vistos = vistos or set()
+    if ruta in vistos or not os.path.isfile(ruta):
+        return ''
+    vistos.add(ruta)
+    txt = open(ruta, encoding='utf-8').read()
+
+    for _m in re.finditer(r"require(?:_once)?\s+__DIR__\s*\.\s*'([^']+)'", txt):
+        txt += _incluidos(os.path.normpath(
+            os.path.join(os.path.dirname(ruta), _m.group(1).lstrip('/'))), vistos)
+    for _m in re.finditer(r"require(?:_once)?\s+RUTA_VISTAS\s*\.\s*'([^']+)'", txt):
+        txt += _incluidos(os.path.normpath(
+            f'{BASE}/vistas/' + _m.group(1).lstrip('/')), vistos)
+    return txt
+
+# Lo que sale en TODAS las pantallas cuenta en todas: los modales
+# comunes, la barra, el pie y el propio armazon de index.php (ahi vive
+# la cortinilla, entre otros). Sin esto, un modal del layout podria
+# chocar con un id del armazon y nadie lo veria.
+_comunes = (_incluidos(f'{BASE}/vistas/layout/_modales_comunes.php')
+          + _incluidos(f'{BASE}/vistas/layout/nav.php')
+          + _incluidos(f'{BASE}/vistas/layout/footer.php')
+          + re.sub(r'<\?php.*?\?>', '', open(f'{BASE}/index.php', encoding='utf-8').read(), flags=re.S))
+
+for _vista in sorted(glob.glob(f'{BASE}/vistas/**/*.php', recursive=True)):
+    _rel = os.path.relpath(_vista, BASE)
+    # Los parciales se revisan dentro de la vista que los incluye, no
+    # sueltos: por si solos no son una pantalla.
+    if os.path.basename(_vista).startswith('_'):
+        continue
+
+    _html = _incluidos(_vista) + _comunes
+    _ids = re.findall(r'\bid="([A-Za-z][\w-]*)"', _html)
+
+    _repes = sorted({x for x in _ids if _ids.count(x) > 1})
+    if _repes:
+        fallos.append(f'{_rel}: id repetido en la misma pantalla {_repes}. '
+                      'getElementById solo encuentra el primero: el resto '
+                      'queda muerto sin dar error.')
+print('  ok   ningun id se repite dentro de una pantalla')
+
+
 if avisos:
     print(f"{len(avisos)} aviso(s):")
     for a in avisos[:15]:

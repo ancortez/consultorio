@@ -63,10 +63,39 @@ try {
     $folio = siguienteFolio('registro_paciente', 'num_expediente',
         (string) parametro('prefijo_expediente', 'EXP'));
 
+    /*
+       Si el paciente nace en el sistema siendo mayor de edad, la
+       pregunta se contesta en el alta.
+
+       Un MENOR entra con requiere_tutor = 1 directamente, sin
+       preguntar: no hay nada que decidir, lo dice la ley. Y entra ya
+       decidido, con su edad apuntada, para que al cumplir 18 la regla
+       no lo trate como "nunca se pregunto" sino como lo que es: un
+       expediente cuya situacion toca revisar.
+    */
+    $edadAlta = $nacim !== null
+        ? (new DateTime($nacim))->diff(new DateTime('today'))->y
+        : null;
+
+    $tutorAlta = param('requiere_tutor');
+    if ($edadAlta !== null && $edadAlta < Tutoria::MAYORIA_EDAD) {
+        $tutorAlta = 1;          // menor: lleva tutor y punto
+    } elseif ($tutorAlta === '' ) {
+        $tutorAlta = null;       // mayor y no contestaron: se preguntara
+    } elseif ($tutorAlta !== null) {
+        $tutorAlta = (int) $tutorAlta;
+    }
+
     Conexion::consulta(
-        'INSERT INTO registro_paciente (num_expediente, id_persona, fecha_apertura)
-         VALUES (:f, :p, CURDATE())',
-        [':f' => $folio, ':p' => $idPersona]
+        'INSERT INTO registro_paciente
+            (num_expediente, id_persona, fecha_apertura,
+             requiere_tutor, tutor_decidido_edad)
+         VALUES (:f, :p, CURDATE(), :rt, :te)',
+        [':f' => $folio, ':p' => $idPersona,
+         ':rt' => $tutorAlta,
+         // Sin decision no hay edad de decision: guardar una seria
+         // decir que se decidio algo que nadie decidio.
+         ':te' => $tutorAlta === null ? null : $edadAlta]
     );
     $idExpediente = Conexion::ultimoId();
 

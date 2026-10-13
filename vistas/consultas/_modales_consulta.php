@@ -1,9 +1,108 @@
 <?php
 /**
- * Modales del detalle de consulta: receta, nota de evolucion y subida
- * de documentos por album.
+ * Modales del detalle de consulta: hallazgo, receta, nota de evolucion
+ * y subida de documentos por album.
  */
 ?>
+
+<!-- ============ Hallazgo ============ -->
+<div class="modal fade" id="modalHallazgo" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-search-heart me-2"></i>
+          <span id="hzTitulo">Nuevo hallazgo</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <form id="formHallazgo">
+        <input type="hidden" name="id_hallazgo" id="hzId">
+        <input type="hidden" name="id_consulta" id="hzConsulta">
+
+        <div class="modal-body">
+          <?php /* El tipo va primero y como botones, no como lista.
+
+                   Es la primera decision y solo tiene dos respuestas:
+                   lo vi en la boca, o lo vi en la placa. Dos botones
+                   grandes se contestan de un toque; un desplegable
+                   pide abrir, leer y elegir para lo mismo. */ ?>
+          <label class="form-label">&iquest;D&oacute;nde lo viste?</label>
+          <div class="grupo-tipo-hallazgo mb-3" id="hzTipo">
+            <button type="button" class="opcion-hallazgo activa" data-valor="CLINICO">
+              <i class="bi bi-eye"></i>
+              <b>Cl&iacute;nico</b>
+              <small>En boca, a simple vista</small>
+            </button>
+            <button type="button" class="opcion-hallazgo" data-valor="RADIOGRAFICO">
+              <i class="bi bi-radioactive"></i>
+              <b>Radiogr&aacute;fico</b>
+              <small>En la placa</small>
+            </button>
+          </div>
+          <input type="hidden" name="tipo" id="hzTipoValor" value="CLINICO">
+
+          <label class="form-label" for="hzDescripcion">
+            Descripci&oacute;n <span class="req">*</span>
+          </label>
+          <textarea class="form-control" name="descripcion" id="hzDescripcion"
+                    rows="3" maxlength="1000"
+                    placeholder="UN SOLO HALLAZGO. EJEMPLO: CARIES OCLUSAL EN &Oacute;RGANO DENTARIO 46"></textarea>
+          <div class="form-text mb-3">
+            Uno por hallazgo. Si observaste tres cosas, agrega tres.
+          </div>
+
+          <?php /* Las imagenes son opcionales y se suben aqui mismo.
+
+                   Pueden ser varias: "fractura del 11" se documenta
+                   con la foto intraoral y con dos periapicales desde
+                   angulos distintos, y las tres son del mismo
+                   hallazgo.
+
+                   Obligar a cerrar el modal, abrir el album, subirlas
+                   y volver a escribir a que hallazgo pertenecen es
+                   justo lo que nadie hace con un paciente enfrente. */ ?>
+          <label class="form-label" for="hzArchivos">
+            Im&aacute;genes <span class="text-secondary fw-normal">(opcional)</span>
+          </label>
+          <?php /* El accept lo dice Imagen, no esta linea.
+
+                   Estaba escrito a mano aqui y se quedo atras cuando el
+                   nucleo empezo a aceptar HEIC: el selector de archivos
+                   atenuaba las fotos del iPhone, no se podian elegir, y
+                   parecia que el sistema no las aceptaba. Las aceptaba;
+                   nadie podia llegar a el. */ ?>
+          <input type="file" class="form-control" name="archivos[]" id="hzArchivos"
+                 accept="<?= e(Imagen::aceptaEnPicker()) ?>" multiple>
+          <div class="form-text">
+            Puedes elegir varias. Se guardan como radiograf&iacute;as o
+            como fotograf&iacute;as cl&iacute;nicas seg&uacute;n lo que
+            elegiste arriba, y se reducen solas para no ocupar de
+            m&aacute;s.
+          </div>
+
+          <div id="hzImagenActual" class="mt-3 d-none">
+            <span class="et d-block mb-1">
+              Ya guardadas <span id="hzImagenCuenta"></span>
+            </span>
+            <div class="tira-hallazgo" id="hzImagenLista"></div>
+            <div class="form-text">
+              Lo que subas ahora se <b>agrega</b>; no reemplaza lo que ya hay.
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-morado" id="hzGuardar">
+            <i class="bi bi-check-lg me-1"></i> Guardar hallazgo
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- ============ Receta ============ -->
 <div class="modal fade" id="modalReceta" tabindex="-1">
@@ -66,6 +165,63 @@
           </button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<?php /* ============ De que plan es esta consulta ============
+
+         Se pregunta de entrada, antes de escribir nada, y no con un
+         combo en la barra de arriba.
+
+         La diferencia no es de forma. El plan decide en que parte del
+         expediente caen los papeles de la consulta y empuja el plan a
+         "En proceso" al guardarse la primera. Dejado como un combo con
+         "Consulta general" preseleccionado, lo que pasa es que nadie lo
+         toca: las consultas de un plan de ortodoncia quedan sueltas en
+         el bloque general y el plan se queda en "Aceptado" para
+         siempre, aunque el paciente lleve seis citas.
+
+         Preguntado de frente tiene respuesta, porque es la primera cosa
+         que se sabe de la cita: "vino por su plan" o "vino por otra
+         cosa". Y "Consulta general" sigue siendo una respuesta valida,
+         no un castigo: esta ahi abajo, con su propio boton.
+
+         Sin boton de cerrar ni escape: no es un aviso, es la pregunta
+         que arma el resto de la pantalla. Se contesta una vez y se
+         puede cambiar despues con el lapiz del plan. */ ?>
+<div class="modal fade" id="modalPlanConsulta" tabindex="-1"
+     data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-diagram-3 me-2"></i>&iquest;De qu&eacute; es esta consulta?
+        </h5>
+      </div>
+
+      <div class="modal-body">
+        <p class="text-secondary small mb-3">
+          Este paciente tiene tratamiento abierto. Si la cita de hoy es
+          de uno de ellos, el motivo y el padecimiento se escriben
+          solos y los papeles de hoy quedan guardados dentro de ese
+          plan.
+        </p>
+
+        <div id="pcPlanes" class="d-grid gap-2"></div>
+
+        <hr class="my-3">
+
+        <button type="button" class="btn btn-light w-100 text-start"
+                id="pcGeneral">
+          <i class="bi bi-person me-2"></i>
+          <b>Consulta general</b>
+          <div class="text-secondary" style="font-size:11.5px">
+            Urgencia, revisi&oacute;n, limpieza: algo que no es parte de un
+            plan.
+          </div>
+        </button>
+      </div>
     </div>
   </div>
 </div>

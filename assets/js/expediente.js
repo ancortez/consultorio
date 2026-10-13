@@ -22,7 +22,20 @@ const Expediente = (() => {
   // Que bloques estaban abiertos antes de recargar. Sin esto, subir un
   // archivo cerraria toda la carpeta y habria que volver a buscar donde
   // se estaba trabajando.
-  let abiertos = new Set(['generales']);
+  //
+  // Al ENTRAR, en cambio, todo arranca cerrado. 'generales' venia
+  // abierto por omision y era la pantalla completa de entrada: quien
+  // abre el expediente ya sabe que viene a buscar —la credencial, una
+  // radiografia, el consentimiento— y lo que necesita es ver los
+  // nombres de las carpetas, no el contenido de una de ellas
+  // desplazando a las demas fuera de la vista.
+  let abiertos = new Set();
+
+  // El ultimo arbol dibujado. Hace falta despues de pintar: cuando
+  // alguien abre el album de una consulta hay que encontrar esa
+  // consulta y sus documentos, y los manejadores de clic viven fuera de
+  // pintar().
+  let arbol = null;
 
   /* -------------------------------------------------------------------
      Carga y pintado
@@ -61,6 +74,7 @@ const Expediente = (() => {
   }
 
   function pintar(datos) {
+    arbol = datos;
     const { almacen, pendientes } = datos;
     tiposPaciente = datos.tipos_paciente ?? [];
     tiposPlan     = datos.tipos_plan ?? [];
@@ -77,21 +91,31 @@ const Expediente = (() => {
     resumen.classList.toggle('d-none', pendientes === 0);
     document.getElementById('expResumenTotal').textContent = pendientes;
 
-    const badge = document.getElementById('expBadge');
-    const boton = document.getElementById('btnTabExpediente');
-    if (badge) {
-      badge.textContent = pendientes;
-      badge.className = 'badge ms-1 ' + (pendientes > 0 ? 'badge-pendiente' : 'badge-suave');
-    }
-    if (boton) {
-      boton.classList.toggle('con-pendientes', pendientes > 0);
-      boton.title = pendientes > 0
-        ? `${pendientes} documento(s) sin digitalizar`
-        : 'Expediente completo';
-    }
+    // El resaltado de la pestania desaparecio con la pestania: el
+    // expediente es su propia pantalla desde octubre 2026, y quien
+    // avisa de los pendientes es la tarjeta de la ficha.
 
-    document.getElementById('expDocumentos').innerHTML =
-      bloqueGeneral(datos) + datos.planes.map(bloquePlan).join('');
+    const caja = document.getElementById('expDocumentos');
+    caja.innerHTML = bloqueGeneral(datos) + datos.planes.map(bloquePlan).join('');
+
+    // Las miniaturas de PDF se arman al asomarse. Va despues de
+    // escribir el HTML, porque hasta ahora los renglones no existian.
+    observarPdf(caja);
+  }
+
+  /**
+   * Todas las consultas del expediente, vengan de un plan o sueltas.
+   *
+   * El arbol las trae repartidas en dos sitios porque asi se dibujan,
+   * pero para abrir el album hace falta encontrar una por su id sin
+   * importar de donde cuelgue.
+   */
+  function todasLasConsultas() {
+    if (!arbol) return [];
+    return [
+      ...(arbol.consultas ?? []),
+      ...(arbol.planes ?? []).flatMap((b) => b.consultas ?? []),
+    ];
   }
 
   /* -------------------------------------------------------------------
@@ -144,8 +168,11 @@ const Expediente = (() => {
       clave: `plan-${id}`,
       icono: 'bi-list-check',
       titulo: `Plan ${App.esc(p.folio)}`,
-      subtitulo: `${App.esc(App.fecha(p.fecha))} · ${App.esc(p.nombre_estado)}`
-        + (p.diagnostico ? ` · ${App.esc(p.diagnostico.substring(0, 70))}` : ''),
+      // El estatus salio de aqui: ahora es su propia etiqueta de color
+      // a la derecha, y repetirlo solo gastaba espacio.
+      subtitulo: App.esc(App.fecha(p.fecha))
+        + (p.descripcion ? ` · ${App.esc(p.descripcion)}` : '')
+        + (p.diagnostico ? ` · ${App.esc(p.diagnostico.substring(0, 60))}` : ''),
       pendientes: b.pendientes,
       plan: p,
       cuerpo: grupos
@@ -158,6 +185,23 @@ const Expediente = (() => {
   }
 
   /** Caja colapsable con su encabezado. */
+  /*
+     Colores del estatus del plan.
+
+     Son dos cosas distintas en la misma cabecera y conviene que no se
+     confundan: a la izquierda, en que va el TRATAMIENTO; a la derecha,
+     en que van sus PAPELES. Un plan puede estar terminado y tener el
+     consentimiento sin escanear, o estar apenas propuesto con todo en
+     orden. Mezclarlos en un solo color borraria esa diferencia.
+  */
+  const COLOR_ESTADO_PLAN = {
+    1: 'plan-propuesto',   // Propuesto  - gris: todavia no pasa nada
+    2: 'plan-aceptado',    // Aceptado   - azul: hay firma
+    3: 'plan-proceso',     // En proceso - morado: se esta trabajando
+    4: 'plan-terminado',   // Terminado  - verde
+    5: 'plan-cancelado',   // Cancelado  - rojo apagado
+  };
+
   function bloque({ clave, icono, titulo, subtitulo, pendientes, cuerpo, plan }) {
     const abierto = abiertos.has(clave);
 
@@ -171,6 +215,14 @@ const Expediente = (() => {
           <span class="t">${titulo}</span>
           <span class="s">${subtitulo}</span>
         </span>
+
+        ${plan ? `
+          <span class="badge badge-plan ${
+            COLOR_ESTADO_PLAN[Number(plan.id_estado_plan)] ?? 'plan-propuesto'}"
+                title="Estatus del tratamiento">
+            ${App.esc(plan.nombre_estado)}
+          </span>` : ''}
+
         ${pendientes > 0
           ? `<span class="badge badge-pendiente">${pendientes} por escanear</span>`
           : `<span class="badge badge-suave">Completo</span>`}
@@ -178,7 +230,12 @@ const Expediente = (() => {
 
       <div class="exp-cuerpo ${abierto ? 'abierto' : ''}">
         ${plan ? barraPlan(plan) : ''}
-        ${cuerpo}
+        ${cuerpo.trim()
+          ? cuerpo
+          : `<div class="exp-vacio">
+               Todavía no se ha registrado ningún documento aquí.
+               Usa <b>Agregar documento</b> para registrar el primero.
+             </div>`}
       </div>
     </div>`;
   }
@@ -211,6 +268,23 @@ const Expediente = (() => {
   function grupo(tipo, docs, plan) {
     const puedeEditar = document.getElementById('expNuevoPendiente') !== null;
 
+    /*
+       Un tipo del que no hay NADA registrado no se dibuja.
+
+       Antes se pintaba un grupo por cada tipo del catalogo, con un
+       "Sin documentos de este tipo" debajo. Eso llenaba el expediente
+       de renglones que no son documentos del paciente sino casillas
+       vacias del catalogo, y leerlo obligaba a descartarlas una por
+       una para encontrar lo que si existe. Un expediente recien
+       abierto se veia lleno y no tenia ni un papel.
+
+       Nada se pierde: lo que todavia no se ha pedido se agrega con el
+       boton de arriba, que ofrece la lista completa de tipos. Y los
+       que ya se pidieron pero no se han escaneado SI salen, porque son
+       pendientes de verdad: alguien tiene que ir por ese papel.
+    */
+    if (!docs.length) return '';
+
     // Un tipo unico que ya tiene su documento no ofrece "agregar otro".
     const unico = Number(tipo.permite_varios) === 0;
     const puedeAgregar = puedeEditar && (!unico || docs.length === 0);
@@ -236,9 +310,7 @@ const Expediente = (() => {
           </button>` : ''}
       </div>
 
-      ${docs.length
-        ? `<div class="exp-tarjetas">${docs.map(tarjeta).join('')}</div>`
-        : `<div class="exp-vacio">Sin documentos de este tipo.</div>`}
+      <div class="exp-tarjetas">${docs.map(tarjeta).join('')}</div>
     </div>`;
   }
 
@@ -268,33 +340,157 @@ const Expediente = (() => {
   function consulta(c) {
     const cerrada = Number(c.cerrada) === 1;
     const docs = c.documentos ?? [];
+    const pend = docs.filter((d) => Number(d.estado) === 0).length;
+    // Solo lo que se puede ver como miniatura. Un PDF en el visor
+    // romperia la cuadricula.
+    const imagenes = Album.soloImagenes(docs);
+
+    /*
+       Colapsada por omision, y eso es a proposito.
+
+       Un plan de seis meses acumula quince consultas con ocho
+       radiografias cada una. Abiertas todas, el expediente es un muro
+       de cien tarjetas por el que hay que hacer scroll para encontrar
+       cualquier cosa. Cerradas, se ve la historia completa del plan en
+       una pantalla y se abre la cita que interesa.
+
+       Tampoco abren solas las que tienen pendientes. Abrirlas era util
+       cuando el expediente entero se desplegaba al entrar, pero ahora
+       que todo arranca cerrado, una consulta abierta en medio de una
+       lista cerrada se lee como un error de dibujo. El pendiente ya se
+       anuncia en su contador, que es lo que hace falta para saber que
+       hay algo ahi.
+    */
 
     return `
-    <div class="exp-consulta-caja">
-      <div class="exp-consulta">
+    <details class="exp-consulta-caja">
+      <summary class="exp-consulta">
+        <i class="bi bi-chevron-right flecha"></i>
+
         <div class="fecha">
-          <a href="${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&id=${c.id_consulta}"
-             class="enlace-paciente">${App.esc(c.folio ?? '')}</a>
+          <span class="folio">${App.esc(c.folio ?? '')}</span>
           <div>${App.esc(App.fechaHora(c.fecha_hora))}</div>
         </div>
+
         <div class="flex-grow-1" style="min-width:0">
           <div class="fw-semibold">${App.esc(c.motivo || 'CONSULTA')}</div>
           <div class="text-secondary" style="font-size:11.5px">
             ${App.esc(c.dentista)}
-            ${c.diagnostico ? ' · ' + App.esc(c.diagnostico.substring(0, 70)) : ''}
             ${Number(c.notas) > 0 ? ` · ${c.notas} nota(s)` : ''}
           </div>
         </div>
+
+        <div class="marcas-consulta">
+          ${docs.length ? `<span title="Documentos">
+            <i class="bi bi-paperclip"></i> ${docs.length}</span>` : ''}
+          ${pend ? `<span class="pendiente" title="Pendientes de digitalizar">
+            <i class="bi bi-hourglass-split"></i> ${pend}</span>` : ''}
+        </div>
+
+        ${imagenes.length ? `
+          <button type="button" class="btn-album" data-album-consulta="${c.id_consulta}"
+                  title="Ver las ${imagenes.length} imagenes en modo album"
+                  onclick="event.stopPropagation()">
+            <i class="bi bi-images"></i> ${imagenes.length}
+          </button>` : ''}
+
         <span class="chip-estado ${cerrada ? 'badge-suave' : 'badge-pendiente'}">
           ${cerrada ? 'CERRADA' : 'ABIERTA'}
         </span>
-      </div>
 
-      ${docs.length ? `
-        <div class="exp-consulta-docs">
-          ${docs.map(tarjeta).join('')}
-        </div>` : ''}
-    </div>`;
+        <a href="${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&id=${c.id_consulta}"
+           class="ir-consulta" title="Abrir la consulta"
+           onclick="event.stopPropagation()">
+          <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+      </summary>
+
+      <div class="exp-consulta-docs">
+        ${docs.length
+          ? docs.map(tarjeta).join('')
+          : '<div class="exp-vacio">Esta consulta no tiene documentos.</div>'}
+      </div>
+    </details>`;
+  }
+
+  /**
+   * El cuadro de la izquierda del renglon.
+   *
+   * Antes era un icono por tipo de documento, y con doce radiografias
+   * salian doce iconos identicos: para saber cual era cual habia que
+   * abrirlas una por una. La miniatura contesta eso de un vistazo, que
+   * es justo lo que se le pide a una lista.
+   *
+   * Tres casos:
+   *
+   *   - imagen      la propia foto, reducida en el servidor. Se pide
+   *                 con &mini=1 y no el archivo completo: una
+   *                 radiografia de 2400 px por cada renglon hace que
+   *                 la pestania tarde en dibujarse y se paga ese ancho
+   *                 de banda cada vez que se abre un expediente.
+   *   - PDF         la primera pagina, pero SOLO cuando el renglon se
+   *                 asoma en pantalla (ver observarPdf). Un expediente
+   *                 con quince PDF incrustados de golpe deja el
+   *                 navegador de rodillas.
+   *   - pendiente   no hay nada que mostrar todavia: su icono.
+   */
+  function miniatura(d, pendiente, esImagen) {
+    if (pendiente) {
+      return `<div class="doc-mini vacia">
+                <i class="bi ${App.esc(d.icono || 'bi-file-earmark')}"></i>
+              </div>`;
+    }
+
+    if (esImagen) {
+      return `<div class="doc-mini">
+                <img loading="lazy" alt=""
+                     src="${App.URL_BASE}/archivo.php?id=${d.id_documento}&mini=1">
+              </div>`;
+    }
+
+    if ((d.tipo_mime || '') === 'application/pdf') {
+      return `<div class="doc-mini pdf" data-pdf="${d.id_documento}">
+                <i class="bi bi-file-earmark-pdf"></i>
+              </div>`;
+    }
+
+    return `<div class="doc-mini vacia">
+              <i class="bi ${App.esc(d.icono || 'bi-file-earmark')}"></i>
+            </div>`;
+  }
+
+  /**
+   * Las miniaturas de PDF se cargan al asomarse, no todas de golpe.
+   *
+   * Un <embed> por cada PDF del expediente son quince descargas y
+   * quince visores de PDF arrancando a la vez en cuanto se abre la
+   * pestania. Con el observador, solo se arma el de los renglones que
+   * de verdad se ven, y una vez armado se deja de observar.
+   */
+  function observarPdf(caja) {
+    const cajas = caja.querySelectorAll('.doc-mini.pdf[data-pdf]');
+    if (!cajas.length) return;
+
+    // Sin IntersectionObserver —un navegador viejo— se queda el icono.
+    // Es peor miniatura, no es una pantalla rota.
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const ojo = new IntersectionObserver((entradas) => {
+      entradas.forEach((e) => {
+        if (!e.isIntersecting) return;
+        const el = e.target;
+        ojo.unobserve(el);
+
+        const id = el.dataset.pdf;
+        delete el.dataset.pdf;
+        // El #toolbar=0 esconde la barra del visor, que en un cuadro de
+        // 50 px ocuparia mas que la propia pagina.
+        el.innerHTML = `<embed type="application/pdf"
+             src="${App.URL_BASE}/archivo.php?id=${id}#toolbar=0&navpanes=0&view=FitH">`;
+      });
+    }, { rootMargin: '150px' });
+
+    cajas.forEach((c) => ojo.observe(c));
   }
 
   function tarjeta(d) {
@@ -302,59 +498,100 @@ const Expediente = (() => {
     const esImagen  = (d.tipo_mime || '').startsWith('image/');
     const puedeEditar = document.getElementById('expNuevoPendiente') !== null;
 
+    /*
+       Eliminar vive detras de los tres puntos.
+
+       Borrar un documento del expediente es irreversible y no es una
+       accion frecuente; tenerla del mismo tamanio y al lado de "ver" y
+       "descargar" la pone a un dedazo de distancia de las dos cosas
+       que si se hacen todo el dia. Un paso mas no estorba cuando la
+       accion se usa una vez al mes.
+
+       Un renglon de ancho completo, no un cuadro.
+
+       Antes cada documento era una tarjeta en una rejilla de dos
+       columnas. Con un expediente de verdad —doce radiografias, cuatro
+       consentimientos, las credenciales— eso se convierte en un mosaico
+       de cuadros casi identicos por el que hay que ir leyendo uno por
+       uno. En renglon, el ojo baja por una sola columna y la fecha, el
+       nombre y el estado quedan siempre en la misma posicion, que es lo
+       que permite encontrar algo sin leerlo todo.
+
+       Los botones se reducen a iconos y aparecen al pasar encima: con
+       veinte documentos, sesenta botones visibles compiten con el
+       contenido.
+    */
     return `
-    <div class="doc-tarjeta ${pendiente ? 'pendiente' : 'listo'}"
+    <div class="doc-renglon ${pendiente ? 'pendiente' : 'listo'}"
          data-documento='${App.esc(JSON.stringify(d))}'>
-      <div class="doc-icono">
-        <i class="bi ${App.esc(d.icono || 'bi-file-earmark')}"></i>
+
+      ${miniatura(d, pendiente, esImagen)}
+
+      <div class="doc-centro">
+        <div class="doc-nombre">
+          ${App.esc(d.descripcion || d.nombre_documento)}
+        </div>
+        <div class="doc-meta">
+          ${pendiente
+            ? `Solicitado el ${App.esc(App.fecha(d.fecha_solicitud))}`
+              + (d.solicito ? ' por ' + App.esc(d.solicito) : '')
+            : `${App.esc(App.fecha(d.fecha_digitalizacion))}`
+              + (d.subio ? ' · ' + App.esc(d.subio) : '')
+              + (d.tamano_bytes ? ' · ' + App.esc(App.tamanoLegible(d.tamano_bytes)) : '')}
+        </div>
       </div>
 
-      <div class="flex-grow-1" style="min-width:0">
-        <div class="doc-nombre">${App.esc(d.nombre_documento)}</div>
+      ${/*
+           El chip de la derecha ya no repite el tipo de documento.
 
-        ${d.descripcion
-          ? `<div class="doc-meta">${App.esc(d.descripcion)}</div>` : ''}
+           Decia "Fotografia del paciente" o "Historial clinico
+           firmado"... y a dos centimetros, en el nombre del renglon, ya
+           estaba lo mismo. Dos veces el mismo texto en la misma linea
+           no informa: ocupa el sitio donde deberia estar lo que hace
+           falta saber, que es si el papel ya entro o todavia no.
+        */''}
+      ${pendiente ? `
+        <span class="doc-estado chip-estado badge-pendiente">POR ESCANEAR</span>`
+      : `
+        <span class="doc-estado escaneado">
+          <i class="bi bi-check-circle-fill"></i> Escaneado correctamente
+        </span>`}
 
-        ${pendiente ? `
-          <div class="doc-meta mt-1">
-            <span class="chip-estado badge-pendiente">PENDIENTE DE DIGITALIZAR</span>
-          </div>
-          <div class="doc-meta mt-1">
-            Solicitado el ${App.esc(App.fechaHora(d.fecha_solicitud))}
-            ${d.solicito ? ' por ' + App.esc(d.solicito) : ''}
-          </div>
-        ` : `
-          <div class="doc-meta mt-1" style="word-break:break-all">
-            ${App.esc(d.nombre_original || '')}
-            · ${App.esc(App.tamanoLegible(d.tamano_bytes))}
-          </div>
-          <div class="doc-meta">
-            Digitalizado el ${App.esc(App.fechaHora(d.fecha_digitalizacion))}
-            ${d.subio ? ' por ' + App.esc(d.subio) : ''}
-          </div>
+      <div class="doc-acciones">
+        ${pendiente ? (puedeEditar ? `
+          <button type="button" class="btn-icono" data-accion="exp-subir"
+                  title="Subir escaneo">
+            <i class="bi bi-cloud-arrow-up"></i>
+          </button>` : '') : `
+          <button type="button" class="btn-icono" data-accion="exp-ver"
+                  title="${esImagen ? 'Ver imagen' : 'Ver'}">
+            <i class="bi bi-eye"></i>
+          </button>
+          <a class="btn-icono" title="Descargar"
+             href="${App.URL_BASE}/archivo.php?id=${d.id_documento}&d=1">
+            <i class="bi bi-download"></i>
+          </a>
+          ${puedeEditar ? `
+          <button type="button" class="btn-icono" data-accion="exp-reemplazar"
+                  title="Reemplazar">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+
+          <div class="dropdown">
+            <button type="button" class="btn-icono" data-bs-toggle="dropdown"
+                    title="Más acciones">
+              <i class="bi bi-three-dots-vertical"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li>
+                <button type="button" class="dropdown-item text-danger"
+                        data-accion="exp-quitar">
+                  <i class="bi bi-trash me-2"></i> Eliminar documento
+                </button>
+              </li>
+            </ul>
+          </div>` : ''}
         `}
-
-        <div class="mt-2 d-flex gap-2 flex-wrap">
-          ${pendiente ? (puedeEditar ? `
-            <button type="button" class="btn btn-sm btn-morado" data-accion="exp-subir">
-              <i class="bi bi-cloud-arrow-up me-1"></i> Subir escaneo
-            </button>` : '') : `
-            <button type="button" class="btn btn-sm btn-outline-morado"
-                    data-accion="exp-ver">
-              <i class="bi bi-eye me-1"></i> ${esImagen ? 'Ver imagen' : 'Ver'}
-            </button>
-            <a class="btn btn-sm btn-light"
-               href="${App.URL_BASE}/archivo.php?id=${d.id_documento}&d=1">
-              <i class="bi bi-download me-1"></i> Descargar
-            </a>
-            ${puedeEditar ? `
-            <button type="button" class="btn btn-sm btn-light" data-accion="exp-reemplazar">
-              <i class="bi bi-arrow-repeat me-1"></i> Reemplazar
-            </button>
-            <button type="button" class="btn btn-sm btn-link text-danger"
-                    data-accion="exp-quitar">Quitar</button>` : ''}
-          `}
-        </div>
       </div>
     </div>`;
   }
@@ -428,9 +665,12 @@ const Expediente = (() => {
       setTimeout(() => img.classList.remove('campo-autollenado'), 1200);
     };
 
-    const boton = document.getElementById('btnCambiarFoto');
-    if (boton) {
-      boton.innerHTML = '<i class="bi bi-camera me-1"></i> Cambiar fotografía';
+    // Antes aqui se reescribia el texto del boton de "subir" a
+    // "cambiar". Ahora el campo de fotografia se pinta entero desde PHP
+    // —con miniatura, descargar y eliminar— asi que lo que corresponde
+    // es volver a pedir la pagina, no remendar un boton.
+    if (document.querySelector('[data-cambiar-foto]')) {
+      setTimeout(() => location.reload(), 900);
     }
   }
 
@@ -493,32 +733,100 @@ const Expediente = (() => {
   /* -------------------------------------------------------------------
      Arranque
      ------------------------------------------------------------------- */
+  /*
+     Este modulo sirve a DOS pantallas desde octubre 2026.
+
+     En el expediente electronico hace todo: los bloques, los
+     documentos, las subidas. En la ficha del paciente solo hacen falta
+     dos cosas —el boton de la fotografia y los pendientes de la
+     tarjeta— y el resto del HTML no existe ahi.
+
+     Por eso lo del expediente se engancha solo si su contenedor esta,
+     en vez de cortar la funcion entera al principio: cortarla dejaba
+     la ficha sin boton de fotografia.
+  */
   function iniciar(expediente) {
     idExpediente = expediente;
 
-    const panel = document.getElementById('tab-expediente');
-    if (!panel) return;
+    const hayExpediente = document.getElementById('expDocumentos') !== null;
 
-    modalSubir = bootstrap.Modal.getOrCreateInstance(
-      document.getElementById('modalSubirDoc'));
-    modalNuevo = bootstrap.Modal.getOrCreateInstance(
-      document.getElementById('modalNuevoPendiente'));
+    // El modal de subida vive en el layout: esta en las dos pantallas,
+    // porque el boton de la fotografia y los pendientes de la tarjeta
+    // tambien lo usan.
+    const cajaSubir = document.getElementById('modalSubirDoc');
+    if (cajaSubir) modalSubir = bootstrap.Modal.getOrCreateInstance(cajaSubir);
 
-    // Se carga una sola vez, al abrir la pestania por primera vez: no
-    // tiene caso pedir el expediente si el usuario nunca entra ahi.
-    let cargado = false;
-    document.getElementById('btnTabExpediente')
-      ?.addEventListener('shown.bs.tab', () => {
-        if (!cargado) { cargado = true; cargar(); }
-      });
+    if (hayExpediente) {
+      modalNuevo = bootstrap.Modal.getOrCreateInstance(
+        document.getElementById('modalNuevoPendiente'));
 
-    // Si la pagina abre directamente en esta pestania (#tab-expediente)
-    if (location.hash === '#tab-expediente') {
-      cargado = true;
-      cargar();
+      /*
+         Cuando y como se carga depende de donde este.
+
+         Como pestania del detalle: al abrirla, no antes. Son cuatro
+         consultas y la mayoria de las veces quien entra al paciente va
+         a otra cosa.
+
+         Como pantalla propia: de entrada, porque quien llego ahi vino
+         justamente a verlo.
+      */
+      const solapa = document.getElementById('btnTabExpediente');
+      if (solapa) {
+        let cargado = false;
+        solapa.addEventListener('shown.bs.tab', () => {
+          if (!cargado) { cargado = true; cargar(); }
+        });
+        if (location.hash === '#tab-expediente') { cargado = true; cargar(); }
+      } else {
+        cargar();
+      }
+
+      document.getElementById('expRefrescar')?.addEventListener('click', cargar);
     }
 
-    document.getElementById('expRefrescar').addEventListener('click', cargar);
+    /* ---------- Pendientes de la tarjeta de la ficha ---------- */
+    // Se sube desde ahi mismo. Mandar a la persona al expediente a
+    // buscar el documento es justo el paso que hace que los pendientes
+    // se queden pendientes.
+    // Delegado en el documento y sin condicion previa: enganchar solo
+    // si ya hay un pendiente dibujado dejaria muerto el boton del
+    // pendiente que aparezca despues.
+    document.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-subir-doc]');
+      if (!b) return;
+
+      const campo = document.getElementById('fichaArchivoPendiente');
+      if (!campo) return;
+
+      campo.value = '';
+      campo.dataset.documento = b.dataset.subirDoc;
+      campo.setAttribute('accept',
+        (b.dataset.formatos || '').split(',').map((e) => '.' + e.trim()).join(','));
+      campo.click();
+    });
+
+    document.getElementById('fichaArchivoPendiente')
+      ?.addEventListener('change', async (ev) => {
+      const archivo = ev.target.files?.[0];
+      if (!archivo) return;
+
+      const cuerpo = new FormData();
+      cuerpo.append('id_documento', ev.target.dataset.documento);
+      cuerpo.append('archivo', archivo);
+
+      App.alerta.cargando('Guardando el escaneo...');
+      try {
+        await App.api('expediente/subir.php', cuerpo);
+        App.alerta.cerrar();
+        // Se recarga la pagina: la tarjeta, el contador y el aviso de
+        // pendientes se dibujan en PHP, no en JavaScript.
+        location.reload();
+      } catch (e) {
+        App.alerta.cerrar();
+      } finally {
+        ev.target.value = '';
+      }
+    });
 
     /* ---------- Boton "Cambiar fotografia" de la tarjeta ---------- */
     // Esta fuera de la pestania del expediente, asi que necesita buscar
@@ -532,7 +840,12 @@ const Expediente = (() => {
      * Ademas el arbol viene agrupado, asi que la foto hay que buscarla
      * dentro de 'generales' y no en una lista plana que ya no existe.
      */
-    document.getElementById('btnCambiarFoto')?.addEventListener('click', async () => {
+    // Escucha delegado y no por id: el boton de la foto sale en dos
+    // sitios a la vez —el lapiz del circulo y el del campo— y con un id
+    // repetido getElementById solo encuentra el primero, dejando al
+    // otro muerto sin dar un solo error.
+    document.addEventListener('click', async (evFoto) => {
+      if (!evFoto.target.closest('[data-cambiar-foto]')) return;
       App.alerta.cargando('Preparando...');
       try {
         let r = await App.api('expediente/listar.php', {
@@ -569,8 +882,29 @@ const Expediente = (() => {
       }
     });
 
+    /* ---------- Modo album ---------- */
+    // Va antes del plegado porque el boton vive DENTRO del resumen de
+    // la consulta: sin esto, abrir el album plegaria el bloque al mismo
+    // tiempo y el visor aparecia sobre una lista que se acababa de
+    // cerrar.
+    document.getElementById('expDocumentos')?.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-album-consulta]');
+      if (!b) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const id = Number(b.dataset.albumConsulta);
+      const c  = todasLasConsultas().find((x) => Number(x.id_consulta) === id);
+      if (!c) return;
+
+      Album.abrir({
+        titulo: `Consulta ${c.folio}`,
+        imagenes: Album.soloImagenes(c.documentos),
+      });
+    });
+
     /* ---------- Abrir y cerrar bloques ---------- */
-    document.getElementById('expDocumentos').addEventListener('click', (ev) => {
+    document.getElementById('expDocumentos')?.addEventListener('click', (ev) => {
       const cab = ev.target.closest('[data-plegar]');
       if (!cab) return;
 
@@ -580,7 +914,7 @@ const Expediente = (() => {
     });
 
     /* ---------- Acciones de cada tarjeta ---------- */
-    document.getElementById('expDocumentos').addEventListener('click', async (ev) => {
+    document.getElementById('expDocumentos')?.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-accion]');
       if (!btn) return;
 

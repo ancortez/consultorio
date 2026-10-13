@@ -10,8 +10,14 @@ declare(strict_types=1);
 // Entorno
 // ---------------------------------------------------------------------
 define('APP_ENV',    getenv('APP_ENV') ?: 'desarrollo');
-define('APP_NOMBRE', 'Sistema Consultorio Dental');
-define('APP_VERSION', '2.0.0');
+// "Nanai" es sonrisa en wixarika. Octubre 2026: el sistema deja de
+// llamarse por lo que hace y pasa a tener nombre propio.
+define('APP_NOMBRE', 'Nanai');
+
+// El logotipo. Es blanco con fondo transparente, asi que solo se ve
+// sobre un fondo de color: la barra morada y el cuadro del login.
+define('APP_LOGO', '/assets/img/logo-nanai-blanco-512.png');
+define('APP_VERSION', '2.15.0');
 define('APP_TZ',     getenv('APP_TZ') ?: 'America/Mazatlan');
 
 date_default_timezone_set(APP_TZ);

@@ -24,6 +24,36 @@ $referencia  = limpiarEspacios(paramMayus('referencia'));
 
 $errores = [];
 if (!$idPersona) { Respuesta::error('Falta el identificador de la persona.'); }
+
+/*
+   Un domicilio por persona.
+
+   Antes se podian registrar varios y en la practica eso producia dos
+   problemas: nadie sabia cual era el bueno al llamar por telefono, y
+   el domicilio "principal" se elegia por el orden de captura y no por
+   decision de nadie.
+
+   Un paciente vive en una casa. Si se muda, se CORRIGE la que hay; el
+   historial de donde vivio antes no es informacion que este consultorio
+   necesite.
+
+   Los domicilios que ya existan de antes no se tocan: el bloqueo es
+   para altas nuevas. Si alguien tiene dos capturados, los dos siguen
+   ahi y se pueden editar.
+*/
+if (!$idDomicilio) {
+    $yaTiene = (int) Conexion::valor(
+        'SELECT COUNT(*) FROM persona_domicilio pd
+           JOIN domicilio d ON d.id_domicilio = pd.id_domicilio
+          WHERE pd.id_persona = :p AND d.estatus = 1',
+        [':p' => $idPersona]
+    );
+    if ($yaTiene > 0) {
+        Respuesta::error(
+            'Esta persona ya tiene un domicilio registrado. '
+            . 'Modifica el que existe en lugar de agregar otro.');
+    }
+}
 if (!$idColonia) { $errores['id_colonia'] = 'Selecciona la colonia.'; }
 if ($calle === null) { $errores['calle'] = 'Captura la calle.'; }
 if ($errores) { Respuesta::validacion($errores); }

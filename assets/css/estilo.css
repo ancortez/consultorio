@@ -1,5 +1,5 @@
 /* =====================================================================
-   Sistema Consultorio Dental - hoja de estilo principal
+   Nanai - hoja de estilo principal
    Paleta: morado tirando a rosa, sobre Bootstrap 5.
    Todo el color vive en estas variables: cambiar la marca es cambiar
    estas seis lineas, no buscar y reemplazar en 40 archivos.
@@ -310,15 +310,36 @@ a:hover { color: var(--morado-500); }
   padding: 2.4rem 2.2rem;
 }
 .caja-login .logo {
-  width: 64px; height: 64px; margin: 0 auto 1rem;
-  border-radius: 18px;
+  width: 72px; height: 72px; margin: 0 auto 1rem;
+  border-radius: 20px;
   background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
   color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.9rem;
 }
+/* El logotipo es blanco sobre transparente, asi que necesita el fondo
+   de color de arriba para verse. El padding evita que toque los bordes
+   redondeados del cuadro. */
+.caja-login .logo img {
+  width: 100%; height: 100%; object-fit: contain; padding: 12px;
+}
+
+/* ---------- Logotipo en la barra ---------- */
+.logo-nav {
+  height: 28px; width: auto; display: block;
+}
 
 /* ---------- Footer fijo ---------- */
+/* El pie esta fijo al fondo de la ventana, asi que FLOTA sobre el
+   contenido. Sin reservarle sitio, tapa lo ultimo de cada pantalla:
+   el renglon final de una tabla, el boton de guardar de un formulario
+   largo, la ultima tarjeta de la ficha.
+
+   La variable la usa el <main> de abajo para dejar ese hueco. */
+:root { --alto-footer: 36px; }
+
+main { padding-bottom: calc(var(--alto-footer) + 1.2rem) !important; }
+
 .footer-sistema {
   position: fixed; bottom: 0; left: 0; right: 0;
   min-width: var(--ancho-min);
@@ -651,6 +672,15 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
   position: fixed;
   inset: 0;
   z-index: 3000;
+
+  /* Se rinde sola a los 8 segundos, sin depender del JavaScript.
+     Esto existe por una falla real: si PHP revienta a media pagina, el
+     JavaScript del pie nunca llega al navegador, nadie quita la
+     cortinilla, y el mensaje de error queda DETRAS de ella. El sistema
+     se ve "cargando para siempre" cuando en realidad esta gritando lo
+     que fallo y nadie puede leerlo.
+     Una animacion de CSS no necesita que nada funcione. */
+  animation: cortinilla-se-rinde 0s linear 8s forwards;
   background: var(--lila-50);
   display: flex;
   flex-direction: column;
@@ -662,6 +692,10 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
 #cortinilla.oculta {
   opacity: 0;
   visibility: hidden;
+}
+
+@keyframes cortinilla-se-rinde {
+  to { opacity: 0; visibility: hidden; pointer-events: none; }
 }
 #cortinilla .marca {
   width: 60px; height: 60px;
@@ -908,9 +942,14 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
 }
 
 .exp-tarjetas {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .8rem;
+  /* Antes era una rejilla de dos columnas de tarjetas. Con un
+     expediente de verdad —doce radiografias, cuatro consentimientos,
+     las credenciales— eso se vuelve un mosaico de cuadros casi
+     identicos. En una sola columna, el ojo baja derecho y la fecha, el
+     nombre y el estado quedan siempre en la misma posicion. */
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
 }
 
 .exp-vacio {
@@ -1338,22 +1377,45 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
   border: 0; background: transparent; padding: 0;
   width: 34px;
   display: flex; flex-direction: column; align-items: center;
-  color: var(--gris-300);
-  transition: transform .1s, color .15s;
+  transition: transform .1s;
 }
-.diente i { font-size: 1.5rem; line-height: 1; }
 .diente span {
   font-size: 10px; font-weight: 600;
   color: var(--gris-600); margin-top: 1px;
 }
-.diente:hover:not(:disabled) { transform: translateY(-2px); color: var(--morado-400); }
-.diente.elegido { color: var(--morado-600); }
-.diente.elegido span { color: var(--morado-800); }
+
+/* ---- El diente dibujado ----
+   Antes todos eran el mismo hexagono. Un odontograma se lee por la
+   FORMA —el incisivo es una pala, el molar tiene cuatro cuspides— y
+   con treinta y dos siluetas identicas hay que ir leyendo el numero de
+   cada una para ubicarse, que es justo lo que el dibujo evita.
+
+   La corona y la raiz van separadas para que el diente elegido se
+   pinte entero sin perder el relieve entre las dos. */
+.dibujo-diente { width: 100%; height: auto; display: block; }
+.dibujo-diente .cr {
+  fill: #fff; stroke: var(--gris-400, #b8b2c0); stroke-width: 1.4;
+  transition: fill .15s, stroke .15s;
+}
+.dibujo-diente .rz {
+  fill: #f2eff5; stroke: var(--gris-400, #b8b2c0); stroke-width: 1.2;
+  transition: fill .15s, stroke .15s;
+}
+
+.diente:hover:not(:disabled) { transform: translateY(-2px); }
+.diente:hover:not(:disabled) .cr { stroke: var(--morado-400); }
+.diente:hover:not(:disabled) .rz { stroke: var(--morado-400); }
+
+/* Elegido: la corona se llena de color, que es lo que se busca de un
+   vistazo al revisar que dientes se van a trabajar. */
+.diente.elegido .cr { fill: var(--morado-600); stroke: var(--morado-800); }
+.diente.elegido .rz { fill: var(--morado-400); stroke: var(--morado-700); }
+.diente.elegido span { color: var(--morado-800); font-weight: 700; }
+
 .diente:disabled { opacity: .35; }
 
 /* Los temporales son mas chicos, como en la boca. */
-.diente.temporal { width: 38px; }
-.diente.temporal i { font-size: 1.3rem; }
+.diente.temporal { width: 30px; }
 
 /* El campo que titula algo: mas grande porque es lo primero que se lee
    en las listas y en el expediente. */
@@ -1380,8 +1442,13 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-.paso.entra-derecha   { animation: paso-entra-derecha  .22s ease-out; }
-.paso.entra-izquierda { animation: paso-entra-izquierda .22s ease-out; }
+/* .22s era tan rapido que no se percibia: el paso simplemente estaba
+   ahi, y al no verse el movimiento se pierde la sensacion de avanzar
+   dentro de un recorrido. .42s se nota sin llegar a hacerse esperar.
+   La curva arranca rapido y frena al final, que es lo que da la idea
+   de que algo "llego" en vez de aparecer. */
+.paso.entra-derecha   { animation: paso-entra-derecha  .42s cubic-bezier(.22,.7,.3,1); }
+.paso.entra-izquierda { animation: paso-entra-izquierda .42s cubic-bezier(.22,.7,.3,1); }
 
 /* El colapsable se abre creciendo, no apareciendo de golpe. La altura
    la pone el JavaScript en pixeles porque 'auto' no se puede animar. */
@@ -1495,11 +1562,11 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
 .exp-consulta-docs {
   border-top: 1px dashed var(--gris-300);
   background: var(--lila-50);
-  padding: .7rem .7rem .7rem 1.6rem;
+  padding: .5rem .6rem .5rem 1.5rem;
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .6rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
 }
 .exp-consulta-docs::before {
   content: '';
@@ -1508,10 +1575,7 @@ body.modal-open .modal:not(.modal-encimado) { filter: none; }
   width: 3px; border-radius: 3px;
   background: var(--morado-400);
 }
-.exp-consulta-docs .doc-tarjeta { padding: .7rem; }
-.exp-consulta-docs .doc-icono { width: 34px; height: 34px; flex: 0 0 34px; font-size: 1rem; }
-
-.exp-consulta .fecha a { display: block; }
+.exp-consulta-docs .doc-renglon { background: transparent; }
 
 /* ---------------------------------------------------------------------
    Modulo Cajas
@@ -1762,3 +1826,1530 @@ table.semana td.con-cita { padding: 2px; }
 .linea-recordatorios .marca.cita .texto {
   font-weight: 600; color: var(--morado-800);
 }
+
+/* =====================================================================
+   Consulta: barra de encabezado
+   =====================================================================
+   Fecha, dentista y plan se contestan una vez al abrir la consulta y
+   nadie los vuelve a mirar. Antes ocupaban una tarjeta entera y
+   empujaban hacia abajo lo que si se usa durante la cita. Aqui van en
+   una sola linea, con la etiqueta chica encima del campo.
+   ===================================================================== */
+.barra-consulta {
+  display: flex; gap: .85rem; align-items: flex-end;
+  background: var(--blanco);
+  border: 1px solid var(--gris-200);
+  border-radius: 12px;
+  padding: .6rem .85rem;
+}
+.barra-consulta label {
+  display: flex; flex-direction: column; gap: .15rem;
+  margin: 0; min-width: 0; flex: 1;
+}
+.barra-consulta label > span {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .02em;
+  text-transform: uppercase; color: var(--gris-600);
+}
+/* El plan es el unico que puede traer texto largo, asi que se lleva el
+   espacio que sobra. */
+.barra-consulta label:last-child { flex: 1.6; }
+
+/* =====================================================================
+   Consulta: hallazgos
+   ===================================================================== */
+.hallazgo {
+  display: flex; align-items: flex-start; gap: .7rem;
+  padding: .6rem .2rem;
+  border-bottom: 1px solid var(--gris-100);
+}
+.hallazgo:last-child { border-bottom: 0; }
+
+/* La etiqueta de tipo va primero y con color propio: de un vistazo se
+   ve cuales hallazgos salieron de la placa y cuales de la boca. */
+.hz-tipo {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+  padding: .2rem .5rem; border-radius: 999px;
+  flex-shrink: 0; margin-top: .1rem;
+}
+.hz-tipo.cl { background: #eef3ff; color: #2d5bb8; }
+.hz-tipo.rx { background: #f3eaff; color: var(--morado-700); }
+
+.hz-cuerpo { flex: 1; min-width: 0; }
+.hz-texto {
+  font-size: 13px; color: var(--gris-900); white-space: pre-wrap;
+  word-break: break-word;
+}
+.hz-pie { font-size: 10.5px; color: var(--gris-600); margin-top: .15rem; }
+
+.hz-imagen {
+  flex-shrink: 0; width: 46px; height: 46px; border-radius: 8px;
+  overflow: hidden; border: 1px solid var(--gris-200); display: block;
+}
+.hz-imagen img { width: 100%; height: 100%; object-fit: cover; }
+
+.hz-acciones {
+  display: flex; gap: .45rem; flex-shrink: 0;
+  opacity: 0; transition: opacity .12s;
+}
+/* Los botones aparecen al pasar encima. Siempre visibles, un renglon de
+   hallazgos se vuelve una fila de iconos y cuesta leer el texto, que es
+   lo que importa. */
+.hallazgo:hover .hz-acciones,
+.hz-acciones:focus-within { opacity: 1; }
+
+/* ---- Modal: elegir clinico o radiografico ---- */
+.grupo-tipo-hallazgo { display: flex; gap: .6rem; }
+.opcion-hallazgo {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  gap: .15rem; padding: .7rem .5rem;
+  background: var(--blanco); border: 1.5px solid var(--gris-200);
+  border-radius: 11px; cursor: pointer; transition: all .12s;
+  color: var(--gris-700);
+}
+.opcion-hallazgo i { font-size: 18px; }
+.opcion-hallazgo b { font-size: 13px; }
+.opcion-hallazgo small { font-size: 10.5px; color: var(--gris-600); }
+.opcion-hallazgo:hover { border-color: var(--morado-400); }
+.opcion-hallazgo.activa {
+  border-color: var(--morado-600); background: var(--lila-50);
+  color: var(--morado-800);
+}
+.opcion-hallazgo.activa small { color: var(--morado-700); }
+
+/* Tarjeta con mas presencia, para lo que no debe pasar desapercibido.
+   Las notas de evolucion son lo que convierte un expediente en una
+   historia que se puede leer, y vivian al fondo de la columna derecha
+   donde nadie las veia. */
+.card.borde-destacado {
+  border-left: 3px solid var(--morado-600);
+}
+
+/* =====================================================================
+   Campos opcionales que casi siempre van vacios
+   =====================================================================
+   Oclusion y traumatismos los tiene una minoria de los pacientes. Como
+   campos de texto siempre visibles, lo unico que lograban era que
+   alguien pasara por encima con el tabulador cada vez. Aqui el estado
+   normal —"No aplica"— se lee de un vistazo y no pide ni un clic.
+   ===================================================================== */
+.caja-opcional {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .6rem; min-height: 38px;
+  padding: .35rem .75rem;
+  background: var(--blanco);
+  border: 1px solid var(--gris-200);
+  border-radius: 9px;
+}
+.caja-opcional .valores {
+  font-size: 13px; color: var(--gris-900);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* "No aplica" se ve como lo que es: la ausencia de un dato, no un dato. */
+.caja-opcional .valores.vacio {
+  color: var(--gris-600); font-style: italic;
+}
+.enlace-agregar {
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  color: var(--morado-700); text-decoration: none;
+}
+.enlace-agregar:hover { color: var(--morado-500); text-decoration: underline; }
+
+.lista-traumatismos { margin-top: .5rem; }
+.traumatismo {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: .6rem; padding: .45rem .75rem;
+  background: var(--lila-50);
+  border: 1px solid var(--gris-200);
+  border-radius: 9px; margin-bottom: .4rem;
+}
+.trm-desc { font-size: 12.5px; color: var(--gris-900); }
+/* La secuela va debajo y sangrada: se lee que PERTENECE a ese golpe y
+   no a otro, que es justo lo que no se podia saber antes. */
+.trm-secuela {
+  font-size: 11.5px; color: var(--morado-700); margin-top: .1rem;
+}
+
+/* ---- Lista de opciones marcables en modal ---- */
+.lista-opciones { display: flex; flex-direction: column; gap: .5rem; }
+.opcion-marcable {
+  display: flex; align-items: center; gap: .6rem; margin: 0;
+  padding: .6rem .8rem; cursor: pointer;
+  background: var(--blanco);
+  border: 1.5px solid var(--gris-200);
+  border-radius: 10px; transition: all .12s;
+}
+.opcion-marcable:hover { border-color: var(--morado-400); }
+.opcion-marcable input { width: 17px; height: 17px; accent-color: var(--morado-600); }
+.opcion-marcable span { font-size: 13.5px; color: var(--gris-900); }
+.opcion-marcable:has(input:checked) {
+  border-color: var(--morado-600); background: var(--lila-50);
+}
+
+/* =====================================================================
+   Panel derecho del plan de tratamiento
+   =====================================================================
+   Tres tarjetas que contestan "¿que ha pasado con este plan?". Antes
+   habia que salirse al expediente, buscar las consultas, entrar a cada
+   una y volver.
+   ===================================================================== */
+.pp-consulta, .pp-album, .pp-nota {
+  display: flex; width: 100%; text-align: left;
+  gap: .6rem; align-items: center;
+  padding: .55rem .25rem;
+  background: none; border: 0;
+  border-bottom: 1px solid var(--gris-100);
+  color: inherit; text-decoration: none;
+}
+.pp-consulta:last-child, .pp-album:last-child, .pp-nota:last-child {
+  border-bottom: 0;
+}
+.pp-consulta { justify-content: space-between; }
+.pp-consulta:hover, .pp-album:hover, .pp-nota:hover {
+  background: var(--lila-50); border-radius: 8px;
+}
+.pp-consulta > .bi { color: var(--gris-600); flex-shrink: 0; }
+
+.pp-folio {
+  font-size: 12.5px; font-weight: 600; color: var(--morado-800);
+  display: flex; align-items: center; gap: .4rem;
+}
+.pp-fecha { font-size: 10.5px; color: var(--gris-600); }
+.pp-motivo {
+  font-size: 11.5px; color: var(--gris-700); margin-top: .1rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Las marcas dicen que tiene la consulta sin tener que entrar: tres
+   hallazgos, ocho imagenes, dos notas. */
+.pp-marcas {
+  display: flex; gap: .7rem; margin-top: .2rem;
+  font-size: 10.5px; color: var(--morado-700);
+}
+.pp-marcas span { display: inline-flex; align-items: center; gap: .2rem; }
+
+.pp-album { flex-direction: row; }
+.pp-album img {
+  width: 44px; height: 44px; border-radius: 7px; object-fit: cover;
+  border: 1px solid var(--gris-200); flex-shrink: 0;
+}
+.pp-cuenta-elementos {
+  font-size: 10.5px; color: var(--morado-700); font-weight: 600;
+}
+
+.pp-nota { flex-direction: column; align-items: flex-start; gap: .1rem; }
+/* Tres renglones y corta. La nota completa se lee en su modal; aqui lo
+   que importa es reconocerla, no leerla. */
+.pp-nota-texto {
+  font-size: 11.5px; color: var(--gris-900); white-space: pre-wrap;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* =====================================================================
+   Visor del album
+   =====================================================================
+   Mirar radiografias es comparar. Un visor que obligue a cerrar y abrir
+   cada archivo convierte diez segundos en dos minutos, asi que las
+   miniaturas se quedan siempre a la vista.
+   ===================================================================== */
+.visor-album {
+  position: relative; display: flex; align-items: center;
+  justify-content: center;
+  background: #1a1420; border-radius: 12px;
+  height: 58vh; min-height: 320px;
+}
+.visor-album .marco {
+  width: 100%; height: 100%; display: flex;
+  align-items: center; justify-content: center; padding: .8rem;
+}
+.visor-album img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.nav-visor {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; border-radius: 50%;
+  background: rgba(255,255,255,.14); color: #fff;
+  border: 0; font-size: 19px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.nav-visor:hover { background: rgba(255,255,255,.3); }
+.nav-visor.izq { left: .7rem; }
+.nav-visor.der { right: .7rem; }
+
+.pie-visor {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 1rem; padding: .55rem .2rem; font-size: 12.5px;
+  color: var(--gris-900);
+}
+.pie-visor .contador { color: var(--gris-600); white-space: nowrap; }
+
+.tira-miniaturas {
+  display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .3rem;
+}
+.tira-miniaturas .mini {
+  flex-shrink: 0; width: 58px; height: 58px; padding: 0;
+  border: 2px solid transparent; border-radius: 8px;
+  overflow: hidden; background: none;
+}
+.tira-miniaturas .mini img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.tira-miniaturas .mini.activa { border-color: var(--morado-600); }
+
+.nota-completa {
+  font-size: 13.5px; line-height: 1.65; color: var(--gris-900);
+  white-space: pre-wrap;
+  background: var(--lila-50); border-radius: 10px; padding: .9rem 1rem;
+}
+
+/* =====================================================================
+   Expediente: documento en renglon
+   =====================================================================
+   El documento dejo de ser una tarjeta en rejilla. Lo que importa de un
+   documento —que es, de cuando, si ya se escaneo— cabe en un renglon, y
+   en renglon se pueden recorrer veinte de un vistazo.
+   ===================================================================== */
+.doc-renglon {
+  display: flex; align-items: center; gap: .7rem;
+  padding: .5rem .7rem;
+  background: var(--blanco);
+  border: 1px solid var(--gris-200);
+  border-left: 3px solid var(--gris-300);
+  border-radius: 8px;
+  transition: background .12s, border-color .12s;
+}
+.doc-renglon:hover { background: var(--lila-50); }
+.doc-renglon.listo     { border-left-color: var(--exito); }
+.doc-renglon.pendiente { border-left-color: var(--alerta); background: #fffdf8; }
+.doc-renglon.pendiente:hover { background: #fff9ee; }
+
+.doc-renglon .doc-icono {
+  width: 30px; height: 30px; flex: 0 0 30px;
+  border-radius: 8px; font-size: .95rem;
+}
+.doc-renglon.pendiente .doc-icono { background: #fff6e5; color: var(--alerta); }
+.doc-renglon.listo     .doc-icono { background: #e6f5ee; color: var(--exito); }
+
+.doc-centro { flex: 1; min-width: 0; }
+.doc-renglon .doc-nombre {
+  font-size: 12.5px; font-weight: 600; color: var(--morado-900);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.doc-renglon .doc-meta { font-size: 10.5px; }
+
+.doc-estado { flex-shrink: 0; }
+
+/* Los botones aparecen al pasar encima. Con veinte documentos, sesenta
+   botones siempre visibles compiten con el contenido en vez de
+   ayudarlo. */
+.doc-acciones {
+  display: flex; gap: .2rem; flex-shrink: 0;
+  opacity: 0; transition: opacity .12s;
+}
+.doc-renglon:hover .doc-acciones,
+.doc-acciones:focus-within { opacity: 1; }
+
+.btn-icono {
+  width: 28px; height: 28px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; background: transparent;
+  color: var(--morado-700); font-size: 13px; text-decoration: none;
+}
+.btn-icono:hover { background: var(--morado-600); color: #fff; }
+.btn-icono.peligro { color: var(--peligro, #c0392b); }
+.btn-icono.peligro:hover { background: var(--peligro, #c0392b); color: #fff; }
+
+/* =====================================================================
+   Expediente: consulta colapsable
+   =====================================================================
+   Un plan de seis meses acumula quince consultas con ocho radiografias
+   cada una. Abiertas todas, el expediente es un muro de cien tarjetas.
+   Cerradas, la historia completa del plan cabe en una pantalla.
+   ===================================================================== */
+details.exp-consulta-caja > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: .7rem;
+}
+details.exp-consulta-caja > summary::-webkit-details-marker { display: none; }
+
+.exp-consulta .flecha {
+  color: var(--gris-600); font-size: 11px; flex-shrink: 0;
+  transition: transform .15s;
+}
+details.exp-consulta-caja[open] > summary .flecha { transform: rotate(90deg); }
+
+.exp-consulta .fecha .folio {
+  font-weight: 600; color: var(--morado-800); font-size: 12.5px;
+}
+
+.marcas-consulta {
+  display: flex; gap: .6rem; flex-shrink: 0;
+  font-size: 11px; color: var(--gris-600);
+}
+.marcas-consulta span { display: inline-flex; align-items: center; gap: .2rem; }
+.marcas-consulta .pendiente { color: var(--alerta); font-weight: 600; }
+
+/* Sale del resumen hacia la consulta sin abrir ni cerrar el bloque: por
+   eso el stopPropagation en el enlace. */
+.ir-consulta {
+  flex-shrink: 0; color: var(--gris-600); font-size: 13px;
+  padding: .2rem .35rem; border-radius: 6px; text-decoration: none;
+}
+.ir-consulta:hover { background: var(--morado-600); color: #fff; }
+
+/* Boton de album en el resumen de una consulta del expediente. Abre el
+   visor con todas sus imagenes, que es lo que uno quiere al revisar una
+   cita: verlas de corrido, no entrar y salir de cada archivo. */
+.btn-album {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: .25rem;
+  padding: .2rem .5rem; border-radius: 7px;
+  border: 1px solid var(--morado-400); background: var(--blanco);
+  color: var(--morado-700); font-size: 11px; font-weight: 600;
+}
+.btn-album:hover { background: var(--morado-600); color: #fff;
+                   border-color: var(--morado-600); }
+
+/* El pendiente en la consulta es un boton de verdad, no una etiqueta:
+   se le puede adjuntar el escaneo sin salir de la pantalla. */
+button.anexo-chip { border: 0; font: inherit; cursor: pointer; }
+button.anexo-chip.pendiente:hover { background: var(--alerta); color: #fff; }
+
+/* =====================================================================
+   Estatus del plan en la cabecera del expediente
+   =====================================================================
+   Son dos cosas distintas en la misma linea y no deben confundirse: a
+   la izquierda en que va el TRATAMIENTO, a la derecha en que van sus
+   PAPELES. Un plan puede estar terminado con el consentimiento sin
+   escanear, o apenas propuesto con todo en orden.
+   ===================================================================== */
+.badge-plan {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
+  padding: .3rem .6rem; border-radius: 999px;
+  border: 1px solid transparent;
+}
+.badge-plan.plan-propuesto { background: #f1f0f3; color: #5e5a66; border-color: #ddd9e3; }
+.badge-plan.plan-aceptado  { background: #eaf2fd; color: #1d5fa8; border-color: #c6ddf7; }
+.badge-plan.plan-proceso   { background: #f5eafb; color: var(--morado-700);
+                             border-color: #e3cdf0; }
+.badge-plan.plan-terminado { background: #e8f6ef; color: #1c7a52; border-color: #c3e8d6; }
+.badge-plan.plan-cancelado { background: #fbeceb; color: #9c3b33; border-color: #f0cfcc; }
+
+/* Los tres puntos no deben verse como un boton mas de la fila. */
+.doc-acciones .dropdown { display: inline-flex; }
+.doc-acciones .dropdown-menu { font-size: 13px; min-width: 190px; }
+
+/* La miniatura del hallazgo lleva un contador cuando hay mas de una.
+   Dibujar las seis en el renglon empujaria el texto del hallazgo fuera
+   de la pantalla, y el texto es lo que se lee. */
+button.hz-imagen { padding: 0; position: relative; }
+.hz-imagen .cuantas {
+  position: absolute; right: 2px; bottom: 2px;
+  background: rgba(26,20,32,.85); color: #fff;
+  font-size: 9.5px; font-weight: 700; line-height: 1;
+  padding: 2px 4px; border-radius: 5px;
+}
+
+/* Las imagenes ya guardadas, dentro del modal del hallazgo. */
+.tira-hallazgo { display: flex; gap: .4rem; flex-wrap: wrap; }
+.mini-hz {
+  width: 52px; height: 52px; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--gris-200); display: block;
+}
+.mini-hz img { width: 100%; height: 100%; object-fit: cover; }
+
+/* =====================================================================
+   Ficha del paciente
+   =====================================================================
+   El formulario clasico muestra treinta cajas de texto todas iguales y
+   todas vacias de contenido visual. Pero el 95% de las veces nadie
+   entra aqui a EDITAR: entra a LEER —"¿cual es el telefono?",
+   "¿cuantos anios tiene?"— y las cajas estorban para eso.
+
+   Aqui el dato se ve como texto. El lapiz aparece al pasar el raton y,
+   al picarlo, SOLO ese campo se vuelve editable.
+   ===================================================================== */
+.campo-ficha {
+  padding: .5rem .8rem;
+  border-bottom: 1px solid var(--gris-100);
+  min-height: 56px;
+}
+.cf-etiqueta {
+  display: block; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase;
+  color: var(--gris-600); margin-bottom: .1rem;
+}
+.cf-fila {
+  display: flex; align-items: center; gap: .4rem; min-height: 24px;
+}
+.cf-valor {
+  font-size: 13.5px; color: var(--gris-900); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Un dato que falta se ve como lo que es: una ausencia, no un valor. */
+.cf-valor.vacio { color: var(--gris-500, #9a95a3); font-style: italic; }
+
+/* El lapiz aparece al pasar encima. Treinta lapices siempre visibles
+   convierten la ficha en un formulario con otro disfraz, que es justo
+   lo que se queria evitar. */
+.cf-lapiz {
+  opacity: 0; border: 0; background: transparent; padding: .1rem .3rem;
+  border-radius: 6px; color: var(--morado-700); font-size: 12px;
+  transition: opacity .12s, background .12s;
+}
+.campo-ficha:hover .cf-lapiz,
+.cf-lapiz:focus { opacity: 1; }
+.cf-lapiz:hover { background: var(--lila-50); }
+
+.campo-ficha.editando { background: var(--lila-50); border-radius: 8px; }
+.campo-ficha.editando .cf-fila { display: none; }
+
+.cf-editor { display: flex; align-items: center; gap: .35rem; }
+.cf-editor input, .cf-editor select { flex: 1; min-width: 0; }
+.cf-botones { display: flex; gap: .2rem; flex-shrink: 0; }
+.cf-ok, .cf-cancelar {
+  width: 28px; height: 28px; border: 0; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.cf-ok { background: var(--morado-600); color: #fff; }
+.cf-ok:hover { background: var(--morado-700); }
+.cf-cancelar { background: var(--gris-100); color: var(--gris-700); }
+.cf-cancelar:hover { background: var(--gris-200); }
+
+/* Un campo que no se edita no debe parecer que se edita. */
+.campo-ficha.fijo { background: #fcfbfd; }
+
+.ficha-seccion {
+  display: flex; align-items: center; gap: .45rem;
+  padding: .7rem .8rem .35rem;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--morado-700);
+}
+.card.ficha .card-body { padding: .4rem; }
+
+/* ---- Secciones que son listas, no datos sueltos ---- */
+.ficha-plegable {
+  border: 1px solid var(--gris-200); border-radius: 10px;
+  margin: .6rem .4rem 0;
+}
+.ficha-plegable > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: .55rem;
+  padding: .6rem .8rem; font-size: 13px; font-weight: 600;
+  color: var(--morado-800);
+}
+.ficha-plegable > summary::-webkit-details-marker { display: none; }
+.ficha-plegable .flecha {
+  font-size: 11px; color: var(--gris-600); transition: transform .15s;
+}
+.ficha-plegable[open] > summary .flecha { transform: rotate(90deg); }
+.ficha-plegable .cuenta {
+  margin-left: auto; background: var(--lila-50); color: var(--morado-700);
+  font-size: 11px; font-weight: 700; padding: .1rem .45rem; border-radius: 999px;
+}
+.ficha-plegable .cuerpo {
+  padding: .3rem .9rem .9rem; border-top: 1px solid var(--gris-100);
+}
+
+/* =====================================================================
+   Tarjetas laterales de la ficha
+   ===================================================================== */
+.tarjeta-ficha .card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem;
+}
+.btn-mas {
+  width: 24px; height: 24px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; font-size: 12px;
+  background: var(--rosa-400, var(--morado-600)); color: #fff;
+  text-decoration: none;
+}
+.btn-mas:hover { background: var(--morado-700); color: #fff; }
+
+.renglon-ficha {
+  display: flex; align-items: center; gap: .55rem; width: 100%;
+  padding: .5rem .2rem; text-align: left;
+  background: none; border: 0; border-bottom: 1px solid var(--gris-100);
+  color: inherit; text-decoration: none;
+}
+.renglon-ficha:last-child { border-bottom: 0; }
+.renglon-ficha:hover { background: var(--lila-50); border-radius: 8px; }
+.renglon-ficha > .bi { color: var(--morado-700); flex-shrink: 0; }
+.rf-titulo {
+  font-size: 12.5px; font-weight: 600; color: var(--morado-800);
+  display: flex; align-items: center; gap: .35rem;
+}
+.rf-sub {
+  font-size: 10.5px; color: var(--gris-600);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rf-plan {
+  font-size: 9.5px; font-weight: 700; padding: .05rem .3rem;
+  border-radius: 5px; background: var(--lila-50); color: var(--morado-700);
+}
+.renglon-ficha.pendiente { border-left: 3px solid var(--alerta); padding-left: .5rem; }
+.renglon-ficha.pendiente .subir { color: var(--alerta); margin-left: auto; }
+
+/* El punto de color de la cita sale del catalogo, no del CSS: asi la
+   agenda y la ficha nunca pintan el mismo estado de dos colores. */
+.punto-estado {
+  width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+}
+
+/* ---- Saldo, con codigo de colores ----
+   En recepcion es lo primero que se pregunta y tiene que leerse sin
+   interpretar un numero: rojo debe, verde a favor, gris en ceros. */
+.saldo-ficha {
+  text-align: center; padding: .7rem; border-radius: 10px;
+  margin-bottom: .5rem;
+}
+.saldo-ficha .monto { font-size: 19px; font-weight: 700; line-height: 1.1; }
+.saldo-ficha .leyenda { font-size: 10.5px; margin-top: .15rem; }
+.saldo-ficha.debe  { background: #fbeceb; color: #9c3b33; }
+.saldo-ficha.favor { background: #e8f6ef; color: #1c7a52; }
+.saldo-ficha.cero  { background: var(--gris-50, #fafafa); color: var(--gris-600); }
+
+/* =====================================================================
+   Historia clinica compacta
+   =====================================================================
+   Con los campos que salieron (numero de hijo, estatura, el medico, el
+   examen bucal largo) y los doce que ahora aparecen solo al
+   contestarse, cada paso cabe sin scroll. Esto aprieta lo que quedaba:
+   etiquetas mas chicas, menos aire entre renglones.
+
+   Se aplica SOLO dentro de la historia. Los mismos controles en otras
+   pantallas se quedan como estaban: lo que aqui sobra, alla hace falta.
+   ===================================================================== */
+#pasosHistoria .form-label {
+  font-size: 11px; margin-bottom: .15rem;
+}
+#pasosHistoria .row.g-3 { --bs-gutter-y: .6rem; }
+#pasosHistoria .card-body { padding: .75rem .9rem; }
+#pasosHistoria .card-header { padding: .5rem .9rem; font-size: 13px; }
+#pasosHistoria .form-control,
+#pasosHistoria .form-select { font-size: 13px; padding: .3rem .6rem; }
+#pasosHistoria hr { margin: .6rem 0; }
+#pasosHistoria .form-text { font-size: 10.5px; margin-top: .1rem; }
+
+/* Los grupos de Si/No son lo que mas espacio ocupa: hay treinta. */
+#pasosHistoria .grupo-sino .opcion-sino {
+  padding: .25rem .7rem; font-size: 12px;
+}
+
+/* Un campo que aparece al contestar no debe dar un salto seco: se
+   desliza, para que se vea de donde salio. */
+[data-depende] { animation: campo-aparece .25s ease-out; }
+@keyframes campo-aparece {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+[data-depende].d-none { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-depende] { animation: none; }
+}
+
+/* "Ver todos" al pie de una tarjeta de resumen. Discreto a proposito:
+   es una salida, no la accion principal de la tarjeta. */
+.ver-mas {
+  display: block; text-align: center;
+  padding: .45rem; margin-top: .2rem;
+  font-size: 11.5px; font-weight: 600;
+  color: var(--morado-700); text-decoration: none;
+  border-top: 1px solid var(--gris-100);
+}
+.ver-mas:hover { background: var(--lila-50); color: var(--morado-800); }
+
+/* =====================================================================
+   Tarjeta de identidad compacta
+   =====================================================================
+   Antes era una columna alta con la foto en circulo y los datos en
+   renglones: el alto de media pantalla para decir cuatro cosas. Ahora
+   es una franja con la foto a la izquierda y lo que se pregunta en
+   recepcion a la derecha.
+   ===================================================================== */
+.tarjeta-identidad-compacta .card-body {
+  display: flex; align-items: center; gap: 1rem; padding: .8rem 1rem;
+}
+
+.tarjeta-identidad-compacta .retrato {
+  position: relative; flex-shrink: 0;
+  width: 72px; height: 72px; border-radius: 14px; overflow: hidden;
+  background: linear-gradient(135deg, var(--morado-700), var(--rosa-400));
+}
+.tarjeta-identidad-compacta .retrato img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.tarjeta-identidad-compacta .iniciales {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 24px; font-weight: 600;
+}
+
+/* El lapiz vive SOBRE la foto, que es donde uno lo busca para
+   cambiarla. El boton aparte decia "cambiar fotografia" en un renglon
+   que nadie leia. */
+.lapiz-foto {
+  position: absolute; right: 4px; bottom: 4px;
+  width: 24px; height: 24px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%; font-size: 10px;
+  background: rgba(26,20,32,.72); color: #fff;
+  opacity: 0; transition: opacity .12s;
+}
+.tarjeta-identidad-compacta .retrato:hover .lapiz-foto,
+.lapiz-foto:focus { opacity: 1; }
+
+.tarjeta-identidad-compacta .identidad { flex: 1; min-width: 0; }
+.tarjeta-identidad-compacta .nombre {
+  font-size: 17px; font-weight: 600; color: var(--morado-900);
+  line-height: 1.2;
+}
+.tarjeta-identidad-compacta .renglones {
+  display: flex; flex-wrap: wrap; gap: .25rem 1.1rem; margin-top: .3rem;
+}
+.tarjeta-identidad-compacta .renglones span {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: 12px; color: var(--gris-700);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tarjeta-identidad-compacta .renglones i { color: var(--morado-600); }
+
+.alertas-identidad {
+  display: flex; flex-direction: column; gap: .25rem;
+  flex-shrink: 0; max-width: 220px;
+}
+
+/* =====================================================================
+   Resumen de contacto, tutor y domicilio
+   =====================================================================
+   Tres bloques que se LEEN aqui y se ADMINISTRAN en su modal. Vivian
+   en colapsables que nadie abria, y un telefono escondido detras de un
+   clic es un telefono que no esta.
+   ===================================================================== */
+.bloque-resumen { display: flex; flex-direction: column; gap: .7rem; }
+
+.resumen-dato {
+  padding: .5rem .7rem;
+  border: 1px solid var(--gris-200);
+  border-radius: 10px;
+  background: var(--blanco);
+}
+.resumen-dato .cabeza {
+  display: flex; align-items: center; gap: .4rem;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .03em;
+  text-transform: uppercase; color: var(--morado-700);
+  margin-bottom: .3rem;
+}
+.resumen-dato .cabeza > span { flex: 1; }
+
+/* El lapiz aparece al pasar encima; el "+" se queda siempre visible.
+   La diferencia es a proposito: el lapiz es una accion opcional sobre
+   algo que ya existe, el "+" es un hueco que hay que llenar. */
+.resumen-dato .lapiz, .resumen-dato .mas {
+  width: 22px; height: 22px; flex-shrink: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; font-size: 11px;
+}
+.resumen-dato .lapiz {
+  background: transparent; color: var(--morado-700);
+  opacity: 0; transition: opacity .12s, background .12s;
+}
+.resumen-dato:hover .lapiz, .resumen-dato .lapiz:focus { opacity: 1; }
+.resumen-dato .lapiz:hover { background: var(--lila-50); }
+
+.resumen-dato .mas {
+  background: var(--morado-600); color: #fff;
+}
+.resumen-dato .mas:hover { background: var(--morado-700); }
+
+.resumen-dato .linea {
+  font-size: 12.5px; color: var(--gris-900); line-height: 1.45;
+}
+.resumen-dato .linea.secundaria { font-size: 11.5px; color: var(--gris-600); }
+.resumen-dato .vacio {
+  font-size: 11.5px; color: var(--gris-600); font-style: italic;
+}
+.resumen-dato .mas-tutores {
+  font-size: 10px; font-weight: 700; padding: .05rem .3rem;
+  border-radius: 5px; background: var(--lila-50); color: var(--morado-700);
+}
+
+.resumen-dato .rejilla {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .3rem .8rem;
+}
+.resumen-dato .par .et {
+  display: block; font-size: 9.5px; font-weight: 600;
+  text-transform: uppercase; color: var(--gris-600);
+}
+.resumen-dato .par .va { font-size: 12px; color: var(--gris-900); }
+
+/* ---- Lo que falta, en amarillo ----
+   No es decoracion. Un paciente menor sin tutor registrado no se puede
+   atender legalmente, y un expediente sin domicilio incumple la NOM
+   del expediente clinico. Son huecos que hay que cerrar, no datos
+   opcionales que faltan. */
+.resumen-dato.falta,
+.resumen-dato.incompleto {
+  border-color: #e8c468; background: #fffbf0;
+}
+.resumen-dato.falta .cabeza,
+.resumen-dato.incompleto .cabeza { color: #9a6d0a; }
+.resumen-dato.falta .vacio { color: #9a6d0a; font-style: normal; }
+
+.aviso-falta {
+  display: flex; align-items: center; gap: .35rem;
+  margin-top: .3rem; font-size: 11px; color: #9a6d0a;
+}
+
+/* Separador entre los datos y el resumen, dentro de la misma tarjeta. */
+.borde-izq { border-left: 1px solid var(--gris-200); }
+
+/* Aviso de saldo a favor en la pantalla de cobro. La cajera tiene que
+   verlo ANTES de pedir el total: el dinero ya esta. */
+.aviso-a-favor {
+  grid-column: 1 / -1;
+  display: flex; align-items: flex-start; gap: .5rem;
+  margin-top: .5rem; padding: .5rem .7rem;
+  background: #e8f6ef; border: 1px solid #c3e8d6; border-radius: 9px;
+  color: #1c7a52; font-size: 11.5px;
+}
+.aviso-a-favor i { font-size: 15px; }
+.aviso-a-favor b { font-size: 13px; }
+
+/* =====================================================================
+   Ficha del paciente: rejilla de dos columnas de tarjetas
+   =====================================================================
+   El objetivo es que toda la ficha quepa en la pantalla sin bajar. Con
+   una sola columna de tarjetas, las dos ultimas caian bajo el doblez
+   justo cuando la pantalla es mas chica, que es cuando mas falta hace
+   verlo todo.
+   ------------------------------------------------------------------- */
+.tarjetas-ficha { width: 620px; }
+
+/* Cada tarjeta se queda de un alto razonable y hace scroll por dentro.
+   Sin esto, un paciente con cinco planes y cinco consultas vuelve a
+   estirar la pagina y el limite de cinco no habria servido de nada. */
+.tarjeta-ficha .card-body { max-height: 16rem; overflow-y: auto; }
+
+/* Debajo de 1400px ya no caben dos columnas de tarjetas junto a los
+   datos sin estrujar las tres. Pasan a ocupar el ancho completo, abajo:
+   es preferible bajar un poco a leer tres columnas espachurradas. */
+@media (max-width: 1400px) {
+    .tarjetas-ficha { width: 100%; }
+}
+
+/* ---------------------------------------------------------------------
+   El campo Fotografia
+   ------------------------------------------------------------------- */
+.campo-foto { align-items: center; gap: .5rem; }
+
+.foto-miniatura {
+    width: 44px; height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--gris-300, #dee2e6);
+    cursor: zoom-in;
+    flex: 0 0 auto;
+}
+
+.foto-acciones { display: flex; align-items: center; gap: .1rem; }
+
+/* El boton de camara ocupa el sitio de la miniatura que no hay: asi el
+   renglon mide lo mismo con foto y sin ella, y la fila de campos no se
+   mueve al subir la primera. */
+.boton-camara {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .35rem .6rem;
+    border: 1px dashed var(--gris-400, #ced4da);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--morado-700, #6f42c1);
+    font-size: .82rem;
+}
+.boton-camara:hover {
+    border-color: var(--morado-500, #8e6cc9);
+    background: var(--morado-050, #f6f2fc);
+}
+.boton-camara i { font-size: 1rem; }
+
+/* ---------------------------------------------------------------------
+   Visor de una imagen sola
+   ------------------------------------------------------------------- */
+/* Por encima de los modales de Bootstrap (1055) porque se abre DESDE
+   uno de ellos: la foto del tutor se mira sin cerrar su ventana. */
+.visor-imagen {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: .75rem;
+    background: rgba(0, 0, 0, .82);
+    padding: 2rem;
+    cursor: zoom-out;
+}
+.visor-imagen figure {
+    margin: 0; max-width: 100%; max-height: 100%;
+    display: flex; flex-direction: column; align-items: center; gap: .6rem;
+    cursor: default;
+}
+.visor-imagen img {
+    max-width: min(90vw, 760px);
+    max-height: 80vh;
+    object-fit: contain;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+    background: #fff;
+}
+.visor-imagen figcaption {
+    color: #fff; font-size: .95rem; text-align: center;
+}
+.visor-imagen .vi-cerrar {
+    position: absolute; top: 1rem; right: 1.25rem;
+    width: 40px; height: 40px;
+    border: 0; border-radius: 50%;
+    background: rgba(255, 255, 255, .15);
+    color: #fff; font-size: 1.1rem;
+}
+.visor-imagen .vi-cerrar:hover { background: rgba(255, 255, 255, .3); }
+
+/* La foto del circulo tambien se pica para verla en grande. */
+.tarjeta-identidad-compacta .retrato img[data-ver-foto] { cursor: zoom-in; }
+
+/* =====================================================================
+   Dashboard: dos columnas de tarjetas junto a la agenda
+   =====================================================================
+   Mismo criterio que la ficha del paciente. El dashboard se abre para
+   enterarse de como viene el dia: si la mitad de la informacion queda
+   bajo el doblez, hay que desplazarse para enterarse, y entonces no
+   cumple su unico trabajo.
+   ------------------------------------------------------------------- */
+.tarjetas-inicio { width: 620px; }
+
+/* Tope de alto con scroll por dentro: un dia con quince citas por
+   confirmar no puede estirar la pagina y empujar lo de abajo fuera de
+   la vista. */
+.tarjetas-inicio .card-body,
+.tarjetas-inicio .list-group { max-height: 15rem; overflow-y: auto; }
+
+@media (max-width: 1400px) {
+    .tarjetas-inicio { width: 100%; }
+}
+
+/* ---------------------------------------------------------------------
+   Entrada escalonada de las tarjetas
+   -------------------------------------------------------------------
+   Cada tarjeta entra en medio segundo, y empieza una decima despues
+   que la anterior. El escalon es lo que hace que se lea como algo que
+   se esta armando y no como un parpadeo: todas a la vez se percibe
+   como un salto, y de una en una con mas pausa se siente lento.
+
+   Va en CSS y no en JavaScript a proposito. Una animacion de entrada
+   que depende de un script se queda a medias si el script falla, y
+   deja la pantalla en blanco con los datos ya cargados detras. Asi, lo
+   peor que puede pasar es que no se anime.
+   ------------------------------------------------------------------- */
+@keyframes tarjeta-entra {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* La clase marca cual entra; el retraso lo pone PHP, tarjeta por
+   tarjeta, al pintarlas. Con nth-child el contador se reinicia en cada
+   fila y en cada columna, asi que la cascada se partia en tres: las
+   cuatro de arriba, y luego las dos columnas arrancando otra vez a la
+   vez. Contando desde PHP la cuenta es una sola de principio a fin. */
+.entra {
+    opacity: 0;
+    animation: tarjeta-entra .5s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .entra { opacity: 1; animation: none; }
+}
+
+/* =====================================================================
+   Editor del mensaje de recordatorio
+   ------------------------------------------------------------------- */
+.etiquetas-mensaje {
+    display: flex; flex-wrap: wrap; gap: .3rem;
+}
+
+.chip-etiqueta {
+    border: 1px solid var(--morado-200, #d9c9ee);
+    background: var(--morado-050, #f6f2fc);
+    color: var(--morado-700, #6f42c1);
+    border-radius: 999px;
+    padding: .12rem .55rem;
+    font-size: .76rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+}
+.chip-etiqueta:hover {
+    background: var(--morado-100, #ebe1f8);
+    border-color: var(--morado-400, #a98fd6);
+}
+
+/* La vista previa imita el globo verde de WhatsApp a proposito: se
+   juzga el tono de un mensaje distinto segun donde se lea. En una caja
+   gris de formulario parece un campo; en un globo, parece lo que es. */
+.previa-whatsapp .pw-titulo {
+    font-size: .78rem;
+    color: var(--texto-suave, #6c757d);
+    margin-bottom: .35rem;
+}
+
+.previa-whatsapp .pw-globo {
+    background: #dcf8c6;
+    border-radius: 10px 10px 10px 2px;
+    padding: .6rem .75rem;
+    font-size: .86rem;
+    line-height: 1.45;
+    color: #111;
+    /* Respeta los saltos de linea del cuadro sin necesitar <br>, y
+       parte las palabras larguisimas en vez de desbordar la tarjeta. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 13rem;
+    overflow-y: auto;
+}
+
+/* =====================================================================
+   La nota de la cita, en el renglon de la agenda
+   ------------------------------------------------------------------- */
+/* Dos renglones como mucho. Una nota puede ser un parrafo, y dejarla
+   crecer estiraria la fila y desacomodaria toda la tabla; completa se
+   lee en el detalle, que es donde uno va a leerla. */
+.nota-cita {
+    font-size: 11px;
+    color: var(--texto-suave, #6c757d);
+    font-style: italic;
+    margin-top: .15rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.nota-cita i { font-style: normal; opacity: .7; }
+
+/* =====================================================================
+   Detalle de la cita
+   ------------------------------------------------------------------- */
+.detalle-cita .dc-cabecera {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: .75rem;
+    padding-bottom: .6rem;
+    border-bottom: 1px solid var(--gris-200, #e9ecef);
+}
+.detalle-cita .dc-nombre {
+    display: block;
+    font-weight: 600;
+    color: var(--morado-900, #4a1259);
+    text-decoration: none;
+}
+.detalle-cita .dc-nombre:hover { text-decoration: underline; }
+.detalle-cita .dc-sub {
+    font-size: 11.5px; color: var(--texto-suave, #6c757d);
+}
+
+.detalle-cita .dc-datos {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: .35rem .75rem;
+    padding: .7rem 0;
+    font-size: .88rem;
+}
+.detalle-cita .dc-datos .par { display: contents; }
+.detalle-cita .dc-datos .et {
+    color: var(--texto-suave, #6c757d); font-size: .8rem;
+}
+.detalle-cita .dc-datos .va { color: var(--texto, #212529); }
+
+.detalle-cita .dc-nota {
+    background: #fffbf0;
+    border: 1px solid #f0e2c0;
+    border-radius: 8px;
+    padding: .55rem .7rem;
+    font-size: .86rem;
+    /* Respeta los saltos de linea que se escribieron al capturarla. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.detalle-cita .dc-nota .et {
+    font-size: .75rem;
+    color: #8a6d1f;
+    margin-bottom: .2rem;
+    font-weight: 600;
+}
+
+.detalle-cita .dc-acciones {
+    display: flex; flex-wrap: wrap; gap: .35rem;
+    margin-top: .8rem;
+}
+
+.detalle-cita .dc-cerrada {
+    margin-top: .8rem;
+    font-size: .82rem;
+    color: var(--texto-suave, #6c757d);
+}
+
+/* Los bloques de la semana se pican, no solo se arrastran. */
+.cita-bloque { cursor: pointer; }
+
+/* =====================================================================
+   Lista de espera, bajo la agenda del tablero
+   ------------------------------------------------------------------- */
+/* Tope de alto con scroll: la lista de espera puede crecer sin limite
+   —justo cuando el consultorio va lleno, que es cuando mas gente hay
+   esperando— y sin tope empujaria todo lo demas fuera de la pantalla. */
+.espera-renglones { max-height: 11rem; overflow-y: auto; }
+
+.espera-renglon {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: .6rem;
+    padding: .4rem 0;
+    border-bottom: 1px solid var(--gris-100, #f1f3f5);
+}
+.espera-renglon:last-child { border-bottom: 0; }
+
+/* =====================================================================
+   Contadores de citas del paciente
+   -------------------------------------------------------------------
+   Cuatro numeros que contestan "¿este paciente viene o no viene?".
+   Los que estan en cero se ven apagados en vez de esconderse: que un
+   paciente tenga CERO faltas es justo lo que se quiere ver, y un
+   numero ausente no se distingue de un dato que no se midio.
+   ------------------------------------------------------------------- */
+.cuenta-citas {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: .3rem;
+    margin-bottom: .5rem;
+}
+
+.cuenta-citas .cc {
+    text-align: center;
+    border-radius: 7px;
+    padding: .3rem .1rem;
+    background: var(--gris-100, #f1f3f5);
+}
+.cuenta-citas .cc .n {
+    font-size: 1.05rem; font-weight: 600; line-height: 1.1;
+}
+.cuenta-citas .cc .t {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: .02em;
+    opacity: .85;
+}
+
+/* Los mismos colores que el catalogo de estados, para que la ficha y
+   la agenda nunca pinten lo mismo de dos colores distintos. */
+.cuenta-citas .pend  { background:#fdf3e3; color:#8a5a12; }
+.cuenta-citas .aten  { background:#e6f5ee; color:#1d7a4c; }
+.cuenta-citas .canc  { background:#f0f1f2; color:#5c6366; }
+.cuenta-citas .falta { background:#fbe9e7; color:#9c2d21; }
+
+.cuenta-citas .cc.vacia { background: var(--gris-100, #f1f3f5); color: #adb5bd; }
+
+/* El renglon de la cita ahora es un boton: se pica para ver el detalle. */
+button.renglon-ficha { width: 100%; text-align: left; }
+
+/* =====================================================================
+   La respuesta que cuelga de otra, en la historia clinica
+   =====================================================================
+   Antes el campo extra brotaba en el hueco de al lado y descuadraba la
+   rejilla a media captura. Ahora la pregunta sale en una ventanita y
+   aqui se ve solo la respuesta, debajo del selector, sin mover nada.
+   ------------------------------------------------------------------- */
+.respuesta-extra {
+    display: inline-flex; align-items: center; gap: .3rem;
+    margin-top: .35rem;
+    max-width: 100%;
+    padding: .15rem .5rem;
+    border: 1px solid var(--morado-200, #d9c9ee);
+    border-radius: 999px;
+    background: var(--morado-050, #f6f2fc);
+    color: var(--morado-800, #5a2470);
+    font-size: .78rem;
+    text-align: left;
+    /* Una respuesta larga —"ALERGICO A PENICILINA Y SULFAS"— se corta
+       con puntos suspensivos en vez de estirar la columna. Completa se
+       lee al picarla. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.respuesta-extra:hover {
+    background: var(--morado-100, #ebe1f8);
+    border-color: var(--morado-400, #a98fd6);
+}
+.respuesta-extra i { opacity: .6; font-size: .72rem; flex: 0 0 auto; }
+
+/* =====================================================================
+   El aviso de discapacidad, en la tarjeta del paciente
+   =====================================================================
+   Rosa y con su icono, distinto de las demas alertas clinicas. No es
+   una alerta mas: cambia como se maneja la cita entera —cuanto dura,
+   quien acompania, como se explica el procedimiento— y quien abre la
+   ficha tiene que verla sin buscarla.
+   ------------------------------------------------------------------- */
+.chip-discapacidad {
+    display: inline-flex; align-items: center; gap: .3rem;
+    background: #fce7f3;
+    color: #9d2667;
+    border: 1px solid #f7c9e0;
+    font-weight: 600;
+}
+.chip-discapacidad i { font-size: .95rem; }
+
+/* =====================================================================
+   La firma del desarrollador, en el pie
+   =====================================================================
+   El logotipo mide 537x200 y aqui tiene que caber en una franja de 36
+   pixeles de alto. Se le da la altura y el ancho se calcula solo: con
+   un ancho fijo se deformaria en cuanto el logotipo cambie de
+   proporcion.
+   ------------------------------------------------------------------- */
+.firma-desarrollador {
+    display: inline-flex; align-items: center;
+    /* Discreta por omision y nitida al pasar encima: es una firma, no
+       un anuncio. Lo que importa en esta franja es el domicilio del
+       consultorio. */
+    opacity: .55;
+    transition: opacity .2s;
+}
+.firma-desarrollador:hover { opacity: 1; }
+
+.firma-desarrollador img {
+    height: 16px; width: auto;
+    display: block;
+}
+
+/* Al imprimir no sale: el pie es de la pantalla, no de los documentos
+   del expediente. */
+@media print {
+    .firma-desarrollador { display: none; }
+}
+
+/* =====================================================================
+   El album: la imagen entra deslizandose
+   =====================================================================
+   No es adorno. Con dos radiografias parecidas, cambiar sin movimiento
+   deja la duda de si de verdad cambio algo. El desplazamiento dice
+   "esta es otra, y viene de ese lado", que es lo que hace falta al
+   comparar el antes y el despues de un tratamiento.
+
+   Corto —0.22s— porque se recorre un album pasando rapido, y una
+   animacion larga se vuelve un estorbo a la tercera imagen.
+   ------------------------------------------------------------------- */
+@keyframes album-entra-der {
+    from { opacity: 0; transform: translateX(32px); }
+    to   { opacity: 1; transform: none; }
+}
+@keyframes album-entra-izq {
+    from { opacity: 0; transform: translateX(-32px); }
+    to   { opacity: 1; transform: none; }
+}
+
+#albVerImagen.entra-der { animation: album-entra-der .22s ease-out; }
+#albVerImagen.entra-izq { animation: album-entra-izq .22s ease-out; }
+
+/* Quien pidio en su sistema que no le muevan la pantalla, no se la
+   movemos: para algunas personas el movimiento produce mareo. */
+@media (prefers-reduced-motion: reduce) {
+    #albVerImagen.entra-der,
+    #albVerImagen.entra-izq { animation: none; }
+}
+
+/* La cruz para quitar una imagen del hallazgo.
+   Aparece al pasar por encima: con ocho miniaturas, ocho cruces
+   siempre visibles compiten con las fotos, que es lo que se viene a
+   ver. */
+.mini-hz { position: relative; }
+
+.mini-hz .quitar-mini {
+    position: absolute; top: -6px; right: -6px;
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border: 0; border-radius: 50%;
+    background: var(--peligro, #c0392b);
+    color: #fff; font-size: 9px;
+    opacity: 0;
+    transition: opacity .15s;
+}
+.mini-hz:hover .quitar-mini,
+.mini-hz .quitar-mini:focus { opacity: 1; }
+.mini-hz .quitar-mini:disabled { opacity: .5; }
+
+/* El anticipo de un plan, en la tarjeta de la ficha.
+   Verde porque es dinero a favor del paciente, y con su icono: es el
+   dato que evita la discusion en el mostrador y tiene que saltar sin
+   buscarlo entre el folio y la fecha. */
+.rf-anticipo {
+    display: inline-flex; align-items: center; gap: .25rem;
+    margin-top: .2rem;
+    font-size: 11px; font-weight: 600;
+    color: #1d7a4c;
+}
+
+/* =====================================================================
+   El aviso de un plan cerrado
+   =====================================================================
+   Sin el, quien abre un plan cancelado ve una pantalla normal con los
+   botones apagados y no entiende que pasa. El motivo escrito es lo que
+   contesta "¿por que este paciente no siguio?" medio anio despues.
+   ------------------------------------------------------------------- */
+.aviso-plan-cerrado {
+    display: flex; align-items: flex-start; gap: .6rem;
+    padding: .7rem .9rem;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: .88rem;
+}
+.aviso-plan-cerrado i { font-size: 1.1rem; flex: 0 0 auto; margin-top: .05rem; }
+
+.aviso-plan-cerrado.cancelado {
+    background: #fbe9e7; border-color: #f3c9c2; color: #8c2d21;
+}
+.aviso-plan-cerrado.terminado {
+    background: #e9f7f0; border-color: #bfe6d1; color: #1d6b48;
+}
+
+/* =====================================================================
+   Consulta: la barra de arriba se lee, no se llena
+   =====================================================================
+   Fecha, dentista y plan se fijan al abrir la consulta y despues solo
+   se consultan. Dejandolos como controles vivos, un combo abierto y una
+   rueda de raton bastan para mover la consulta a otro plan —y sus
+   papeles se van con ella dentro del expediente— sin que nadie lo note.
+   Asi que se leen como texto y el lapiz descubre uno solo.
+   ------------------------------------------------------------------- */
+.campo-texto {
+    font-size: 13px; color: var(--gris-900); font-weight: 500;
+    padding: .25rem 0; min-height: 1.9rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.campo-texto.vacio { color: var(--gris-500, #9a95a3); font-style: italic; }
+
+/* Mismo criterio que los lapices de la ficha del paciente: aparecen al
+   pasar encima. Tres lapices siempre visibles sobre tres campos leen
+   como "esto es un formulario", que es lo contrario de lo que se
+   busca. */
+.lapiz-campo {
+    opacity: 0; border: 0; background: transparent; padding: 0 .25rem;
+    border-radius: 6px; color: var(--morado-700); font-size: 11px;
+    transition: opacity .12s, background .12s;
+}
+.barra-consulta label:hover .lapiz-campo,
+.lapiz-campo:focus { opacity: 1; }
+.lapiz-campo:hover { background: var(--lila-50); }
+
+/* =====================================================================
+   Consulta: el Guardar al pie del motivo
+   ===================================================================== */
+.pie-guardar {
+    display: flex; align-items: center; gap: .75rem;
+    justify-content: flex-end;
+    margin-top: .75rem; padding-top: .6rem;
+    border-top: 1px solid var(--gris-100);
+}
+.texto-guardar {
+    font-size: 11.5px; color: var(--gris-600);
+    line-height: 1.25; text-align: right; flex: 1;
+}
+
+/* =====================================================================
+   Lo que todavia no se puede usar
+   =====================================================================
+   Antes de que la consulta exista, sus anexos no tienen de donde
+   colgar. Lo que habia era un aviso de texto arriba: se lee una vez,
+   despues es decorado, y lo que pasaba era picar un boton, no ver nada
+   y volver a picarlo.
+
+   Difuminado es el mismo estado dicho de una forma que no hay que leer.
+   El pointer-events no es adorno: sin el, los botones de dentro siguen
+   recibiendo clics aunque se vean apagados, y basta un tabulador para
+   llegar a ellos. El inert del JavaScript cierra tambien ese camino;
+   esto es lo que se ve.
+   ------------------------------------------------------------------- */
+.zona-sin-consulta.difuminada {
+    opacity: .45;
+    filter: blur(1.4px) grayscale(.35);
+    pointer-events: none;
+    user-select: none;
+    transition: opacity .18s, filter .18s;
+}
+
+/* =====================================================================
+   Consulta: el pie de los anexos
+   =====================================================================
+   Lo que queda de la tarjeta "Documentos de la consulta": un renglon.
+   Anexar un estudio externo pasa pocas veces, y una tarjeta entera
+   diciendo "Sin archivos" cuatro veces costaba media columna.
+   ------------------------------------------------------------------- */
+.pie-anexo {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: .5rem; padding: .15rem .25rem;
+}
+.pie-anexo .btn-link { font-size: 12px; text-decoration: none; }
+.pie-anexo .btn-link:hover { text-decoration: underline; }
+.cuenta-anexos { font-size: 11px; color: var(--gris-600); }
+
+/* =====================================================================
+   Cajas: la lista de fichas ya pagadas
+   =====================================================================
+   Los cobros cancelados salen en la lista, no se esconden: un hueco se
+   explica mucho peor que un renglon que dice por que se cancelo. Pero
+   tienen que distinguirse de un golpe, o alguien lee el folio y da por
+   pagado algo que no se cobro.
+   ------------------------------------------------------------------- */
+.ficha-cancelada { opacity: .65; }
+.ficha-cancelada .fw-semibold { text-decoration: line-through; }
+
+/* =====================================================================
+   Historia clinica: la respuesta que esta a medias
+   =====================================================================
+   Una pregunta contestada "si" a la que le falta su detalle es el peor
+   estado posible, porque PARECE capturada. Pasa casi siempre con el
+   prellenado, que contesta varias de golpe sin poder saber el detalle.
+
+   Hasta ahora la unica senial era que el boton de siguiente no
+   avanzaba, sin decir por cual de las doce preguntas. El amarillo va
+   sobre el bloque de la pregunta —no sobre el campo escondido— porque
+   lo que hay que mirar para arreglarlo es la pregunta.
+   ------------------------------------------------------------------- */
+.falta-complemento {
+    background: #fff8e1;
+    border-left: 3px solid #e0a800;
+    border-radius: 8px;
+    padding: .4rem .55rem;
+    margin-left: -.55rem;
+}
+.falta-complemento::after {
+    content: "Falta el detalle";
+    display: block;
+    margin-top: .25rem;
+    font-size: .72rem; font-weight: 600;
+    color: #8a6100;
+}
+/* Con la respuesta ya puesta no hace falta el aviso: el chip la
+   muestra. Dejarlo seria contradecirse en el mismo bloque. */
+.falta-complemento:has(.respuesta-extra)::after { content: none; }
+
+/* =====================================================================
+   Ficha: los pendientes de digitalizar, dentro de la tarjeta de datos
+   =====================================================================
+   Ya no son una tarjeta con su cabecera: son una seccion mas de la
+   tarjeta de datos, como el contacto o el tutor. Un tope de alto con
+   desplazamiento propio para que un paciente con ocho pendientes no
+   estire la tarjeta entera y descuadre la columna de al lado.
+   ------------------------------------------------------------------- */
+.pendientes-ficha {
+    max-height: 190px;
+    overflow-y: auto;
+    /* El hueco a la derecha evita que la barra de desplazamiento tape
+       el icono de subir, que es justo donde se pica. */
+    padding-right: .15rem;
+}
+
+/* =====================================================================
+   Plan guardado: un boton por cada papel que hay que imprimir
+   =====================================================================
+   Antes era un solo boton que abria dos ventanas con 400 ms de
+   diferencia, y el navegador bloqueaba la segunda. Dos botones y dos
+   clics: una ventana pedida con un clic no la bloquea nadie.
+
+   La advertencia significa "todavia no lo has abierto". No puede
+   significar "todavia no ha salido de la impresora", porque eso no se
+   puede saber desde el navegador, y la etiqueta lo dice asi.
+   ------------------------------------------------------------------- */
+.guardado-plan { text-align: left; font-size: 14px; }
+.guardado-plan .total { font-size: 15px; margin-bottom: .2rem; }
+.guardado-plan .folio {
+    font-size: 11.5px; color: var(--gris-600);
+    border: 1px solid var(--gris-200); border-radius: 999px;
+    padding: .05rem .45rem; margin-left: .4rem;
+}
+.guardado-plan .intro {
+    font-size: 12.5px; color: var(--gris-700, #5a5364);
+    line-height: 1.5; margin: .5rem 0 .9rem;
+}
+
+.papel-plan {
+    display: flex; align-items: center; gap: .7rem; width: 100%;
+    text-align: left; margin-bottom: .6rem;
+    padding: .7rem .85rem;
+    border: 1px solid var(--gris-200); border-radius: 11px;
+    background: var(--blanco); color: var(--gris-900);
+    transition: border-color .12s, background .12s;
+}
+.papel-plan:hover {
+    border-color: var(--morado-400, #a98fd6);
+    background: var(--lila-50, #f6f2fc);
+}
+.papel-plan .icono { font-size: 1.4rem; color: var(--morado-700); flex: 0 0 auto; }
+.papel-plan .texto { flex: 1; min-width: 0; }
+.papel-plan .texto b { display: block; font-size: 13.5px; }
+.papel-plan .texto small {
+    display: block; font-size: 11.5px; color: var(--gris-600);
+    line-height: 1.35; margin-top: .1rem;
+}
+
+.papel-plan .marca {
+    flex: 0 0 auto; font-size: 10.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: .25rem;
+    padding: .2rem .5rem; border-radius: 999px;
+    background: #fff6e5; color: #8a6100; white-space: nowrap;
+}
+.papel-plan.impreso { border-color: #bfe6d1; background: #f4fbf7; }
+.papel-plan.impreso .marca { background: #e9f7f0; color: #1d6b48; }
+
+/* =====================================================================
+   Expediente: la miniatura del documento
+   =====================================================================
+   Antes era un icono por tipo, y con doce radiografias salian doce
+   iconos identicos: para saber cual era cual habia que abrirlas una por
+   una. La miniatura contesta eso de un vistazo, que es lo unico que se
+   le pide a una lista.
+
+   El cuadro mide siempre lo mismo y recorta por el centro: una
+   radiografia apaisada y una credencial vertical tienen que ocupar el
+   mismo sitio, o la columna de nombres queda en diente de sierra y se
+   pierde lo que hacia util el renglon.
+   ------------------------------------------------------------------- */
+.doc-mini {
+    width: 46px; height: 46px; flex: 0 0 46px;
+    border-radius: 10px; overflow: hidden;
+    background: var(--gris-100, #f1eef5);
+    border: 1px solid var(--gris-200);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+}
+.doc-mini img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+}
+/* El visor de PDF no se puede recortar como una imagen: se encaja a lo
+   ancho y se deja ver la parte de arriba, que es donde esta el
+   encabezado del documento —y por lo tanto lo que lo identifica—. */
+.doc-mini.pdf embed {
+    width: 100%; height: 100%; border: 0;
+    pointer-events: none;            /* el clic es del renglon, no del visor */
+}
+.doc-mini.pdf i, .doc-mini.vacia i { font-size: 1.2rem; }
+.doc-mini.pdf i { color: #b5341f; }
+
+.doc-renglon.pendiente .doc-mini.vacia { background: #fff6e5; color: var(--alerta); }
+.doc-renglon.listo     .doc-mini.vacia { background: #e6f5ee; color: var(--exito); }
+
+/* =====================================================================
+   Expediente: "Escaneado correctamente"
+   =====================================================================
+   El chip de la derecha repetia el tipo de documento, que ya estaba a
+   dos centimetros en el nombre del renglon. Dos veces el mismo texto en
+   la misma linea no informa: ocupa el sitio donde deberia estar lo que
+   si hace falta saber, que es si el papel ya entro o no.
+   ------------------------------------------------------------------- */
+.doc-estado.escaneado {
+    display: inline-flex; align-items: center; gap: .3rem;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+    color: #1d6b48;
+}
+.doc-estado.escaneado i { font-size: .95rem; }

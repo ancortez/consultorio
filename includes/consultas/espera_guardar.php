@@ -10,7 +10,7 @@ $idDentista   = paramInt('id_usuario_dentista') ?: null;
 $motivo       = limpiarEspacios(paramMayus('motivo'));
 $preferencia  = paramInt('preferencia_horario') ?: 3;
 $duracion     = paramInt('duracion_min') ?: 30;
-$notas        = limpiarEspacios(paramMayus('notas'));
+$notas        = paramTexto('notas');
 
 if (!$idExpediente) {
     Respuesta::error('Selecciona al paciente.');

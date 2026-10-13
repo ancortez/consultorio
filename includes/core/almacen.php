@@ -18,8 +18,18 @@ final class Almacen
     private const REGION  = 'us-east-1';
     private const SERVICIO = 's3';
 
-    /** Tamano maximo por archivo. */
-    public const MAX_BYTES = 20 * 1024 * 1024;   // 20 MB
+    /**
+     * Tamano maximo por archivo.
+     *
+     * 40 MB parece mucho para una imagen, y lo es para una foto. No lo
+     * es para un BMP sin comprimir: un sensor de rayos X de 2500x3000
+     * entrega 21 MB en cuanto se enciende, y uno de 14 bits el doble.
+     *
+     * El archivo no se guarda asi: Imagen::optimizar lo convierte a
+     * JPEG antes de subirlo, y lo que acaba en el almacen pesa menos de
+     * un megabyte. Este limite solo decide que entra por la puerta.
+     */
+    public const MAX_BYTES = 40 * 1024 * 1024;   // 40 MB
 
     /** Tipos que se aceptan, por extension. */
     public const TIPOS = [
@@ -28,6 +38,16 @@ final class Almacen
         'jpeg' => 'image/jpeg',
         'png'  => 'image/png',
         'webp' => 'image/webp',
+        // Los sensores de rayos X suelen entregar BMP sin comprimir. Se
+        // acepta para no obligar a convertir a mano, pero no se guarda
+        // asi: Imagen::optimizar lo convierte a JPEG al subirlo.
+        'bmp'  => 'image/bmp',
+        // Las fotos de iPhone. Tampoco se guardan asi: Imagen::optimizar
+        // las pasa a JPEG al subirlas. Si llegaran tal cual, el
+        // navegador no sabria mostrarlas y el expediente tendria
+        // radiografias que nadie puede ver.
+        'heic' => 'image/heic',
+        'heif' => 'image/heif',
         'doc'  => 'application/msword',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
@@ -219,6 +239,14 @@ final class Almacen
         ));
         // Word moderno se reporta como zip, que es lo que es por dentro.
         $esperados[] = 'application/zip';
+
+        // El BMP no tiene un solo nombre: segun quien lo haya escrito,
+        // finfo lo reporta de tres formas distintas. Rechazar un archivo
+        // valido porque su etiqueta tiene otro alias seria un error que
+        // el usuario no podria ni entender ni arreglar.
+        if (in_array('bmp', $permitidas, true)) {
+            array_push($esperados, 'image/x-ms-bmp', 'image/x-bmp', 'image/bmp');
+        }
 
         if (!in_array($mimeReal, $esperados, true)) {
             return 'El contenido del archivo no corresponde a su extension.';

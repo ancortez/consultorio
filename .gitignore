@@ -15,6 +15,10 @@ storage/logs/*
 !storage/logs/.gitkeep
 storage/uploads/*
 !storage/uploads/.gitkeep
+
+# Volcados que hace migrar.sh antes de tocar la base en local. Traen el
+# expediente completo de cada paciente: nunca van al repositorio.
+storage/respaldos/
 vendor/
 node_modules/
 *.log

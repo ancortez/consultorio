@@ -9,17 +9,143 @@ document.addEventListener('DOMContentLoaded', () => {
   detallePaciente();
   tutorEditar();
 
-  // El expediente electronico vive en su propio archivo. Se arranca
-  // desde aqui porque su pestania es parte del detalle del paciente.
-  const contenedor = document.querySelector('.tab-content[data-id-expediente]');
-  if (contenedor && typeof Expediente !== 'undefined') {
-    Expediente.iniciar(contenedor.dataset.idExpediente);
-  }
-  if (contenedor && typeof Historia !== 'undefined') {
-    Historia.iniciar(contenedor.dataset.idExpediente);
-  }
-  if (contenedor && typeof Consentimiento !== 'undefined') {
-    Consentimiento.iniciar(contenedor.dataset.idExpediente);
+  /*
+     El expediente, la historia y el consentimiento viven en sus propios
+     archivos y se arrancan desde aqui.
+
+     El id del paciente viajaba en un atributo del contenedor de
+     pestanias. Esas pestanias desaparecieron en octubre 2026, asi que
+     ahora viaja en un elemento propio que ponen las tres pantallas:
+     ficha, historia clinica y expediente. Cada modulo decide por su
+     cuenta si tiene algo que hacer en la pantalla donde esta.
+  */
+  /* -------------------------------------------------------------------
+     Los lapices y los "+" de la ficha
+
+     El lapiz abre la LISTA completa de ese bloque; el "+" va DIRECTO
+     al alta. La diferencia no es cosmetica: si no hay nada registrado,
+     lo unico que se puede hacer es crear, y mandar a alguien a una
+     lista vacia para que ahi pique "agregar" es un clic de mas y una
+     pantalla que no dice nada.
+     ------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------
+     Picar una cita de la tarjeta abre su detalle
+     -------------------------------------------------------------------
+     El mismo modal que usan las dos agendas. Desde la ficha solo se
+     MIRA: no se cambia el estatus ni se modifica. Quien esta en la
+     ficha del paciente esta repasando su historia, no gobernando la
+     agenda, y ofrecer ahi un "marcar atendida" invita a tocar por
+     error una cita de hace tres meses.
+  */
+  document.addEventListener('click', (ev) => {
+    const boton = ev.target.closest('[data-cita-ficha]');
+    if (!boton) return;
+
+    DetalleCita.abrir(JSON.parse(boton.dataset.citaFicha), {
+      alModificar: (c) => {
+        // Modificar lleva a la agenda de ese dia, con la cita abierta:
+        // es donde viven los espacios libres y el aviso de choques.
+        const parametros = new URLSearchParams({
+          modulo: 'consultas', vista: 'agenda',
+          fecha: String(c.fecha_inicio).substring(0, 10),
+          cita:  c.id_cita,
+        });
+        App.ir(`index.php?${parametros}`);
+      },
+    });
+  });
+
+  /* -------------------------------------------------------------------
+     La fotografia: verla en grande y quitarla
+     -------------------------------------------------------------------
+     Verla en grande se dispara desde dos sitios —el circulo de la
+     tarjeta de arriba y la miniatura del campo— porque son los dos
+     sitios donde uno la ve y se le ocurre picarla. Un solo escucha
+     delegado sirve para ambos.
+  */
+  document.addEventListener('click', (ev) => {
+    const verFoto = ev.target.closest('[data-ver-foto]');
+    if (verFoto) {
+      // El mismo ?v= que usa el refresco tras subirla: sin el, el
+      // navegador puede mostrar en grande la foto vieja que todavia
+      // tiene guardada.
+      App.verImagen(
+        `${App.URL_BASE}/avatar.php?p=${verFoto.dataset.verFoto}&v=${Date.now()}`,
+        document.querySelector('.tarjeta-identidad-compacta .nombre')
+          ?.textContent.trim() ?? '');
+      return;
+    }
+
+    const quitarFoto = ev.target.closest('[data-quitar-foto]');
+    if (!quitarFoto) return;
+
+    (async () => {
+      const ok = await App.alerta.confirmar(
+        '¿Eliminar la fotografía?',
+        'El expediente se queda sin fotografía hasta que subas otra.',
+        'Sí, eliminar');
+      if (!ok) return;
+
+      try {
+        await App.api('paciente/foto_quitar.php', {
+          id_registro_paciente:
+            document.getElementById('pacienteContexto')?.dataset.idExpediente,
+        });
+        // Se recarga en vez de retocar el DOM: la foto sale en el
+        // circulo, en el campo y en el menu de acciones, y dejar uno
+        // de los tres sin actualizar es peor que esperar un segundo.
+        location.reload();
+      } catch (e) { /* App.api ya aviso */ }
+    })();
+  });
+
+  document.addEventListener('click', (ev) => {
+    const abrir = ev.target.closest('[data-abrir]');
+    if (abrir) {
+      const cajas = {
+        contactos: 'modalListaContactos',
+        tutores:   'modalListaTutores',
+        domicilio: 'modalDomicilio',
+      };
+      const caja = document.getElementById(cajas[abrir.dataset.abrir]);
+      if (caja) bootstrap.Modal.getOrCreateInstance(caja).show();
+      return;
+    }
+
+    const nuevo = ev.target.closest('[data-nuevo]');
+    if (!nuevo) return;
+
+    // El "+" dispara el boton de alta que ya vive dentro de cada
+    // lista, en vez de duplicar aqui la logica de abrir su modal.
+    // Asi hay un solo camino al alta y no dos que se pueden separar.
+    const disparos = {
+      contacto:  ['modalListaContactos', '[data-accion="nuevo-contacto"]'],
+      tutor:     ['modalListaTutores',   '[data-accion="nuevo-tutor"]'],
+      domicilio: ['modalDomicilio',      null],
+    };
+
+    const [idCaja, selector] = disparos[nuevo.dataset.nuevo] ?? [];
+    const caja = document.getElementById(idCaja);
+    if (!caja) return;
+
+    if (selector) {
+      // El alta abre OTRO modal encima de la lista. Se deja la lista
+      // detras a proposito: al cerrar el alta, se vuelve a ella y se
+      // ve lo que se acaba de registrar.
+      bootstrap.Modal.getOrCreateInstance(caja).show();
+      setTimeout(() => caja.querySelector(selector)?.click(), 250);
+    } else {
+      // El domicilio no tiene lista: su modal ES el formulario.
+      bootstrap.Modal.getOrCreateInstance(caja).show();
+    }
+  });
+
+  const contexto = document.getElementById('pacienteContexto');
+  if (contexto) {
+    const id = contexto.dataset.idExpediente;
+    if (typeof Expediente     !== 'undefined') Expediente.iniciar(id);
+    if (typeof Historia       !== 'undefined') Historia.iniciar(id);
+    if (typeof Consentimiento !== 'undefined') Consentimiento.iniciar(id);
   }
 });
 
@@ -142,6 +268,47 @@ function altaPaciente() {
   const btnAgregar   = document.getElementById('btnAgregarNuevo');
   const modalGuardar = document.getElementById('modalGuardarPaciente');
   const formGuardar  = document.getElementById('formGuardarPaciente');
+
+  /* -------------------------------------------------------------------
+     ¿Mayor de edad? Entonces hay que preguntar por el tutor
+     -------------------------------------------------------------------
+     El bloque aparece y desaparece segun la fecha de nacimiento. En un
+     menor no se pregunta —lo decide la ley— y ofrecer el interruptor
+     invitaria a apagarlo por error, dejando el expediente de un niño
+     sin quien firme por el.
+
+     La edad se calcula aqui solo para DECIDIR QUE ENSENIAR. Quien la
+     calcula de verdad, para guardarla, es PHP: lo que llega del
+     navegador no decide nada que importe.
+  */
+  const nacimAlta  = document.getElementById('gp_nacim');
+  const bloqueTutor = document.getElementById('gpBloqueTutor');
+
+  function ajustarBloqueTutor() {
+    if (!nacimAlta || !bloqueTutor) return;
+
+    let esMayor = false;
+    if (nacimAlta.value) {
+      const nace = new Date(nacimAlta.value + 'T00:00:00');
+      const hoy  = new Date();
+      let anios = hoy.getFullYear() - nace.getFullYear();
+      // Resta uno si todavia no ha cumplido este anio: comparar solo
+      // los anios da dieciocho a quien los cumple en diciembre.
+      const m = hoy.getMonth() - nace.getMonth();
+      if (m < 0 || (m === 0 && hoy.getDate() < nace.getDate())) anios--;
+      esMayor = anios >= 18;
+    }
+
+    bloqueTutor.classList.toggle('d-none', !esMayor);
+
+    // Al esconderlo se deja en "no responde por su cuenta" para no
+    // mandar una respuesta que nadie dio. De todas formas PHP ignora
+    // este campo en un menor.
+    if (!esMayor) document.getElementById('gpTutorNo').checked = true;
+  }
+
+  nacimAlta?.addEventListener('change', ajustarBloqueTutor);
+  nacimAlta?.addEventListener('input', ajustarBloqueTutor);
 
   formBuscar.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -327,11 +494,69 @@ function gestorContactos() {
    Vista detalle_paciente
    --------------------------------------------------------------------- */
 function detallePaciente() {
-  const contenedor = document.querySelector('.tab-content[data-id-expediente]');
-  if (!contenedor) return;
+  // El id viajaba en el contenedor de pestanias. Esas pestanias
+  // desaparecieron en octubre 2026 y la funcion entera se estaba
+  // cortando en esta linea: la ficha se dibujaba bien pero no
+  // respondia a nada —ni contactos, ni domicilios, ni tutores, ni
+  // ocupacion— sin un solo error en la consola.
+  const contexto = document.getElementById('pacienteContexto');
+  if (!contexto) return;
 
-  const idExpediente = contenedor.dataset.idExpediente;
-  const idPersona    = contenedor.dataset.idPersona;
+  const idExpediente = contexto.dataset.idExpediente;
+  const idPersona    = contexto.dataset.idPersona;
+
+  /* -------------------------------------------------------------------
+     ¿Este paciente ya es mayor y nadie ha dicho si lleva tutor?
+     -------------------------------------------------------------------
+     Se pregunta UNA vez y la respuesta se guarda. El caso que motiva
+     esto es el niño que lleva años viniendo y un dia cumple dieciocho:
+     nadie se acuerda de revisar su expediente, y el sistema sigue
+     pidiendo la firma de su mama.
+
+     Quien decide si toca preguntar es PHP, no esta linea: la misma
+     regla la usan el guardado y los documentos impresos, y calcularla
+     aqui por separado acabaria en un aviso que sale y no se puede
+     quitar.
+  */
+  if (contexto.dataset.preguntarTutor) {
+    preguntarPorElTutor(idExpediente, contexto.dataset.edad);
+  }
+
+  async function preguntarPorElTutor(expediente, edad) {
+    const r = await Swal.fire({
+      title: `Este paciente ya tiene ${edad} años`,
+      html: '¿Sigue necesitando que un tutor firme por él, o ya responde '
+          + 'por su cuenta?<br><span class="text-secondary small">'
+          + 'Se puede cambiar después en sus datos generales.</span>',
+      icon: 'question',
+      showCancelButton: true,
+      showDenyButton: true,
+      confirmButtonText: 'Responde por su cuenta',
+      confirmButtonColor: '#7b2d8e',
+      denyButtonText: 'Sigue con tutor',
+      denyButtonColor: '#6c6577',
+      cancelButtonText: 'Ahora no',
+      reverseButtons: true,
+      // Que se pueda salir sin contestar es a proposito: quien esta
+      // atendiendo a alguien enfrente no tiene por que resolver esto
+      // ahora. Vuelve a preguntar la proxima vez.
+      allowOutsideClick: true,
+    });
+
+    if (r.isDismissed) return;
+
+    try {
+      await App.api('paciente/tutor_decidir.php', {
+        id_registro_paciente: expediente,
+        requiere_tutor: r.isConfirmed ? 0 : 1,
+      });
+      // Se recarga porque la respuesta cambia la ficha entera: aparece
+      // o desaparece el bloque del tutor, y cambia quien firma los
+      // documentos. Retocar el DOM a mano dejaria la mitad sin
+      // enterarse.
+      location.reload();
+    } catch (e) { /* App.api ya aviso */ }
+  }
 
   /* ---------- Pestania Identificacion ---------- */
   const formIdent = document.getElementById('formIdentificacion');
@@ -392,7 +617,7 @@ function detallePaciente() {
     Contactos.abrir({
       idPersona: btn.dataset.persona,
       nombre: btn.dataset.nombre,
-      alGuardar: () => App.recargarEnPestania('#tab-contacto', 500),
+      alGuardar: () => App.recargarEnPestania('#sec-contacto', 500),
     });
   });
 
@@ -423,7 +648,7 @@ function detallePaciente() {
         idPersona,
         nombre: nombrePaciente,
         contacto: JSON.parse(fila.dataset.contacto),
-        alGuardar: () => App.recargarEnPestania('#tab-contacto', 500),
+        alGuardar: () => App.recargarEnPestania('#sec-contacto', 500),
       });
     }
   });
@@ -438,11 +663,10 @@ function detallePaciente() {
     cp: 'dom_cp',
     idDomicilio: 'dom_id',
     aviso: 'avisoDomicilio',
-    btnNuevo: 'btnDomicilioNuevo',
     btnGuardar: 'btnDomicilioGuardar',
     dependientes: '.campo-domicilio',
     // Al recargar se vuelve a la pestania de Domicilio, no a la primera.
-    alGuardar: () => App.recargarEnPestania('#tab-domicilio', 900),
+    alGuardar: () => App.recargarEnPestania('#sec-domicilio', 900),
   });
   domicilio.iniciar();
 
@@ -469,9 +693,11 @@ function detallePaciente() {
     }
 
     if (opcion.dataset.accion === 'editar-domicilio') {
-      document.querySelector('[data-bs-target="#tab-domicilio"]').click();
+      // Se edita desde la lista del tutor, que esta en otra seccion.
+      // Antes esto picaba la pestania de domicilio; ahora es una
+      // seccion plegable y lo que hay que hacer es abrirla.
+      App.activarPestania('#sec-domicilio');
       await domicilio.editar(fila.dataset.id);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   });
 
@@ -532,7 +758,7 @@ function detallePaciente() {
         id_parentesco: parentesco,
       });
       App.alerta.toast('Tutor vinculado');
-      App.recargarEnPestania('#tab-tutor', 900);
+      App.recargarEnPestania('#sec-tutor', 900);
     } catch (e) { /* ya se mostro */ }
   });
 
@@ -555,7 +781,7 @@ function detallePaciente() {
         id_registro_paciente: idExpediente,
       });
       App.alerta.toast('Tutor registrado');
-      App.recargarEnPestania('#tab-tutor', 900);
+      App.recargarEnPestania('#sec-tutor', 900);
     } catch (e) {
       App.marcarErrores(formGuardarTutor, e.errores);
     }
@@ -753,14 +979,13 @@ function tutorEditar() {
         cp: 'teDomCp',
         idDomicilio: 'teDomId',
         aviso: 'teAvisoDomicilio',
-        btnNuevo: 'teBtnDomicilioNuevo',
         btnGuardar: 'teBtnDomicilioGuardar',
         dependientes: '.te-campo-domicilio',
         // Guardar el domicilio del tutor cierra el modal y devuelve a la
         // pestania Tutor, donde la lista ya muestra el domicilio nuevo.
         // Quedarse dentro del modal obligaria a cerrarlo a mano solo para
         // comprobar que el cambio si quedo.
-        alGuardar: () => cerrarYVolverATutor(),
+        alGuardar: () => marcarCambioTutor(),
       });
 
       // Al pedir domicilio nuevo desaparece el aviso de vinculado.
@@ -838,15 +1063,40 @@ function tutorEditar() {
         id_domicilio: dp.id_domicilio,
       });
       App.alerta.toast('Domicilio vinculado');
-      cerrarYVolverATutor();
+      marcarCambioTutor();
     } catch (e) { /* ya se mostro */ }
   }
 
-  /** Cierra el modal y recarga cayendo en la pestania Tutor. */
-  function cerrarYVolverATutor() {
-    bsModal.hide();
-    App.recargarEnPestania('#tab-tutor', 700);
+  /*
+     Guardar un dato del tutor YA NO cierra el modal.
+
+     Cerraba y recargaba la pagina entera tras cada guardado, y corregir
+     tres cosas del mismo tutor —el telefono, el parentesco y la
+     credencial— costaba tres cierres, tres recargas y tres viajes de
+     vuelta a abrir el mismo modal. Un formulario que se cierra solo
+     cuando guardas castiga justo al que esta capturando con cuidado.
+
+     Lo que se hace ahora: se refresca el contenido del modal con los
+     datos recien guardados y se anota que la ficha de atras quedo
+     desactualizada. La recarga se hace UNA vez, cuando la persona
+     cierra el modal porque ya acabo.
+  */
+  let hayCambiosTutor = false;
+
+  function marcarCambioTutor() {
+    hayCambiosTutor = true;
+    // Los datos del propio modal si se refrescan al momento: las
+    // tablas de contactos y domicilios tienen que mostrar lo que se
+    // acaba de guardar.
+    recargar().catch(() => { /* el aviso ya salio */ });
   }
+
+  modal.addEventListener('hidden.bs.modal', () => {
+    if (!hayCambiosTutor) return;
+    hayCambiosTutor = false;
+    // Sin retraso: el modal ya se cerro y no hay nada que esperar.
+    App.recargarEnPestania('#sec-tutor', 0);
+  });
 
   async function recargar() {
     const r = await App.api('paciente/tutor_obtener.php', {
@@ -943,15 +1193,13 @@ function tutorEditar() {
         id_registro_paciente: datosTutor?.id_registro_paciente ?? '',
       });
 
-      bsModal.hide();
-
       if (r.datos?.pendiente_identificacion) {
         App.alerta.toast('Guardado. Falta escanear la identificación', 'info');
       } else {
         App.alerta.toast('Datos del tutor actualizados');
       }
 
-      App.recargarEnPestania('#tab-tutor', 900);
+      marcarCambioTutor();
     } catch (e) {
       App.marcarErrores(formIdent, e.errores);
     }
@@ -1015,7 +1263,7 @@ function tutorEditar() {
         id_domicilio: fila.dataset.id, id_persona: idPersona.value,
       });
       App.alerta.toast(compartido ? 'Domicilio desvinculado' : 'Domicilio eliminado');
-      cerrarYVolverATutor();
+      marcarCambioTutor();
     }
 
     if (opcion.dataset.accion === 'te-editar-domicilio') {
@@ -1033,37 +1281,10 @@ function tutorEditar() {
 }
 
 /* ---------------------------------------------------------------------
-   Pestania de planes de tratamiento
-   Solo lista: la captura vive en su propia pantalla, que necesita mas
-   espacio del que cabe en una pestania.
+   Los planes de tratamiento ya no se listan aqui.
+
+   Eran una pestania con su tabla. Octubre 2026: la ficha del paciente
+   los muestra en una tarjeta lateral, dibujada en PHP junto con el
+   resto de la pagina. Un listado que ya viene en el HTML no necesita
+   pedirse por AJAX ni esperar a que alguien abra una pestania.
    --------------------------------------------------------------------- */
-document.addEventListener('DOMContentLoaded', () => {
-  const tabla = document.getElementById('tablaPlanes');
-  if (!tabla) return;
-
-  const contenedor = document.querySelector('.tab-content[data-id-expediente]');
-  const idExpediente = contenedor?.dataset.idExpediente;
-  let cargado = false;
-
-  async function cargar() {
-    const r = await App.api('consultas/planes_listar.php', {
-      id_registro_paciente: idExpediente,
-    });
-
-    if (!r.datos.length) {
-      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="8">
-          <i class="bi bi-list-check fs-3 d-block mb-2 opacity-50"></i>
-          Este paciente no tiene planes de tratamiento.</td></tr>`;
-      return;
-    }
-
-    tabla.innerHTML = r.datos.map((p, i) => Planes.fila(p, i, idExpediente)).join('');
-  }
-
-  document.querySelector('[data-bs-target="#tab-planes"]')
-    ?.addEventListener('shown.bs.tab', () => {
-      if (!cargado) { cargado = true; cargar(); }
-    });
-
-  if (location.hash === '#tab-planes') { cargado = true; cargar(); }
-});

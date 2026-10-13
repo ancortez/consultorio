@@ -201,8 +201,9 @@
               <div>
                 <b>Este domicilio es el mismo que el del paciente.</b><br>
                 Cualquier cambio que hagas aqu&iacute; tambi&eacute;n cambia el
-                domicilio del paciente. Si el tutor se mud&oacute; y el paciente no,
-                usa <b>Capturar nuevo domicilio</b> en lugar de modificar este.
+                domicilio del paciente. Si el tutor se mud&oacute; y el paciente
+                no, primero desvinc&uacute;lalos desde el domicilio del
+                paciente.
               </div>
             </div>
 
@@ -277,10 +278,15 @@
                          placeholder="Ejemplo: casa de 2 pisos con cancel blanco">
                 </div>
 
+                <?php /* Se fue "Capturar nuevo domicilio".
+
+                         El expediente acepta UN domicilio por persona
+                         desde que se unifico, asi que el boton no tenia
+                         nada que hacer: ofrecia capturar un segundo que
+                         el sistema no iba a guardar como segundo.
+                         Modificar el que hay es la unica operacion que
+                         existe. */ ?>
                 <div class="col-12 d-flex justify-content-end gap-2">
-                  <button type="button" class="btn btn-light" id="teBtnDomicilioNuevo">
-                    <i class="bi bi-plus-lg me-1"></i> Capturar nuevo domicilio
-                  </button>
                   <button type="submit" class="btn btn-morado te-campo-domicilio"
                           id="teBtnDomicilioGuardar" data-modo="nuevo">
                     <i class="bi bi-check-lg me-1"></i>

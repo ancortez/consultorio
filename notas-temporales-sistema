@@ -1,12 +1,345 @@
-Necesito comprar un plan de hosting que me permita tener subdominios y varios correos electrónicos para mis clientes. Recomiéndame el deal.
-No serán muchos de momento, pero si quiero que si mi proyecto escala a unos 100 clientes gubernamentales (que pienso que será en unos 10 años) no haya problema.
-La idea no es administrar de momento todo el grueso de los sistemas, solo los servicios que manejaré como extras que son:
-    * Adminstración de mis clientes. Base de datos de clientes que tienen servicio contratado conmigo.
-    * Servicios de correo electrónico para recordatorios (consultorio) o cobranza (haixa)
-    * Almacenamiento de documentos digitales.
-    * Procesos de generación y envío de PDF de estados de cuenta a los usuarios de agua potable
-    * procesamiento de facturas.
-Tambien requiero informacion de como activar un certificado ssl en mi sitio para que los correos que salen de ahi no se vayan a spam.
+
+* CORRECCIONES 13/10/2026
+
+CONSULTAS>PLAN DE TRATAMIENTO
+    -> IMPRIMIR CONSENTIMIENTO.
+        * El documento no imprime el nombre de la dra para que firme. Solo dentro de plan de tratamiento, ya revisé que dentro del expediente electrónico de cliente si lo muestra.
+    -> ESTATUS
+        * El procedimientos nace con estatus PROPUESTO. Pasará a Aceptado una vez que se escanea la hoja del plan, pero si por alguna razón, no se ha escaneado y ya se está generando la primera cita vinculada al plan, el estatus pasa a EN PROCESO.
+            Ya no es necesario que muestre el mensaje que se va a pasar a aceptado cuando se escaneé, poque no puede volver un paso atras.
+    -> Al crear un nuevo plan hubo conflicto al imprimir las 2 hojas (Hoja del plan, consentimiento, hubo bloqueo de ventanas y no se crearon los pendientes de digitalización).
+        Mejor al guardar avisar que ya se guardó y mostrar en el modal un botón para cada una de las 2 impresiones requeridas con un ícono de Contrato.
+        Cada una con un simbolo de advertencia (pendiente de imprimir) y una vez impreso uno por uno, este símbolo se quita.
+    
+CONSULTA>LISTA DE CONSULTAS
+    >EXPLORACIÓN>HALLAZGOS
+        * Ya adjunta las imagenes de iphone (por fin) .heic pero no las muestra. No genera las miniaturas y cuando damos click, sale el modo album pero no muestra fotos.
+            Parece que no la convierte a jpg porque quise descargar una y me la descargó en formato .heic.
+
+PACIENTE
+    >DOMICILIO
+    -> En modal de Domicilio, quitar botón de <+ Capturar nuevo Domicilio> Ya no es necesario porque ya solo aceptamos uno.
+
+    >TUTOR
+    -> A veces el tutor no requiere factura, entonces hay que aceptar formato de RFC con Homoclave y sin homo clave. Ejemplo: puede aceptar COMA861125 y COMA8611257K1
+
+    >HISTORIA CLINICA
+    -> Al solicitar prellenado con un paciente nuevo, nos lanza el modal de alimentos con azucar. No debe pedirlo hasta que estemos contestando esa pregunta.
+    -> Al tener el historial Clínico lleno, quitar color naranja de la pestaña en ese momento, porque la sigue mostrando como si estuviera pendiente y hasta que actualizo se quita.
+        >EXAMEN BUCAL
+            * Colocar opcion de Si el examen fue NORMAL o ANORMAL. Predefinido NORMAL. Agregar al imprimible tambien.
+
+    >EXPEDIENTE ELECTRÓNICO
+    -> Mostrar miniatura de la foto o del PDF escaneado.
+    -> Reemplazar el texto de la derecha (Fotografía del paciente, Historial clínico firmado, etc), se repite con el título del documento que ya lo tenemos a la derecha.
+        En su lugar Mostrar Texto "Escaneado Correctamente" con un ícono de palomita (check verde) a la izquierda del texto.
+    >CONSULTAS
+        -> Mostrar las miniaturas como ya se pidió y el botón para verlas en modo album.
+
+
+---------
+* CORRECCIONES 12/10/2026 (2)
+
+CAJAS>COBRAR
+    -> Al seleccionar un paciente, opción de consultar fichas pagadas.
+    -> El saldo a favor tiene que aparecer tambien como concepto en la ficha y aparecer con número negativo, ya qe actualmente como quedó, no funciona. En el corte sigue pidiendo el efectivo a pesar de que se había aplicado el saldo a favor.
+
+PACIENTE>HISTORIAL CLINICO
+    -> Al contestar "Momentos de azucar" no muestra la respuesta que dimos.
+    -> Lo que se haya prellenado y le falte el complemento hay que marcarlo de amarillo de que falta.
+    -> Al momento de imprimir, las preguntas que no llevan complemento hayq ue llenaerlas en el formato de todos modos. Será de la siguiente manera:
+
+            PREGUNTA            OPCIÓN                      RESP COMPL. EN FORMATO
+            --------------------------------------------------------------
+            Primera visita      SI                          PRIMERA VEZ
+            Complicaciones      NO                          NINGUNA
+            Lactancia materna   NO                          N/A
+            Fórmula             NO                          N/A
+            Dieta Actual        COMPLETA                    N/A
+            Momento de zucar    No consume                  N/A
+            Enfermedad cronica  NO                          NINGUNA
+            Discapacidad        NO                          NINGUNA
+            Alergico            NO                          NINGUNA
+            Tratamiento med.    NO                          NINGUNO
+            Cirugías            NO                          NINGUNA
+            Otro elem higiene   NO                          NINGUNO
+            -------------------------------------------------------------
+
+    PENDIENTES DE DIGITALIZAR
+    -> Hay que reacomodar el card de Pendientes de Digitalizar. Lo quiero dentro del card grande de datos del paciente. justo debajo de los canales de contacto. Hay que ajustar el ancho del de Domicilio, al mismo que el de Tutor, para que el de pendentes de digitalizar se recorra hacia abajo cuando se llene sin chocar con nada.
+
+    -> Sale este error en la parte de arriba: Warning: Undefined variable $planes in /var/www/html/vistas/paciente/detalle_paciente.php on line 186
+    Warning: foreach() argument must be of type array|object, null given in /var/www/html/vistas/paciente/detalle_paciente.php on line 186
+
+CONSULTAS>LISTA DE CONSULTAS
+    -> HALLAZGOS. Aún no permite seleccionar archivos .heic
+    -> Notas de evolución. Hay que mover el card debajo de Recetas y que tome el tamaño de esa columna de cards.
+    -> Una vez creada la consulta, el botón guardar no debe aparecer debajo de TRatamiento realizado e indicacines. Hay que volverlo a visualizar arriba, junto a Cerrrar Consulta.
+
+CONSULTAS>PLAN DE TRATAMIENTO
+    -> Al abrir el detalle del plan de tratamento muestra este error: Fatal error: Uncaught PDOException: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'motivo_cancelacion' in 'field list' in /var/www/html/config/conexion.php:59 Stack trace: #0 /var/www/html/config/conexion.php(59): PDO->prepare('SELECT folio, i...') #1 /var/www/html/config/conexion.php(73): Conexion::consulta('SELECT folio, i...', Array) #2 /var/www/html/vistas/consultas/nuevo_plan_tratamiento.php(49): Conexion::uno('SELECT folio, i...', Array) #3 /var/www/html/index.php(202): require('/var/www/html/v...') #4 {main} thrown in /var/www/html/config/conexion.php on line 59
+
+* * REPORTES
+
+--------------------------
+* CORRECCIONES 12/10/2026
+
+Nanai debe estar preparado para atender tanto a niños como a adultos. Por lo cual se requieren algunos cambios:
+
+PACIENTE
+    -> Si el paciente existe desde que era menor, al acudir nuevamente al consultorio y el sistema detectar que ya es mayor de 18 años, debe preguntar si va a seguir teniendo tutor o si ya va a actuar por cuenta propia.
+        * Si requiere tutor, el sistema debe comportarse como normalmente lo hace. Hay que tener un campo para manejar estos estatus, esto para no preguntar cada vez que entremos.
+        * Si ya no requiere tutor, automáticamente la opción de tutor desaparecerá de los datos del paciente.
+        * Si, esta marcado que requiere tutoe y pasa los 24 años, el sistema debe pregunar nuevamente.
+    -> Si el paciente es nuevo y es mayor de edad:
+        * El sistema pregunta al crearse si requiere tutor o no.
+    -> Debe haber una opción en los datos generales para saber si "requiere tutor".
+    -> En los imprimibles debe aparecer o el tutor o el paciente, segun se haya elegido.
+    -> Si en el Historial Clínico la pregunta ¿Tiene alguna discapacidad? está marcada con "SI", vamos a agregar un campo en color rosa con un ícono de discapacidad ♿ en el card de resumen de descripcion del paciente. Ej:
+    "Paciente con Discapacidad: Síndrome de Down."
+
+    >HISTORIA CLÍNICA
+        * En los campos de selección de los cuales derivan una pregunta extra, actualmente se muestran estos campos descuadrados y confunden a quien escribe.
+            Ahora se requiere que en lugar del campo aparezca un pequeño modal para hacer la pregunta extra y al guardarse, debe aparecer esta información a un lado o debajo del elemento seleccinador.
+
+            PREGUNTA            OPCIÓN                      MOSTRAR MODAL
+            --------------------------------------------------------------
+            Primera visita      NO                          Ultima vez
+            Complicaciones      SI                          Especifique
+            Lactancia materna   SI                          Hasta cuando
+            Fórmula             SI                          Hasta cuando
+            Dieta Actual        INCOMPLETA                  Por qué
+            Momento de zucar    TODAS excepto "No consume"  Qué alimentos
+            Enfermedad cronica  SI                          Especifique
+            Discapacidad        SI                          Especifique
+            Alergico            SI                          Especifique
+            Tratamiento med.    SI                          Especifique
+            Cirugías            SI                          Especifique
+            Otro elem higiene   SI                          Especifique
+            -------------------------------------------------------------
+        * Si no se responde la pregunta y se cierra el modal, debe regresar a la respuesta original. Ej. Lactancia Materna -> SI, abre modal, se cierra el modal sin contestar, la respuesta se convierte en NO.
+
+        >PATOLÓGICOS
+        * Si está seleccionado Enfermedad cronica->SI / Discapacidad->SI / Alergico->SI / Tratamiento médico->SI
+            Debe mostrar una alerta al momento de realizar un Plan de Tratamiento. Veo que actualmente lo muestra pero con dondiciones que se introdujeron en los datos de prueba. Esta forma que te describo será la real.
+
+CONFIGURACION>IMPRIMIBLES
+    -> Agregar esta opción en el menú configuración.
+    -> El usuario tendrá opción de armar sus propios documentos. Por default hay que dejar los que ya existen. Ayuda de creación con etiquetas como en la función de Recordatorios de cita.
+        * CONSENTIMIENTOS
+        * HOJA DE PLAN DE TRATAMIENTO
+        * HISTORIA CLÍNICA
+        * FICHA DE PAGO
+    -> Permite elegir la paleta de colores de los imprimibles:
+    -> Permite elegir que no tengan diseño para imprimir solo datos.
+
+    >PROCEDIMIENTOS DENTALES
+        * Cada Procedimiento tendrá la libertad elegir el Consentimiento general que ya tenemos o de agregar un consentimiento personalizado.
+        * Agregar columna Consentimiento y mostrar si es General o Personalizado. Botón de Modificar para abrir modal grande para crearlo, modificarlo o elegir uno ya existente.
+        * Dar opción de crear los consentimientos para que podamos usarlos en otros procedimientos.
+        * Ayuda de creación con etiquetas como en la función de Recordatorios de cita.
+
+CONSULTAS>PLAN DE TRATAMIENTO>CREAR O CONSULTAR PLAN
+    -> Imprimir consentimiento
+        * Al crear un nuevo Plan de tratamiento al dar clic en Imprimir plan (modal). Se van a abrir ambos documentos (consentimiento y hoja del plan) en ventanas de impresión independientes. Crear pendiente de digitalización.
+        * Al consultar uno existente. En la parte de arriba agregar un botón de "Imprimir consentimiento".
+    -> Permitir cancelar un Plan de Tratamiento que aún no ha pasado a la estapa de ACEPTADO. Preguntar el motivo y guardarlo.
+    -> Si se canceló hay que desaparecer los pendientes de digitalización: CONSENTIMIENTO DEL PLAN Y HOJA DEL PLAN DE TRATAMIENTO.
+    -> Permitir dar por terminado un plan de tatamiento. Después de tener estatus de terminado, ya no puede volver a otro estatus.
+
+CONSULTAS>LISTA DE CONSULTAS
+    -> Modo Album. Dar efecto de movimiento a la imagen, hacia la derecha o a la izquierda.
+        * En la opción Modificar Hallazgo, Permitir borrar fotos ya guardadas de forma individual.
+        * La opción Abrir en pestaña nueva, debe abrir la imagen centrada en la pantalla. No extender la ventana.
+    -> Cuando la consulta ya existe, mostrar los campos de Fecha y hora/ Dentista / Plan de Tratamiento solo como texto. Botón de Lapicito en cada uno para poder modificar el dato.
+    
+    >NUEVA CONSULTA.
+    -> Preguntar desde un inicio si la consulta va ligada a un plan de tratamiento (Solo estatus: PROPUESTO/ACEPTADO/EN PROCESO).
+        * En caso de elegir ligarla a un plan se prellenarán los campos:
+            ** ¿A QUE VINO?: Enumerar la cita relacionada al plan. Ej: "1RA CITA PLAN DE TRATAMIENTO PT-008"
+            ** PADECIMIENTO ACTUAL: Lo mismo que el campo "Descripcion" del plan de tratamiento ligado.
+    -> Cuando es una consulta nueva, colocar el botón "Guardar" debajo del campo "Tratamiento realizado e idicaciones". Solo deben estar activos los campos A que vino, padecimiento actual y Tratamiento realizado e indicaciones. Todos los demás cards en pantalla deben tener un cuadro que difumina el texto para dar a entender que no están disponibles.
+    -> Después de guardar por primera vez, el botón guardar regresa arriba y los cards se hacen visibles.
+    -> Eliminar card de "Documentos de la consulta" (ya los encontramos en Hallazgos) y en su lugar reubicar card de "Notas de evolución" con el tamaño igual que recetas y pendientes de pago.
+
+CAJAS>COBRAR
+    -> Preguntar si desea aplicar el saldo a favor. En caso positivo permite agregar el concepto en la ficha de pago y restar del total.
+
+GENERAL
+    * Agregué una imagen assets/img/logo_horizontal_blanco.svg que es la firma del desarrollador (NIERIKA DEVELOPMENT) y debe ir en el footer. Este logotipo está habilitado para fondos oscuros.
+    * Ayúdame a idear algo que me pidió la doctora. Cuando creamos un plan de tratamiento hacemos la hoja del plan y viene un costo estimado del plan en toda la vida del mismo. Quiere que por ejemplo, si el cliente adelantó un % de anticipo, al entrar a revisar al paciente o el estado de cuenta, podamos ver este dato y ya pueda cobrarle solo lo que resta y no haya una discusión por esos asuntos.
+    * Permitir subir fotos de formato .heic y aplicar mismo procedimiento que las otras fotos (convertir a jpg y redimiensionar).
+
+---------------------------
+* CORRECCIONES 10/OCT/2026
+
+INICIO>DASHBOARD
+    -> Se propone nuevo diseño para el dashboard como se ve en la imagen adjunta.
+    -> Diseño simlar al de detalle del paciente. Columa Area grande con la agenda de hoy y a un lado otras 2 columnas con cards.
+    -> Footer no debe tapar la información que muestra el dashboard.
+    -> Animación de carga en cada uno de los cards del dashboard. Esta animación debe verse despues de la carga del dashboard con una duración de 0.5 segundos cada una, con una diferencia de 0.1 segudos entre una y otra para que se vea cierta latencia a la hora de cargar.
+
+CONSULTAS>AGENDA DE LA SEMANA.
+    -> Botón de <NUeva cita> No hace nada. Corregir.
+
+CONFIGURACION>RECORDATORIOS DE CITA.
+    -> Apartado para definir mensaje de recordatorio para enviar por whatsapp.
+    -> Dvidir en 2 cards. Mitad y mitad. A la izquierda el de los tiempos de recordatorio y a la derecha el mensaje para enviar.
+    PROCEDIMIENTOS DENTALES / TARIFARIO
+        * En esta parte tengo dudas. En la base de datos no encontré la tabla de procedimientos, probablemete revisé mal.
+        * Duda: Cuando damos de alta un nuevo procedimiento nos ofrece en el campo Tratamiento del tarifario muchos procedimientos usuales de los consulatorios dentales, donde nos propone precios a manejar.
+            ¿De donde salen estos procedimientos? Tampoco encontré el catálogo en la base de datos.
+            ¿Por qué se repiten esos procedimientos con los que ya tenemos?
+        * Si es necesario contar con la visualización de esto datos (que creo que si) habilítame el módulo de tarifarios para poder agregar, modificar y desactivar alguno de ellos.
+--------------------------
+* CORRECCIONES 10/OCT/2026 (2)
+
+CONSULTAS>AGENDA DEL DIA
+    * Al agendar a un paciente nos pide una nota de alguna observacion para la cita. Esta no se está guardando. hacer que se guarde y mostrarla en las cotas del día.
+    * Permite dar clic a cada cita para ver modal de detalle de cita y modificar datos.
+
+CONSULTAS>AGENDA DE LA SEMANA
+    * Permite dar clic a cada cita para ver modal de detalle e cita. Permitir modificar datos y cambiar estatus como en la agenda del día.
+
+INICIO>DASHBOARD
+    * Card Citas por confirmar. Mostrar notas de la cita. Botón <Ver todos>. Abre modal con la lista de citados pendientes de confirmar. Muestra tambien las notas de la cita.
+    * Falta card de pendientes de digitalización. Aquí mostrará en general los pendientes de digitalización de todos los pacientes. Muestra 5 y el botón <Ver Todos> Nos deja ver al lista completa en un modal.
+    * En el cuadro grande de la agenda, agrégame debajo de los citados del día la Lista de Espera. Opción de poder agendarles cita.
+
+PACIENTE
+    * Card Citas. Ver estatus de las últimas citas. Botón <Ver más> para ver detalle de todas la citas a las que ha asistido. Contador de citas pendientes, atendidas, canceladas y No asistió.
+
+--------------------------
+* CORRECCIONES 9/OCT/2026
+
+PACIENTE
+    -> Se eliminan los colapsables. Los datos generales más compactos para que a la derecha agreguemos los datos de contacto. Tomar como base propuesta de la imagen adjunta.
+    -> Canales de contacto, Tutor, domicilio ahora muestran un único lapiz de modificación. En caso de no existir muestran un +.
+    -> Canales de contacto.
+        * Al dar clic en el lapiz abre un modal donde muestra el listado de canales de contacto (ya existe esa vista, ahora modal compacto). Ese modal tiene el botón de < + Nuevo medio de contacto >
+        * Al dar clic en el signo +, abre directamente el modal de registrar nuevo canal de contacto.
+    -> Tutor.
+        * Si el tutor existe muestra el nombre, parentezco y domicilio en una sola linea. Muestra un lapicito y abre modal compacto del registro de tutores del paciente. Ese modal tiene el botón de < + Nuevo tutor >
+        * Si el tutor no existe, muestra el digno de < + > y se va directo al modal de registro de nuevo tutor.
+        * Si al tutor le falta registrar datos hay que mostrar un color amarillo y una advertencia visual en ese campo.
+    -> Domicilio.
+        * Muestra el domicilio registrado en 2 lineas con el estilo de los datos de identificación. Estado, municipio, colonia, código postal, calle, numero exterior, numero interior, entre calle1, entre calle 2, referencia.
+        * Si existe el domicilio se muestra el lapicito al final de la linea. Si no, avisa que no hay domicilios registrados y muestra un botón de < + >
+        * Al dar clic en el lapiz o el < + >, muetsra un modal donde se registra el domicilio, misma modalidad y comportamiento a como actualmente lo hacemos.
+        * Ahora solo limitaremos a registrar un solo domicilio para el paciente.
+        * Si al paciente le falta registrar el domicilio, hay que mostrar un color amarillo y una advertencia visual en esa area.
+    -> PESTAÑAS
+        * Al cambiar la pestaña, solo veremos como cambia el area de datos. Los cards complementarios se siguen mostrando.
+
+CAJAS>COBRAR
+    -> Mostrar si el paciente tiene saldo a favor.
+
+INICIO>DASHBOARD
+    -> Mostrar card de quienes tienen saldo a favor.
+
+-----------------------
+* CORRECCIONES 9/OCT/2026 (2)
+
+PACIENTE
+    -> Creo que no me di a entender. Vamos recuperando algunas cosas que se omitieron:
+    -> El diseño de la gradilla debe cambiar. Area grande de los datos del paciente a la izquierda y despues 2 columnas de cards de informacion complementaria (como en la imagen que adjunté)
+        Esto lo hago con el objetivo de que la información no se desplace hacia abajo. Quiero que la pantalla muestre toda la información de una.
+    -> Hay un error al mostrar los canales de contacto del paciente: Warning: Undefined array key "valor" in /var/www/html/vistas/paciente/_resumen_contacto.php on line 71.
+    -> Junto a "Expediente abierto el" mostrar campo FOTOGRAFÍA. Una miniatura clickeable si ya está capturada con los botoncitos visualizar, reemplazar y descargar y los 3 puntitos mostrar la función para eliminar. 
+        * Si no existe, botón de camarita y agregar fotografía del paciente.
+    -> Foto del paciente en el card de arriba permite dar click para verla en grande, al centro de la pantalla.
+    -> TUTOR
+        * Al modificar algun dato del tutor, permanecer dentro del modal. No cerrarlo.
+    -> EXPEDIENTE ELECTRÓNICO  
+        * Los colapsables aparecen cerrados al entrar a la vista. El usuario abrirá la que necesita revisar.
+        * Si hay documentos que no se han registrado (ni completos, ni pendientes de digitalizar) no hay que mostrarlos.
+    -> HISTORIA CLÍNICA
+        * Error mio: Al dar click en pregunta "Es la primera vez que visita al dentista"
+            ** Opcion NO: mostrar el campo Cuando fue la ultima vez.
+            ** Opción SI: no hace nada más.
+
+-----------------------
+
+Creo que nos pasó lo de la vez pasada. Al seleccionar al paciente para ver sis datos la pantallita de cargando dura más d elo habitual.
+Carga, pero carga los datos incompletos. Los card complementarios no se alcanzan a cargar. Donde va el campo fotografía marca error: Parse error: syntax error, unexpected single-quoted string "FOTO_PACIENTE", expecting ")" in /var/www/html/vistas/paciente/_campo_fotografia.php on line 31
+
+* CORRECCIONES 08/10/2026
+
+PACIENTE>EXPEDIENTE ELECTRÓNICO
+    -> Mostrar el "Modo Album" cuando se contulta el expediente digital del paciente en la parte donde esta el registro de la consulta.
+    -> Botón de Eliminar oculto. hay que precionar un botón al final de tres puntitos en vertical. Al presionar debe venir el botón de Eliminar documento.
+    -> Plan de tratamiento. Mostrar estatus del plan con código de colores a la izquierda al estatus de digitalización. 
+
+PACIENTE
+    -> modificar vista. Se adjunta prouesta.
+    -> Mostrar los datos del paciente en un estilo visual similar a SalesForce.
+    -> En lugar de campos de formulario serán datos planos con un lapicito que permitirá modificarlos uno por uno.
+    -> Dividir en secciones como las pestañas que se usan pero organizar con el nuevo estilo.
+
+CONSULTAS>LISTA DE CONSULTAS>VISTA CONSULTA
+    -> También mostrar el "Modo Album" cuando se revisa el detalle de la consulta, en el card de Documentos de consulta.
+    -> Hacer mas compactos los elementos para que se vea todo en una sola vista sin hacer scroll. Por ejemplo reducir el tamaño del elemento "Motivo de la consulta" a la mitad del ancho para que quepa a un lado "Exploración" y lo mismo con los otros 2 elementos que están abajo.
+    -> Cuando se genera la receta, inmediatamente solicitar el documento a escanear en la parte de documentos. Actualmente dice "Por escanear" pero no muestra el botón de adjuntar.
+    -> Al registrar un hallazgo debe permitir adjuntar una o varias fotografìas o radiografías.
+
+PACIENTE>PLAN DE TRATAMIENTO>NUEVO PLAN DE TRATAMIENTO
+    -> Procedimiento. columna "Cant" mas ancha. Así como está no se alcanza a ver el número en pantalla.
+
+PACIENTE>HISTORIA CLINICA
+    -> Más compacto
+    -> Movimiento de Siguiente y anterior mas lento para que se note aprecie animación.
+    -> Al seleccionar los elementos debe mostrar el cuadro de texto:
+    
+    PREGUNTA            OPCIÓN                      MOSTRAR
+    --------------------------------------------------------------
+    Primera visita      NO                          Ultima vez
+    Complicaciones      SI                          Especifique
+    Lactancia materna   SI                          Hasta cuando
+    Fórmula             SI                          Hasta cuando
+    Dieta Actual        INCOMPLETA                  Por qué
+    Momento de zucar    TODAS excepto "No consume"  Qué alimentos
+    Enfermedad cronica  SI                          Especifique
+    Discapacidad        SI                          Especifique
+    Alergico            SI                          Especifique
+    Tratamiento med.    SI                          Especifique
+    Cirugías            SI                          Especifique
+    Otro elem higiene   SI                          Especifique
+    -------------------------------------------------------------
+
+    -> Eliminar Nombre del médico y Teléfono del médico
+    -> Historia clinica. Como ya hay menos campos, acomodar que todo quepa en una sola hoja a la hora de imprimir.
+    -> En la impresión. Habitos, si no hay ninguno seleccionado, imprimir "Ninguno".
+
+GENERAL
+    -> El sistema toma el nombre de "Nanai" (Sonrisa en lengua Wixarika). Continuar con el número de versión como vamos pero en lugar de poner "Sistema de Consultorio Dental" vamos a colocar el nombre "Nanai".
+    -> Coloqué la imagen del logotipo nuevo en assets>img y se llama "logo-nanai-blanco-512.png" para mostrarla en la barra de menú y en el login.
+
+++++++++++++
+
+* CORRECCIONES 08/10/2026 (2)*
+
+PACIENTE>DETALLE
+    -> Menú de la izquierda (Modulo paciente). Ya no es necesario que aparezca. Quitarlo.
+    -> El Card donde esta la foto debe ser más compacto. Solo muestra la foto a la izquierda y a la derecha su nombre, domicilio resumido y su teléfono. Botón de cambiar fotografía desaparece. Se muestra un lapicito en la foto para poder cambiarla.
+    -> Datos Generales. Ajustar campos.
+        * 1ra fila: NOMBRES, APELLIDO PATERNO, APELLIDO MATERNO, FECHA DE NACIMIENTO.
+        * 2da fila: GENERO, RFC, OCUPACIÓN, EXPEDIENTE ABIERTO EL...
+        * 3ra fila: TUTOR
+    -> En el caso de Historia clínica y Expediente Electrónico ya me arrepentí, sigue utilizando pestañas. Al final serán Datos Generales, Historia Clínica y Expediente Electrónico.
+    -> Card Citas. Al presionar < + > debe mandarnos al módulo citas ya con el dato del paciente cargado para darle una nueva cita.
+    -> Card Estado de cuenta. Muestra el saldo a favor (ok) pero al dar ver estado de cuenta en el pDF no lo muestra (aparece en ceros). Recuerda que ese pdf debe aparecer en el centro de la pantalla para que no confunda al usuario. Lo mismo con el botón que está en la parte de arriba.
+    -> Botón Nueva consulta. No funciona.
+    -> Card Consultas. El botón < + > no funciona. Limitar a mostrar últimas 5 consultas del paciente. Botón de ver más y mandar a Lista de Consultas, con el Paciente en la búsqueda para que aparezca ya filtrado.
+    -> Card Plan de TRatamiento. Limitar a mostrar últimos 5 Planes de Tratamiento del paciente. Botón de ver más y mandar a Lista de Planes de Tratamiento, con el Paciente en la búsqueda para que aparezca ya filtrado.
+
+PLAN DE TRATAMIENTO
+    -> Al generar la primer consulta vinculada al plan de tratamiento, este cambiará su estatus a En Proceso.
+    -> Procedimiento. Al agregar un procedimiento que tenga que seleccionar los órganos dentarios debe aparecer un modal, como aparece pero esta vez debe mostrar una dentadura real para seleccionar los dientes que se van a trabajar. Cambiar de color los dientes seleccionados.
+
+DETALLE DE CONSULTA
+    -> Al seleccionar una de las fotos en el Card de Exporación, se debe abrir en Modo Album, mostrando todas las imagenes adjuntas en los hallazgos de esa consulta.
+    -> Card Motivo de Consulta. MOstrar los 3 campos grandes que existen pero en modo compacto: ¿A que vino? / Padecimiento / Tratamiento e indicaciones.
+    -> Eliminar card de Padecimiento Actual y Tratamiento e indicaciones para que card de Notas de evolución suba y sea más visible.
 
 
 
@@ -186,4 +519,70 @@ Funciones que de momento no se requieren
 
     ++++++
 
-Necesito una recomendacion de un hosting sencillo. Lo quiero para que me corra el aplicativo del consultorio, la base de datos y el aplicativo de minio. Este hosting lo requiero para mostrar en linea los avances de los proyectos y en algun momento lo usaré para más cosas. Cual me recomiendas?? Como voy a instalar todo para que corra igual que en local?
+Muchas graciaa por todo. Voy a presentar el proyecto con la clienta para que se enamore de él y no dude en decirme que si. Se que un sistema con las características que tiene tiene que valer algo razonable (dame un aproximado), pero en este caso, la plática que tuve con la dra, es que ella será mi conejilla de indias para las pruebas hasta que quede un producto sin fallas. Ella me ayudará a recomendarme con sus colegas para que ellos se conviertan en mis clientes, ahi si cobraré como se debe.
+
+¿Cuánto crees conveniente cobrarle a ella por este trabajo, recalcando todos los servicios que hasta este momento ofrece el sistema?
+¿Cuánto puede costar un sistema así ya corrigiendo todos los errores?
+
+Hablando ya del sistema:
+1. ¿Donde me meto para cosultar minio ya en el servidor?
+2. ¿Donde me meto a mysql directamente en el servidor?
+3. ¿En que parte del sistema hago lso respaldos de información para descargarlos?
+4. Cuando actualice archivos, ¿hay manera de conectar vscode con el servidor como lo hice con haixa-nayar?
+
+Necesito que me describas estas preguntas y no toques nada en el sistema hasta que yo te diga.
+
+
++++++
+
+Necesito de tu apoyo. Estoy bautizando mi emprendimiento como "Nierika Development". Le pedí apoyo a Gemini èro no termino de entenderme y tu eres más agil con las instrucciones que doy.
+
+Necesito un Excel para llevar mis cotizaciones de los proyectos. Ya despúes con mñas tiempo idearemos un sistema para que hagamos esto y las facturaciones, pero de momento necesito solo el excel.
+
+Apóyame tambien con un logotipo para esto. Debe representar cultura Wixarika y tecnología al mismo tiempo. no quiero un logo de esos que se ven rondando por redes sociales donde se sabe que estan hechos con IA.
+Lo quiero muy muy sencillo.
+El Excel debe contener los siguiente:
+
+========================================================================================
+                               NIERIKA DEVELOPMENT
+                    Desarrollo de Software & Soluciones Digitales
+========================================================================================
+
+COTIZACIÓN
+----------------------------------------------------------------------------------------
+Folio: ND-2026-001                                            Fecha: 08/10/2026
+Cliente: [Nombre de la Empresa o Cliente]                     Vigencia: 15 días
+Atención: [Nombre del Contacto]
+Correo: [correo@cliente.com]
+----------------------------------------------------------------------------------------
+
+DESCRIPCIÓN DEL PROYECTO / SERVICIOS:
+[Descripción breve del alcance, ej: Desarrollo de Aplicación Web de Gestión Interna]
+
+----------------------------------------------------------------------------------------
+CANT. | DESCRIPCIÓN DE CONCEPTOS / ENTREGABLES             | PRECIO UNIT. | IMPORTE
+----------------------------------------------------------------------------------------
+  1   | Arquitectura de Base de Datos y Backend (PHP/SQL)   | $ 12,000.00  | $ 12,000.00
+  1   | Diseño e Interfaz Frontend Adaptativa (CSS/JS)      | $  8,000.00  | $  8,000.00
+  1   | Módulo de Generación de Reportes e Integración      | $  5,000.00  | $  5,000.00
+----------------------------------------------------------------------------------------
+                                                                SUBTOTAL: $ 25,000.00
+                                                                IVA (16%):$  4,000.00
+                                                                   TOTAL: $ 29,000.00
+----------------------------------------------------------------------------------------
+
+CONDICIONES DE PAGO Y ENTREGA:
+- 50% de anticipo al firmar / inicio del proyecto.
+- 50% contra entrega y liberación en servidor de producción.
+- Tiempo estimado de entrega: 3 semanas hábiles.
+
+DATOS PARA DEPÓSITO O TRANSFERENCIA (BANCARIOS):
+----------------------------------------------------------------------------------------
+Titular:           José Ángel Cortez Moreno
+Banco:             [Nombre de tu Banco, ej: BBVA / Banorte]
+CLABE Interbancaria:[Tu CLABE de 18 dígitos]
+Cuenta / Tarjeta:  [Tu Número de Cuenta]
+RFC para Factura:  [Tu RFC Personas Físicas]
+========================================================================================
+
+167580000008889673

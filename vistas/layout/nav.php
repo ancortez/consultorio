@@ -71,8 +71,11 @@ $visible = static function (array $item): bool {
 <nav class="navbar navbar-expand navbar-sistema sticky-top px-3">
     <a class="navbar-brand d-flex align-items-center gap-2 me-4"
        href="<?= URL_BASE ?>/index.php">
-        <i class="bi bi-heart-pulse fs-5"></i>
-        <span>Consultorio Dental</span>
+        <?php /* El logo es blanco sobre transparente: aqui se ve
+                 porque la barra es morada. En cualquier fondo claro
+                 desapareceria. */ ?>
+        <img src="<?= URL_BASE . APP_LOGO ?>" alt="" class="logo-nav">
+        <span><?= e(parametro('nombre_sistema', APP_NOMBRE)) ?></span>
     </a>
 
     <ul class="navbar-nav align-items-center gap-1">

@@ -11,17 +11,73 @@ endpoint('consultas.plan');
 
 $idPlan       = paramInt('id_plan_tratamiento');
 $idExpediente = paramInt('id_registro_paciente');
+
+/*
+   Un plan cerrado no se edita.
+
+   Terminado y cancelado son finales, y de ellos cuelga dinero: un plan
+   terminado tiene cargos cobrados y uno cancelado dejo de generarlos.
+   Dejar que alguien le cambie los procedimientos despues significaria
+   recalcular importes sobre cobros que ya se hicieron.
+
+   La pantalla ya esconde el formulario, pero esconder un boton no es
+   una restriccion: la peticion puede llegar igual desde una pestania
+   que llevaba abierta media hora, de antes de que se cancelara.
+*/
+if ($idPlan) {
+    $estadoActual = Planes::estadoDe($idPlan);
+    if ($estadoActual !== null && Planes::esFinal($estadoActual)) {
+        Respuesta::error(
+            'Ese plan ya esta cerrado y no se puede modificar. Si hace '
+          . 'falta retomar el tratamiento, captura un plan nuevo.');
+    }
+}
 $idDentista   = paramInt('id_usuario_dentista');
 $fecha        = trim((string) param('fecha', date('Y-m-d')));
-$idEstado     = paramInt('id_estado_plan') ?? 1;
+// El estatus NO se lee del formulario. Un plan nuevo nace Propuesto, y
+// uno que ya existe conserva el suyo.
+//
+// Aceptarlo por POST seria aceptar que cualquiera marque "Aceptado" un
+// plan que nadie firmo. El estatus solo lo mueven hechos: la hoja
+// firmada que se escanea (pasa a Aceptado) y el avance de los
+// procedimientos.
+const ESTADO_PROPUESTO = 1;
 $descuento    = (float) str_replace(',', '', (string) param('descuento', '0'));
 
-$diagnostico  = limpiarEspacios(paramMayus('diagnostico'));
-$oclusion     = limpiarEspacios(paramMayus('oclusion'));
-$traumatismos = limpiarEspacios(paramMayus('traumatismos'));
-$secuelas     = limpiarEspacios(paramMayus('secuelas_traumatismos'));
-$observaciones = limpiarEspacios(paramMayus('observaciones'));
-$descripcion   = limpiarEspacios(paramMayus('descripcion'));
+$diagnostico  = paramTexto('diagnostico');
+$descripcion  = limpiarEspacios(paramMayus('descripcion'));
+
+// La oclusion viaja como lista separada por comas, de un juego cerrado
+// de tres. Se valida contra ese juego: el campo es oculto y cualquiera
+// puede mandar otra cosa, y un valor inventado ahi haria inutil
+// cualquier filtro futuro.
+const OCLUSIONES = ['CLASE II', 'CLASE III', 'MORDIDA CRUZADA'];
+
+$oclusion = array_values(array_intersect(
+    array_filter(array_map(
+        static fn($x) => limpiarEspacios(mayus($x)),
+        explode(',', (string) param('oclusion', '')))),
+    OCLUSIONES
+));
+$oclusion = $oclusion ? implode(', ', $oclusion) : null;
+
+// Los traumatismos vienen como JSON: son una lista de largo variable y
+// cada uno trae su propia secuela.
+$traumatismos = json_decode((string) param('traumatismos_json', '[]'), true);
+if (!is_array($traumatismos)) { $traumatismos = []; }
+
+$traumatismosLimpios = [];
+foreach ($traumatismos as $t) {
+    $desc = limpiarEspacios(mayus((string) ($t['descripcion'] ?? '')));
+    if ($desc === null || mb_strlen($desc) < 3) { continue; }
+
+    $traumatismosLimpios[] = [
+        'descripcion' => mb_substr($desc, 0, 255),
+        'secuela'     => mb_substr(
+            (string) (limpiarEspacios(mayus((string) ($t['secuela'] ?? ''))) ?? ''), 0, 255)
+            ?: null,
+    ];
+}
 
 // Sin descripcion el plan se vuelve "PT-0007" a secas en las listas.
 // Se rellena con la misma frase que propone el formulario.
@@ -40,6 +96,12 @@ $errores = [];
 if (!$idExpediente) { $errores['id_registro_paciente'] = 'Falta el paciente.'; }
 if (!$idDentista)   { $errores['id_usuario_dentista']  = 'Selecciona el dentista.'; }
 if (!$renglones)    { $errores['renglones'] = 'Agrega al menos un procedimiento.'; }
+
+// Lo unico obligatorio del paso de diagnostico. Un plan sin
+// diagnostico es una lista de cobros sin justificacion clinica.
+if ($diagnostico === null || mb_strlen($diagnostico) < 3) {
+    $errores['diagnostico'] = 'Captura el diagnostico que sustenta el plan.';
+}
 if ($descuento < 0) { $errores['descuento'] = 'El descuento no puede ser negativo.'; }
 
 $d = DateTime::createFromFormat('Y-m-d', $fecha);
@@ -138,20 +200,17 @@ try {
     if ($idPlan) {
         Conexion::consulta(
             'UPDATE plan_tratamiento
-                SET id_usuario_dentista = :d, fecha = :f, id_estado_plan = :e,
+                SET id_usuario_dentista = :d, fecha = :f,
                     descripcion = :descr,
                     descuento = :desc, subtotal = :sub, total = :tot, saldo = :tot2,
-                    diagnostico = :diag, oclusion = :ocl,
-                    traumatismos = :tra, secuelas_traumatismos = :sec,
-                    observaciones = :obs
+                    diagnostico = :diag, oclusion = :ocl
               WHERE id_plan_tratamiento = :id',
-            [':d' => $idDentista, ':f' => $fecha, ':e' => $idEstado,
+            [':d' => $idDentista, ':f' => $fecha,
              ':descr' => $descripcion,
              ':desc' => $descuento, ':sub' => $subtotal,
              ':tot' => $total, ':tot2' => $total,
              ':diag' => $diagnostico, ':ocl' => $oclusion,
-             ':tra' => $traumatismos, ':sec' => $secuelas,
-             ':obs' => $observaciones, ':id' => $idPlan]
+             ':id' => $idPlan]
         );
 
         // Los renglones se reemplazan completos. Solo se permite mientras
@@ -205,19 +264,36 @@ try {
             'INSERT INTO plan_tratamiento
                 (id_registro_paciente, id_usuario_dentista, folio, descripcion,
                  fecha, id_estado_plan, descuento, subtotal, total, saldo,
-                 diagnostico, oclusion, traumatismos, secuelas_traumatismos,
-                 observaciones)
+                 diagnostico, oclusion)
              VALUES (:r, :d, :fo, :descr, :f, :e, :desc, :sub, :tot, :tot2,
-                     :diag, :ocl, :tra, :sec, :obs)',
+                     :diag, :ocl)',
             [':r' => $idExpediente, ':d' => $idDentista, ':fo' => $folio,
              ':descr' => $descripcion,
-             ':f' => $fecha, ':e' => $idEstado, ':desc' => $descuento,
+             ':f' => $fecha, ':e' => ESTADO_PROPUESTO, ':desc' => $descuento,
              ':sub' => $subtotal, ':tot' => $total, ':tot2' => $total,
-             ':diag' => $diagnostico, ':ocl' => $oclusion,
-             ':tra' => $traumatismos, ':sec' => $secuelas, ':obs' => $observaciones]
+             ':diag' => $diagnostico, ':ocl' => $oclusion]
         );
         $idPlan = Conexion::ultimoId();
         $accion = 'ALTA';
+    }
+
+    // Los traumatismos se reemplazan completos, igual que los
+    // renglones: la pantalla manda la lista entera cada vez. No hay
+    // nada que preservar a medias, y ningun otro dato cuelga de ellos.
+    Conexion::consulta(
+        'DELETE FROM plan_traumatismo WHERE id_plan_tratamiento = :p',
+        [':p' => $idPlan]
+    );
+
+    $ordenTrauma = 1;
+    foreach ($traumatismosLimpios as $t) {
+        Conexion::consulta(
+            'INSERT INTO plan_traumatismo
+                (id_plan_tratamiento, descripcion, secuela, orden)
+             VALUES (:p, :d, :s, :o)',
+            [':p' => $idPlan, ':d' => $t['descripcion'],
+             ':s' => $t['secuela'], ':o' => $ordenTrauma++]
+        );
     }
 
     $orden = 1;
@@ -262,6 +338,44 @@ $pendiente = Documentos::crearPendiente(
     $idPlan
 );
 
+/*
+   El pendiente del CONSENTIMIENTO tambien se crea aqui.
+
+   Antes lo creaba consentimiento.php, al abrirse. Suena razonable —el
+   pendiente nace cuando nace el papel— y tenia un fallo serio: si la
+   ventana no abria, el pendiente no existia. Y la ventana no abrio,
+   porque se abrian dos a la vez y el navegador bloqueo la segunda por
+   emergente. Resultado: plan guardado, nadie imprimio el
+   consentimiento, y el tablero de pendientes no tenia ni idea de que
+   faltaba un papel firmado. El unico aviso posible desaparecio junto
+   con la ventana que no se vio.
+
+   Un pendiente es una tarea del consultorio, y no puede depender de
+   que un navegador permita una ventana emergente. El plan existe, se
+   va a firmar un consentimiento: eso ya se sabe aqui.
+
+   consentimiento.php sigue llamando a crearPendiente, y ahora no hace
+   nada porque ya existe —el consentimiento es unico por plan—. Esa
+   llamada se queda para cuando el consentimiento se imprime sin plan,
+   desde el expediente.
+*/
+// El folio se lee de la base y no de la variable: solo se asigna en la
+// rama del alta, y modificando un plan existente no existe. Leerlo aqui
+// vale para los dos caminos.
+$folioPlan = (string) Conexion::valor(
+    'SELECT folio FROM plan_tratamiento WHERE id_plan_tratamiento = :p',
+    [':p' => $idPlan]
+);
+
+$pendienteConsentimiento = Documentos::crearPendiente(
+    $idExpediente,
+    'CONSENTIMIENTO',
+    'CONSENTIMIENTO DEL PLAN ' . strtoupper($folioPlan),
+    'plan_tratamiento',
+    $idPlan,
+    $idPlan
+);
+
 Bitacora::registrar('consultas', $accion, 'plan_tratamiento', (string) $idPlan, [
     'cargos'      => $cargos,
     'expediente'  => $idExpediente,
@@ -271,6 +385,8 @@ Bitacora::registrar('consultas', $accion, 'plan_tratamiento', (string) $idPlan, 
 
 Respuesta::ok([
     'id_plan_tratamiento' => $idPlan,
+    'folio'               => $folioPlan,
     'total'               => $total,
     'pendiente'           => $pendiente !== null,
+    'pendiente_consentimiento' => $pendienteConsentimiento !== null,
 ], 'Plan de tratamiento guardado.');

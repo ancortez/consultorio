@@ -572,8 +572,88 @@ function pantallaCobrar() {
 
     pintarResumen();
     pintarCargos();
+    pintarContadorFichas();
     actualizarBoton();
   }
+
+  /* -------------------------------------------------------------------
+     Las fichas que ya se le cobraron
+     ------------------------------------------------------------------- */
+  const modalFichas = document.getElementById('modalFichas')
+    ? bootstrap.Modal.getOrCreateInstance(document.getElementById('modalFichas'))
+    : null;
+
+  function pintarContadorFichas() {
+    const n = (cuenta?.pagos ?? []).length;
+    const chip = document.getElementById('cbCuantasFichas');
+    const boton = document.getElementById('cbVerFichas');
+    if (!chip || !boton) return;
+
+    chip.classList.toggle('d-none', n === 0);
+    chip.textContent = n >= 20 ? '20+' : String(n);
+
+    // Sin cobros no hay nada que consultar: el boton se apaga en vez de
+    // abrir una ventana vacia, que obliga a cerrarla para enterarse.
+    boton.disabled = n === 0;
+  }
+
+  document.getElementById('cbVerFichas')?.addEventListener('click', () => {
+    if (!cuenta || !modalFichas) return;
+
+    document.getElementById('fiPaciente').textContent =
+      cuenta.paciente.nombre_completo;
+
+    const lista = cuenta.pagos ?? [];
+
+    document.getElementById('fiLista').innerHTML = lista.length
+      ? lista.map((p) => {
+          const cancelado = Number(p.estatus) === 0;
+          const favor = Number(p.a_favor_aplicado ?? 0);
+
+          return `
+          <tr class="${cancelado ? 'ficha-cancelada' : ''}">
+            <td>
+              <span class="fw-semibold">${App.esc(p.folio)}</span>
+              ${p.plan_folio ? `
+                <div class="text-secondary" style="font-size:11px">
+                  ${App.esc(p.plan_folio)}
+                </div>` : ''}
+              ${cancelado ? `
+                <div class="text-danger" style="font-size:11px">
+                  Cancelado ${App.esc(App.fecha(p.fecha_cancelacion))}:
+                  ${App.esc(p.motivo_cancelacion ?? 'sin motivo')}
+                </div>` : ''}
+            </td>
+            <td class="text-secondary">${App.esc(App.fechaHora(p.fecha_hora))}</td>
+            <td class="text-secondary" style="font-size:12px">
+              ${App.esc(p.formas ?? '—')}
+              ${favor > 0.009 ? `
+                <div style="color:var(--exito);font-size:11px">
+                  + ${App.money(favor)} de saldo a favor
+                </div>` : ''}
+            </td>
+            <td class="text-end fw-semibold">${App.money(p.monto)}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-sm btn-light"
+                      data-ficha="${p.id_pago}" title="Ver o reimprimir la ficha">
+                <i class="bi bi-printer"></i>
+              </button>
+            </td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="5" class="text-secondary text-center py-3">
+           Todav&iacute;a no se le ha cobrado nada.</td></tr>`;
+
+    modalFichas.show();
+  });
+
+  document.getElementById('fiLista')?.addEventListener('click', (ev) => {
+    const boton = ev.target.closest('[data-ficha]');
+    if (!boton) return;
+    App.abrirVentana(
+      `${App.URL_BASE}/recibo_imprimir.php?id=${boton.dataset.ficha}`,
+      900, 700, 'recibo');
+  });
 
   function pintarResumen() {
     const r = cuenta.resumen;
@@ -590,7 +670,41 @@ function pantallaCobrar() {
         <span class="et">Debe</span>
         <span class="va fs-5" style="color:${Number(r.saldo) > 0
           ? 'var(--error)' : 'var(--exito)'}">${App.money(r.saldo ?? 0)}</span>
-      </div>`;
+      </div>
+      ${Number(r.a_favor ?? 0) > 0.009 ? `
+        <div class="aviso-a-favor">
+          <i class="bi bi-piggy-bank-fill"></i>
+          <div class="flex-grow-1">
+            <b>${App.money(r.a_favor)} a favor</b>
+            <div>Dinero que este paciente ya entregó y no se ha aplicado.</div>
+            <div class="form-check mt-1">
+              <input class="form-check-input" type="checkbox" id="cbUsarAFavor">
+              <label class="form-check-label" for="cbUsarAFavor">
+                Usarlo en este cobro
+              </label>
+            </div>
+          </div>
+        </div>` : ''}`;
+
+    /*
+       Antes aqui decia "se aplican solos al cobrar", y era mentira: el
+       cobro solo repartia el dinero NUEVO. El saldo a favor se quedaba
+       donde estaba y el paciente pagaba el total otra vez, acumulando
+       todavia mas a favor. Justo la discusion que esto venia a evitar.
+
+       Ahora es un interruptor, y apagado por omision a proposito: hay
+       pacientes que prefieren dejar su anticipo quieto para el
+       tratamiento largo y pagar aparte la limpieza de hoy. Esa decision
+       es de quien esta en el mostrador, no del sistema.
+    */
+    /*
+       Al prender o apagar el interruptor hay que RECALCULAR el efectivo,
+       no solo repintar el aviso. Antes solo llamaba a actualizarBoton:
+       el texto decia "hay que cobrarle $600" y el campo seguia en
+       $1,000, que es el numero que de verdad lee quien esta cobrando.
+    */
+    document.getElementById('cbUsarAFavor')
+      ?.addEventListener('change', sincronizarDesdeCargos);
   }
 
   function pintarCargos() {
@@ -642,16 +756,38 @@ function pantallaCobrar() {
   });
 
   /**
+   * Cuanto del saldo a favor entra en juego en este cobro.
+   *
+   * Nunca mas de lo que el paciente debe: el resto se queda a favor.
+   */
+  function favorEnJuego() {
+    if (!document.getElementById('cbUsarAFavor')?.checked) return 0;
+    const debe = Number(cuenta?.resumen?.saldo ?? 0);
+    return Math.min(Number(cuenta?.resumen?.a_favor ?? 0), debe);
+  }
+
+  /**
    * Si se marcaron cargos y todavia no se captura ninguna forma de
-   * pago, la primera se llena con la suma. Evita teclear dos veces el
-   * mismo numero, que es como se cuelan los errores.
+   * pago, la primera se llena con lo que hay que pedirle. Evita
+   * teclear dos veces el mismo numero, que es como se cuelan los
+   * errores.
+   *
+   * Y se le RESTA el saldo a favor que se va a aplicar. Esto es lo que
+   * estaba mal y lo que hacia que todo lo demas pareciera no
+   * funcionar: el aviso de arriba decia "hay que cobrarle $600" y el
+   * campo de efectivo seguia diciendo $1,000, porque se llenaba con la
+   * suma de los cargos a secas. Quien cobra lee el campo, no el aviso.
+   * Entonces se recibian los 1,000 completos, se aplicaba ADEMAS el
+   * anticipo, y al paciente le quedaba todavia mas a favor: justo la
+   * bola de nieve que el saldo a favor venia a deshacer. Y el corte
+   * pedia ese efectivo porque de verdad habia entrado.
    */
   function sincronizarDesdeCargos() {
     const suma = [...document.querySelectorAll('.cb-abono')]
       .reduce((t, el) => t + (Number(el.value) || 0), 0);
 
     if (suma > 0 && formas.length === 1 && !formas[0].tocada) {
-      formas[0].monto = suma;
+      formas[0].monto = Math.max(0, Math.round((suma - favorEnJuego()) * 100) / 100);
       pintarFormas();
     }
     actualizarBoton();
@@ -749,13 +885,32 @@ function pantallaCobrar() {
     const total = formas.reduce((t, f) => t + (Number(f.monto) || 0), 0);
     document.getElementById('cbTotal').textContent = App.money(total);
 
-    const debe = Number(cuenta?.resumen?.saldo ?? 0);
+    const debe  = Number(cuenta?.resumen?.saldo ?? 0);
     const aviso = document.getElementById('cbAvisoFavor');
 
-    // Cobrar de mas no se impide: un anticipo es legitimo. Pero se
-    // avisa, porque un anticipo que nadie menciona se olvida y despues
-    // nadie entiende por que el saldo no cuadra.
-    if (cuenta && total > debe + 0.009) {
+    // Lo que el paciente ya tiene entregado, si se eligio usarlo.
+    const usaFavor = document.getElementById('cbUsarAFavor')?.checked ?? false;
+    const favor    = usaFavor
+      ? Math.min(Number(cuenta?.resumen?.a_favor ?? 0), debe) : 0;
+
+    // Lo que de verdad hay que pedirle hoy.
+    const pedirle = Math.max(0, debe - favor);
+
+    if (cuenta && favor > 0.009) {
+      // Con saldo a favor en juego, el aviso dice las tres cifras: de
+      // cuanto es la cuenta, cuanto sale de su bolsa de antes, y cuanto
+      // hay que pedirle. Es exactamente lo que se le explica de viva
+      // voz al paciente, y verlo escrito evita equivocarse al decirlo.
+      aviso.classList.remove('d-none');
+      aviso.innerHTML = `<i class="bi bi-piggy-bank me-1"
+            style="color:var(--exito)"></i>
+          Debe <b>${App.money(debe)}</b>, se le aplican
+          <b>${App.money(favor)}</b> de su saldo a favor:
+          hay que cobrarle <b>${App.money(pedirle)}</b>.`;
+    } else if (cuenta && total > debe + 0.009) {
+      // Cobrar de mas no se impide: un anticipo es legitimo. Pero se
+      // avisa, porque un anticipo que nadie menciona se olvida y despues
+      // nadie entiende por que el saldo no cuadra.
       aviso.classList.remove('d-none');
       aviso.innerHTML = `<i class="bi bi-info-circle me-1"
             style="color:var(--morado-600)"></i>
@@ -765,14 +920,55 @@ function pantallaCobrar() {
       aviso.classList.add('d-none');
     }
 
+    /*
+       Con el saldo a favor cubriendo TODO, se puede cobrar sin capturar
+       una sola forma de pago: no entra dinero nuevo, solo se aplica el
+       que ya estaba. Sin esta excepcion el boton quedaria apagado para
+       siempre y no habria forma de usar el anticipo.
+    */
+    const cubreTodo = usaFavor && pedirle <= 0.009 && debe > 0.009;
+
     document.getElementById('cbCobrar').disabled =
-      !turno || !cuenta || total <= 0;
+      !turno || !cuenta || (total <= 0 && !cubreTodo);
+
+    document.getElementById('cbCobrar').innerHTML = cubreTodo
+      ? '<i class="bi bi-piggy-bank me-1"></i> Aplicar su saldo a favor'
+      : '<i class="bi bi-cash-coin me-1"></i> Registrar cobro';
   }
 
   /* -------------------------------------------------------------------
      Cobrar
      ------------------------------------------------------------------- */
+  /*
+     La huella del envio.
+
+     Se genera cuando la cuenta del paciente se carga en pantalla, NO
+     cuando se presiona cobrar. Esa diferencia es la que hace que
+     funcione: dos clics sobre el mismo formulario mandan la misma
+     huella y el servidor registra un solo cobro. Despues de un cobro
+     exitoso se renueva, para que el siguiente cobro del mismo paciente
+     —que es legitimo— no se confunda con un duplicado.
+  */
+  let huellaEnvio = nuevaHuella();
+
+  function nuevaHuella() {
+    // randomUUID solo existe sobre HTTPS o en localhost. En produccion
+    // siempre esta; el respaldo es para no romper en un entorno raro.
+    if (window.crypto?.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
+
   document.getElementById('cbCobrar').addEventListener('click', async () => {
+    const boton = document.getElementById('cbCobrar');
+
+    // Primera barrera: el boton deja de responder en cuanto se usa.
+    // No es suficiente por si sola —no cubre el Enter repetido ni el
+    // navegador que reintenta— pero quita el caso comun.
+    if (boton.dataset.enviando === '1') return;
+
     const aplicaciones = [...document.querySelectorAll('#cbCargos tr[data-cargo]')]
       .map((tr) => ({
         id_cargo: Number(tr.dataset.cargo),
@@ -788,6 +984,12 @@ function pantallaCobrar() {
       'Sí, cobrar');
     if (!ok) return;
 
+    boton.dataset.enviando = '1';
+    boton.disabled = true;
+    const textoBoton = boton.innerHTML;
+    boton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>'
+                    + 'Procesando...';
+
     try {
       const r = await App.api('cajas/cobrar.php', {
         id_registro_paciente: cuenta.paciente.id_registro_paciente,
@@ -797,31 +999,68 @@ function pantallaCobrar() {
                     referencia: f.referencia }))),
         aplicaciones: JSON.stringify(aplicaciones),
         observaciones: document.getElementById('cbObservaciones').value,
+        usar_a_favor: document.getElementById('cbUsarAFavor')?.checked ? 1 : '',
+        huella_envio: huellaEnvio,
       });
+
+      // Cobro hecho: la huella se renueva. El siguiente cobro de este
+      // mismo paciente es otro cobro y tiene derecho a existir.
+      huellaEnvio = nuevaHuella();
+
+      const repetido = r.datos.repetido === true;
+
+      // Sin pago nuevo no hay recibo que imprimir: el saldo a favor
+      // cubrio todo y no entro dinero a la caja. Ofrecer "imprimir
+      // recibo" aqui llevaria a una hoja que dice "recibimos $0.00".
+      const soloFavor = r.datos.solo_a_favor === true;
 
       const d = await Swal.fire({
         icon: 'success',
-        title: `Cobro ${r.datos.folio}`,
+        title: soloFavor
+          ? 'Saldo a favor aplicado'
+          : (repetido ? `Cobro ${r.datos.folio} (ya estaba)` : `Cobro ${r.datos.folio}`),
         html: `<div style="font-size:14px;line-height:1.8">
-                 Monto: <b>${App.money(r.datos.monto)}</b><br>
-                 Aplicado a cargos: <b>${App.money(r.datos.aplicado)}</b>
+                 ${repetido ? `
+                   <div style="background:#eef6ff;border:1px solid #c7ddf5;
+                               border-radius:9px;padding:.7rem .9rem;
+                               color:#1d4e80;margin-bottom:.9rem;font-size:12.5px">
+                     Este cobro ya se habia registrado. <b>No se cobro dos
+                     veces:</b> se muestra el que ya existia.
+                   </div>` : ''}
+                 ${soloFavor ? `
+                   No entró dinero nuevo: se usaron
+                   <b>${App.money(r.datos.a_favor_aplicado)}</b> que el
+                   paciente ya había entregado.
+                 ` : `
+                   Monto cobrado: <b>${App.money(r.datos.monto)}</b><br>
+                   Aplicado a cargos: <b>${App.money(r.datos.aplicado)}</b>
+                   ${Number(r.datos.a_favor_aplicado ?? 0) > 0.009 ? `
+                     <div style="background:#e9f7f0;border:1px solid #bfe6d1;
+                                 border-radius:9px;padding:.7rem .9rem;
+                                 color:#1d7a4c;margin-top:.9rem;font-size:12.5px">
+                       Además se aplicaron
+                       <b>${App.money(r.datos.a_favor_aplicado)}</b> de su saldo
+                       a favor. Viene anotado en la ficha de pago.
+                     </div>` : ''}
+                 `}
                  ${Number(r.datos.a_favor) > 0.009 ? `
                    <div style="background:#fff6e5;border:1px solid #f0d9a8;
                                border-radius:9px;padding:.7rem .9rem;
                                color:#7a5a12;margin-top:.9rem;font-size:12.5px">
                      Quedan <b>${App.money(r.datos.a_favor)}</b> a favor del
-                     paciente. Se aplicarán solos al próximo cargo.
+                     paciente. La próxima vez que se le cobre, se puede
+                     marcar "usarlo en este cobro".
                    </div>` : ''}
                </div>`,
-        confirmButtonText: 'Imprimir recibo',
+        confirmButtonText: soloFavor ? 'Entendido' : 'Imprimir recibo',
         confirmButtonColor: '#7b2d8e',
-        showCancelButton: true,
+        showCancelButton: !soloFavor,
         cancelButtonText: 'Cerrar',
         cancelButtonColor: '#6c6577',
         reverseButtons: true,
       });
 
-      if (d.isConfirmed) {
+      if (d.isConfirmed && !soloFavor) {
         App.abrirVentana(`${App.URL_BASE}/recibo_imprimir.php?id=${r.datos.id_pago}`,
           880, 700, 'recibo');
       }
@@ -834,6 +1073,16 @@ function pantallaCobrar() {
       cargarUltimos();
     } catch (e) {
       App.alerta.error('No se pudo cobrar', e.mensaje ?? '');
+    } finally {
+      // El boton revive siempre, incluso tras un error: si quedara
+      // muerto habria que recargar la pagina para volver a intentar.
+      // La huella NO se renueva aqui a proposito. Si el cobro fallo por
+      // una conexion caida, puede haberse registrado del otro lado;
+      // reintentar con la misma huella es justo lo que evita el doble
+      // cobro en ese caso.
+      boton.dataset.enviando = '0';
+      boton.innerHTML = textoBoton;
+      recalcular();
     }
   });
 

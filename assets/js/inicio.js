@@ -14,17 +14,27 @@ document.addEventListener('DOMContentLoaded', () => {
  * vaciando y se ve el avance.
  */
 function citasPorConfirmar() {
-  const lista = document.getElementById('listaPorConfirmar');
-  if (!lista) return;
+  const tarjeta = document.getElementById('listaPorConfirmar');
+  if (!tarjeta) return;
 
-  lista.addEventListener('click', async (ev) => {
+  /*
+     Escucha delegado sobre el documento, no sobre la tarjeta.
+
+     La tarjeta ensenia cinco y el modal de "Ver todos" ensenia el
+     resto: son DOS listas con los mismos renglones. Colgando el
+     escucha de la tarjeta —como estaba— los botones del modal nacian
+     muertos, y el defecto no da ningun error: se pica y no pasa nada.
+  */
+  document.addEventListener('click', async (ev) => {
     const confirmar = ev.target.closest('[data-confirmar]');
     const cancelar  = ev.target.closest('[data-cancelar]');
     if (!confirmar && !cancelar) return;
 
     const boton = confirmar ?? cancelar;
     const fila  = boton.closest('.cita-pendiente');
-    const id    = boton.dataset.confirmar ?? boton.dataset.cancelar;
+    if (!fila) return;
+
+    const id     = boton.dataset.confirmar ?? boton.dataset.cancelar;
     const nombre = fila.querySelector('a')?.textContent.trim() ?? '';
 
     if (cancelar) {
@@ -33,7 +43,13 @@ function citasPorConfirmar() {
       if (!ok) return;
     }
 
-    boton.disabled = true;
+    // Se desactivan los botones de esa cita en LAS DOS listas: si no,
+    // quien tenga el modal abierto detras puede picar la misma cita
+    // otra vez mientras viaja la primera peticion.
+    const gemelas = document.querySelectorAll(
+      `.cita-pendiente[data-cita="${id}"]`);
+    gemelas.forEach((f) => f.querySelectorAll('button')
+                            .forEach((b) => { b.disabled = true; }));
 
     try {
       await App.api('consultas/cita_estatus.php', {
@@ -42,36 +58,41 @@ function citasPorConfirmar() {
       });
 
       // Se desvanece el renglon en lugar de recargar: recargar perderia
-      // el lugar en la lista si son muchas.
-      fila.style.transition = 'opacity .25s, transform .25s';
-      fila.style.opacity = '0';
-      fila.style.transform = 'translateX(20px)';
-
-      setTimeout(() => {
-        fila.remove();
-        actualizarContador();
-      }, 260);
+      // el lugar en la lista si son muchas. Y se quita de las dos
+      // listas, porque la cita ya se resolvio en las dos.
+      gemelas.forEach((f) => {
+        f.style.transition = 'opacity .25s, transform .25s';
+        f.style.opacity = '0';
+        f.style.transform = 'translateX(20px)';
+        setTimeout(() => { f.remove(); actualizarContador(); }, 260);
+      });
 
       App.alerta.toast(confirmar ? 'Cita confirmada' : 'Cita cancelada');
     } catch (e) {
-      boton.disabled = false;
+      gemelas.forEach((f) => f.querySelectorAll('button')
+                              .forEach((b) => { b.disabled = false; }));
     }
   });
 
   function actualizarContador() {
-    const quedan = lista.querySelectorAll('.cita-pendiente').length;
-    const badge  = lista.closest('.card').querySelector('.badge-pendiente');
+    // Se cuenta sobre la tarjeta, que es la que manda: el modal es una
+    // vista de lo mismo.
+    const quedan = document.querySelectorAll(
+      '#listaPorConfirmarTodas .cita-pendiente').length
+      || tarjeta.querySelectorAll('.cita-pendiente').length;
 
-    if (badge) {
+    document.querySelectorAll('.badge-por-confirmar').forEach((badge) => {
       badge.textContent = quedan;
       if (quedan === 0) badge.remove();
-    }
+    });
 
     if (quedan === 0) {
-      lista.innerHTML = `<div class="p-4 text-center text-secondary small">
+      tarjeta.innerHTML = `<div class="p-4 text-center text-secondary small">
           <i class="bi bi-check2-circle fs-4 d-block mb-1" style="color:var(--exito)"></i>
           Todas las citas están confirmadas.
         </div>`;
+      // El boton de "Ver todos" ya no lleva a ningun lado.
+      document.querySelector('[data-bs-target="#modalPorConfirmar"]')?.remove();
     }
   }
 }

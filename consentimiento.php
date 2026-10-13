@@ -40,7 +40,7 @@ if ($idExpediente <= 0) {
 // documento queda como general, en vez de colgarlo del expediente ajeno.
 $plan = $idPlan > 0
     ? Conexion::uno(
-        'SELECT id_plan_tratamiento, folio, fecha
+        'SELECT id_plan_tratamiento, folio, fecha, id_usuario_dentista
            FROM plan_tratamiento
           WHERE id_plan_tratamiento = :p AND id_registro_paciente = :r',
         [':p' => $idPlan, ':r' => $idExpediente])
@@ -54,7 +54,11 @@ if ($plan === null) {
 // Datos
 // ---------------------------------------------------------------------
 $paciente = Conexion::uno(
-    'SELECT vp.* FROM v_paciente vp WHERE vp.id_registro_paciente = :r',
+    'SELECT vp.*, rp.requiere_tutor
+       FROM v_paciente vp
+       JOIN registro_paciente rp
+         ON rp.id_registro_paciente = vp.id_registro_paciente
+      WHERE vp.id_registro_paciente = :r',
     [':r' => $idExpediente]
 );
 
@@ -62,6 +66,25 @@ if ($paciente === null) {
     http_response_code(404);
     exit('El paciente no existe.');
 }
+
+/*
+   ¿Quien firma: el tutor o el propio paciente?
+
+   Nanai atiende ninios y adultos. Un adulto que respondio que actua por
+   su cuenta firma el, y sacar el documento con una linea para "padre o
+   tutor" delante de alguien de cuarenta anios es, ademas de raro, un
+   papel que no sirve: lo tiene que firmar quien consiente.
+
+   La decision sale de Tutoria, la misma regla que usa la ficha. Nunca
+   de mirar la edad aqui: dos sitios calculando lo mismo acaban
+   discrepando, y el sintoma seria un consentimiento que pide una firma
+   distinta de la que la pantalla dice que hace falta.
+*/
+$firmaElPaciente = !Tutoria::llevaTutor(
+    $paciente['edad'] !== null ? (int) $paciente['edad'] : null,
+    $paciente['requiere_tutor'] !== null
+        ? (int) $paciente['requiere_tutor'] : null
+);
 
 // Tutor: el que pidieron, o el responsable de pago si no especificaron.
 $tutor = Conexion::uno(
@@ -92,11 +115,32 @@ if ($tutor !== null) {
     );
 }
 
-// Dentista: el que pidieron, o quien esta capturando si es dentista.
+/*
+   Quien firma como dentista, en tres intentos y en este orden.
+
+     1. El que digan en la direccion. Es el caso del expediente, donde
+        hay un selector para elegirlo.
+     2. EL DEL PLAN. Un consentimiento de un plan de tratamiento lo
+        firma quien propuso ese plan, y el plan ya lo sabe.
+     3. Quien esta capturando, si es dentista.
+
+   El paso 2 faltaba, y el sintoma era exactamente este: imprimiendo el
+   consentimiento desde el plan, el documento salia sin nombre ni cedula
+   en la linea de la firma. Desde el expediente si salia, porque esa
+   pantalla manda el parametro. Dos caminos al mismo papel y solo uno lo
+   llenaba.
+
+   El orden tambien importa. Teniendo al dentista del plan, poner al
+   usuario que esta en la computadora seria peor que dejarlo en blanco:
+   un consentimiento con el nombre de recepcion en la linea del
+   profesional es un documento que afirma algo falso, y se firma.
+*/
 $dentista = Conexion::uno(
     'SELECT nombre_completo, cedula_prof FROM usuario
       WHERE id_usuario = :u AND estatus = 1',
-    [':u' => $idDentista ?: (Auth::usuario()['es_dentista'] ? Auth::id() : 0)]
+    [':u' => $idDentista
+        ?: (int) ($plan['id_usuario_dentista'] ?? 0)
+        ?: (Auth::usuario()['es_dentista'] ? Auth::id() : 0)]
 );
 
 $negocio = Conexion::uno(
@@ -368,9 +412,9 @@ function campo(?string $valor, int $anchoMinimo = 200): string
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario" href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= $idExpediente ?>#tab-expediente">
-        Volver al expediente
-    </a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=paciente&vista=expediente&id='
+                     . $idExpediente; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
     <?php if ($pendiente !== null): ?>
         <span class="aviso">
             Se agreg&oacute; el pendiente de escanear este documento al expediente.
@@ -381,7 +425,7 @@ function campo(?string $valor, int $anchoMinimo = 200): string
                 $plan ? ', dentro del plan ' . e($plan['folio']) : '' ?>.
         </span>
     <?php endif; ?>
-    <?php if ($tutor === null): ?>
+    <?php if ($tutor === null && !$firmaElPaciente): ?>
         <span class="aviso">
             Este paciente no tiene tutor registrado: el documento sale sin nombre.
         </span>
@@ -408,6 +452,26 @@ function campo(?string $valor, int $anchoMinimo = 200): string
             Fecha <?= campo(fechaLarga() . ', ' . date('H:i') . ' h', 260) ?>
         </div>
 
+        <?php /* El texto cambia segun quien firme.
+
+                 No es un detalle de estilo: un consentimiento que habla
+                 de "el menor de edad" y "el representante legal" puesto
+                 delante de un adulto que firma por si mismo describe
+                 una situacion que no es la suya, y lo que se firma
+                 tiene que decir lo que pasa. */ ?>
+        <?php if ($firmaElPaciente): ?>
+        <p>
+            Por la presente se hace saber a usted que tiene derecho a conocer el
+            procedimiento al que va a ser sometido y las complicaciones
+            m&aacute;s frecuentes que ocurren. Este documento explica todas
+            estas cuestiones, l&eacute;alo atentamente y consulte todas las dudas
+            que se le planteen. Le recordamos que por imperativo legal,
+            tendr&aacute; que firmar el consentimiento informado para que
+            pueda realizarse dicho procedimiento. A prop&oacute;sito declaro
+            haber sido informado y haber comprendido acabadamente el objetivo
+            del tratamiento a realizar.
+        </p>
+        <?php else: ?>
         <p>
             Por la presente se hace saber a usted que tiene derecho a conocer el
             procedimiento al que va a ser sometido el menor de edad y las
@@ -419,40 +483,53 @@ function campo(?string $valor, int $anchoMinimo = 200): string
             informado y haber comprendido acabadamente el objetivo del tratamiento
             a realizar.
         </p>
+        <?php endif; ?>
 
         <p>
-            Yo, <?= campo($tutor['nombre_completo'] ?? null, 300) ?>
+            Yo, <?= campo($firmaElPaciente
+                    ? $paciente['nombre_completo']
+                    : ($tutor['nombre_completo'] ?? null), 300) ?>
             domiciliado en <?= campo($lineaDomicilio, 340) ?>
-            como representante legal de <?= campo($paciente['nombre_completo'], 300) ?>
+            <?= $firmaElPaciente
+                ? ''
+                : 'como representante legal de '
+                  . campo($paciente['nombre_completo'], 300) ?>
             he sido informado/a por el Dr. / Dra.
             <?= campo($dentista['nombre_completo'] ?? null, 280) ?>
-            de los procedimientos propios cl&iacute;nicos en odontopediatr&iacute;a, que
-            constan en el plan de tratamiento otorgando mi consentimiento para realizar
-            las pr&aacute;cticas necesarias al caso cl&iacute;nico. Estoy de acuerdo a
-            que el ni&ntilde;o sea sometido a anestesia local en caso que fuera necesario,
+            de los procedimientos cl&iacute;nicos que constan en el plan de
+            tratamiento, otorgando mi consentimiento para realizar
+            las pr&aacute;cticas necesarias al caso cl&iacute;nico. Estoy de acuerdo
+            <?= $firmaElPaciente
+                ? 'en ser sometido/a'
+                : 'a que el ni&ntilde;o sea sometido' ?>
+            a anestesia local en caso que fuera necesario,
             sabiendo los riesgos que ello implica, delegando al odont&oacute;logo la
             elecci&oacute;n del tipo de anestesia.
         </p>
 
         <p>
             Se me ha explicado el diagn&oacute;stico, la naturaleza de la enfermedad
-            que padece mi representado y su evoluci&oacute;n natural, objetivos del
+            que <?= $firmaElPaciente ? 'padezco' : 'padece mi representado' ?>
+            y su evoluci&oacute;n natural, objetivos del
             tratamiento propuesto, as&iacute; como las alternativas del tratamiento que
             pueden ser practicadas, descripci&oacute;n de las consecuencias derivadas
             del tratamiento o intervenci&oacute;n, beneficios y complicaciones comunes
             que se pueden desencadenar durante o despu&eacute;s del mismo, riesgos
             personales y entendiendo que ante alguna manifestaci&oacute;n de
-            complicaciones deber&eacute; acudir nuevamente al profesional tratante de
-            mi representado.
+            complicaciones deber&eacute; acudir nuevamente al profesional tratante.
         </p>
     </div>
 
     <div class="firmas">
         <div class="firma">
             <div class="linea"></div>
-            <div class="nombre"><?= e($tutor['nombre_completo'] ?? '') ?></div>
-            <div class="cargo">Nombre y firma de padre o tutor</div>
-            <?php if (!empty($tutor['nombre_parentesco'])): ?>
+            <div class="nombre"><?= e($firmaElPaciente
+                ? $paciente['nombre_completo']
+                : ($tutor['nombre_completo'] ?? '')) ?></div>
+            <div class="cargo"><?= $firmaElPaciente
+                ? 'Nombre y firma del paciente'
+                : 'Nombre y firma de padre o tutor' ?></div>
+            <?php if (!$firmaElPaciente && !empty($tutor['nombre_parentesco'])): ?>
                 <div class="cedula"><?= e($tutor['nombre_parentesco']) ?></div>
             <?php endif; ?>
         </div>

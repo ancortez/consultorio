@@ -77,6 +77,7 @@ EXCLUIR=(
     --exclude '.servidor'
     --exclude 'storage/uploads/*'
     --exclude 'storage/logs/*'
+    --exclude 'storage/respaldos/*'
     --exclude '.DS_Store'
     --exclude 'node_modules'
     --exclude 'notas-temporales-sistema'

@@ -32,15 +32,23 @@ $sabado = end($dias);
 // Citas de la semana
 // ---------------------------------------------------------------------
 $citas = Conexion::todos(
-    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.motivo,
+    // Las notas y el dentista viajan tambien: desde octubre 2026 se
+    // puede abrir el detalle de una cita desde la vista de semana, y
+    // sin estos campos el detalle saldria a medias o habria que pedir
+    // la cita otra vez al servidor con un viaje de ida y vuelta.
+    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.motivo, c.notas,
             c.id_estado_cita, ec.nombre_estado, ec.color,
-            c.id_registro_paciente,
+            c.id_registro_paciente, c.id_usuario_dentista, c.id_sala,
             vp.nombre_completo AS paciente, vp.telefono, vp.edad,
             vp.num_expediente,
+            u.nombre_completo AS dentista,
+            s.nombre_sala,
             pr.nombre_procedimiento
        FROM cita c
        JOIN estado_cita ec ON ec.id_estado_cita = c.id_estado_cita
        JOIN v_paciente vp ON vp.id_registro_paciente = c.id_registro_paciente
+       JOIN usuario u ON u.id_usuario = c.id_usuario_dentista
+       LEFT JOIN consultorio_sala s ON s.id_sala = c.id_sala
        LEFT JOIN procedimiento pr ON pr.id_procedimiento = c.id_procedimiento
       WHERE c.id_usuario_dentista = :d
         AND DATE(c.fecha_inicio) BETWEEN :l AND :s

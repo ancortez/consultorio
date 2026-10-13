@@ -231,9 +231,9 @@ Bitacora::registrar('consultas', 'IMPRIME', 'receta', (string) $idReceta);
     <button class="principal" onclick="window.print()">
         Imprimir sobre el recetario
     </button>
-    <a class="secundario" href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=consulta&id=<?= (int) $rx['id_consulta'] ?>">
-        Volver a la consulta
-    </a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=consultas&vista=consulta&id='
+                     . (int) $rx['id_consulta']; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
     <span class="nota">
         Coloca una hoja del recetario en la impresora. Lo gris es la gu&iacute;a
         de pantalla: no se imprime.

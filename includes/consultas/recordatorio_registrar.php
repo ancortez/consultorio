@@ -8,7 +8,7 @@ endpoint('consultas.agenda');
 $idCita    = paramInt('id_cita');
 $idRegla   = paramInt('id_regla');
 $resultado = paramInt('resultado') ?: 1;
-$nota      = limpiarEspacios(paramMayus('nota'));
+$nota      = paramTexto('nota');
 
 if (!$idCita || !$idRegla) {
     Respuesta::error('Faltan datos del recordatorio.');

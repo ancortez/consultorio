@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   moduloPermisos();
   moduloColonias();
   moduloProcedimientos();
+  moduloTarifas();
   moduloConsultorio();
 });
 
@@ -770,6 +771,174 @@ function moduloProcedimientos() {
 }
 
 /* ---------------------------------------------------------------------
+   Tarifario
+   ---------------------------------------------------------------------
+   Casi igual que Procedimientos, y a proposito: son dos catalogos
+   hermanos y quien sabe usar uno sabe usar el otro sin volver a
+   aprender nada. Lo que cambia es lo que cambia de verdad: aqui hay
+   clave del SAT y una columna que dice cuantos procedimientos cuelgan
+   de cada precio.
+   --------------------------------------------------------------------- */
+function moduloTarifas() {
+  const tabla = document.getElementById('tablaTarifas');
+  if (!tabla) return;
+
+  const filtro    = document.getElementById('tarFiltro');
+  const categoria = document.getElementById('tarCategoria');
+  const estatus   = document.getElementById('tarEstatus');
+  const contador  = document.getElementById('tarContador');
+  const modal     = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalTarifa'));
+  const form      = document.getElementById('formTarifa');
+
+  async function cargar() {
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="9">
+        <div class="spinner-border spinner-border-sm me-2"
+             style="color:var(--morado-600)"></div>Cargando...</td></tr>`;
+
+    const r = await App.api('configuracion/tarifas_listar.php', {
+      q: filtro.value.trim(),
+      id_categoria: categoria.value,
+      estatus: estatus.value,
+    });
+
+    contador.textContent = r.datos.length
+      ? `${r.datos.length} precio${r.datos.length === 1 ? '' : 's'}` : '';
+
+    if (!r.datos.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="9">
+          Sin precios con ese criterio.</td></tr>`;
+      return;
+    }
+
+    tabla.innerHTML = r.datos.map((t, i) => {
+      const activo = Number(t.estatus) === 1;
+      const usos   = Number(t.usos);
+      return `
+      <tr data-tarifa='${App.esc(JSON.stringify(t))}'>
+        <td class="text-secondary">${i + 1}</td>
+        <td>
+          <div class="fw-semibold">${App.esc(t.nombre_tratamiento)}</div>
+          ${t.clave ? `<div class="text-secondary" style="font-size:11px">
+                         ${App.esc(t.clave)}</div>` : ''}
+        </td>
+        <td class="text-secondary">${App.esc(t.nombre_categoria ?? '-')}</td>
+        <td class="fw-semibold">${App.esc(App.money(t.precio_lista))}</td>
+        <td class="text-secondary">${t.duracion_min ? t.duracion_min + ' min' : '-'}</td>
+        <td class="text-secondary" style="font-size:11px">
+          ${t.clave_prod_serv_sat
+            ? App.esc(t.clave_prod_serv_sat)
+            : '<span title="Hace falta para facturar">Sin clave</span>'}
+        </td>
+        <td class="text-secondary" style="font-size:11px">
+          ${usos > 0
+            ? `${usos} procedimiento${usos === 1 ? '' : 's'}`
+            : '<span title="Ningun procedimiento hereda este precio">Nadie</span>'}
+        </td>
+        <td>
+          ${activo
+            ? '<span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ACTIVO</span>'
+            : '<span class="chip-estado" style="background:#eee;color:#777">INACTIVO</span>'}
+        </td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" data-accion="editar-tarifa">
+                <i class="bi bi-pencil me-2"></i>Modificar</a></li>
+              <li><a class="dropdown-item ${activo ? 'text-danger' : ''}" href="#"
+                     data-accion="estatus-tarifa" data-estatus="${activo ? 0 : 1}">
+                <i class="bi bi-${activo ? 'slash-circle' : 'check-circle'} me-2"></i>
+                ${activo ? 'Desactivar' : 'Activar'}</a></li>
+            </ul>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('btnNuevaTarifa').addEventListener('click', () => {
+    form.reset();
+    document.getElementById('tarId').value = '';
+    document.getElementById('tituloModalTarifa').textContent = 'Nuevo precio';
+    document.getElementById('tarPorDiente').checked = true;
+    document.getElementById('tarActivo').checked = true;
+    form.querySelector('[name="precio_lista"]').value = '0.00';
+    modal.show();
+  });
+
+  tabla.addEventListener('click', async (ev) => {
+    const opcion = ev.target.closest('[data-accion]');
+    if (!opcion) return;
+    ev.preventDefault();
+
+    const t = JSON.parse(opcion.closest('tr').dataset.tarifa);
+
+    if (opcion.dataset.accion === 'editar-tarifa') {
+      form.reset();
+      document.getElementById('tarId').value = t.id_tratamiento;
+      document.getElementById('tituloModalTarifa').textContent = 'Modificar precio';
+      form.querySelector('[name="nombre_tratamiento"]').value = t.nombre_tratamiento;
+      form.querySelector('[name="clave"]').value        = t.clave ?? '';
+      form.querySelector('[name="id_categoria"]').value = t.id_categoria ?? '';
+      form.querySelector('[name="precio_lista"]').value = Number(t.precio_lista).toFixed(2);
+      form.querySelector('[name="duracion_min"]').value = t.duracion_min ?? '';
+      form.querySelector('[name="clave_prod_serv_sat"]').value = t.clave_prod_serv_sat ?? '';
+      form.querySelector('[name="descripcion"]').value  = t.descripcion ?? '';
+      document.getElementById('tarPorDiente').checked = Number(t.aplica_por_diente) === 1;
+      document.getElementById('tarActivo').checked    = Number(t.estatus) === 1;
+      modal.show();
+    }
+
+    if (opcion.dataset.accion === 'estatus-tarifa') {
+      const nuevo = opcion.dataset.estatus;
+
+      /* Si hay procedimientos colgando, se dice CUANTOS antes de
+         desactivar. Sin el aviso, la doctora apaga un precio y semanas
+         despues descubre que media docena de procedimientos proponen
+         cero pesos al armar un plan. */
+      if (Number(nuevo) === 0 && Number(t.usos) > 0) {
+        const ok = await App.alerta.confirmar(
+          '¿Desactivar este precio?',
+          `Hay ${t.usos} procedimiento(s) que heredan su costo de aquí. `
+          + 'Los planes ya hechos conservan lo que se pactó, pero al armar '
+          + 'uno nuevo esos procedimientos ya no propondrán precio.',
+          'Sí, desactivar');
+        if (!ok) return;
+      }
+
+      await App.api('configuracion/tarifa_estatus.php', {
+        id_tratamiento: t.id_tratamiento, estatus: nuevo,
+      });
+      App.alerta.toast('Estatus actualizado');
+      cargar();
+    }
+  });
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const datos = App.formADatos(form);
+    datos.aplica_por_diente = document.getElementById('tarPorDiente').checked ? 1 : '';
+    datos.estatus           = document.getElementById('tarActivo').checked ? 1 : 0;
+
+    try {
+      await App.api('configuracion/tarifa_guardar.php', datos);
+      modal.hide();
+      App.alerta.toast('Precio guardado');
+      cargar();
+    } catch (e) {
+      App.marcarErrores(form, e.errores);
+    }
+  });
+
+  filtro.addEventListener('input', App.debounce(cargar, 350));
+  categoria.addEventListener('change', cargar);
+  estatus.addEventListener('change', cargar);
+  cargar();
+}
+
+/* ---------------------------------------------------------------------
    Datos del consultorio
    --------------------------------------------------------------------- */
 function moduloConsultorio() {
@@ -1061,9 +1230,82 @@ document.addEventListener('DOMContentLoaded', () => {
         nombre: x.nombre, horas_antes: Number(x.horas_antes),
       }));
       pintar();
+      await guardarMensaje();
       App.alerta.toast('Recordatorios guardados');
     } catch (e) { /* ya se mostro */ }
   });
 
+  /* -------------------------------------------------------------------
+     El texto del recordatorio
+     -------------------------------------------------------------------
+     Tres cosas: insertar etiquetas donde esta el cursor, rehacer la
+     vista previa mientras se escribe, y guardar.
+  */
+  const cuadro   = document.getElementById('recMensaje');
+  const previa   = document.getElementById('recPrevia');
+  const contador = document.getElementById('recContador');
+  const MUESTRA  = window.MUESTRA_RECORDATORIO ?? {};
+
+  /* Misma regla que AgendaExtra::sustituir en PHP: UNA sola pasada.
+     Si aqui se hiciera etiqueta por etiqueta, la vista previa mostraria
+     un mensaje distinto del que se manda de verdad, y ese es justo el
+     sitio donde no puede haber diferencia: la vista previa existe para
+     confiar en ella. */
+  function sustituir(plantilla) {
+    return plantilla.replace(/\{(\w+)\}/g,
+      (entera, nombre) => MUESTRA[nombre] ?? entera);
+  }
+
+  function refrescarPrevia() {
+    if (!cuadro) return;
+    previa.textContent = sustituir(cuadro.value);
+    contador.textContent = `${cuadro.value.length} / 1000`;
+  }
+
+  /* Inserta la etiqueta DONDE ESTA EL CURSOR, no al final.
+
+     Al final seria mas facil de programar y obligaria a cortar y pegar
+     a mano cada vez: se escribe "Le recordamos la cita de" y lo que
+     sigue es el nombre, ahi mismo. */
+  document.querySelectorAll('[data-etiqueta]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const etiqueta = chip.dataset.etiqueta;
+      const desde = cuadro.selectionStart ?? cuadro.value.length;
+      const hasta = cuadro.selectionEnd   ?? cuadro.value.length;
+
+      cuadro.value = cuadro.value.slice(0, desde) + etiqueta
+                   + cuadro.value.slice(hasta);
+
+      // El cursor queda DESPUES de lo insertado y el foco vuelve al
+      // cuadro: se sigue escribiendo sin tener que volver a picar.
+      cuadro.focus();
+      cuadro.setSelectionRange(desde + etiqueta.length, desde + etiqueta.length);
+      refrescarPrevia();
+    });
+  });
+
+  cuadro?.addEventListener('input', refrescarPrevia);
+
+  async function guardarMensaje() {
+    if (!cuadro) return;
+
+    cuadro.classList.remove('is-invalid');
+    try {
+      await App.api('configuracion/recordatorio_mensaje_guardar.php', {
+        mensaje: cuadro.value,
+      });
+    } catch (e) {
+      // El aviso va pegado al cuadro, no en una ventana: el error es
+      // de ese campo y ahi es donde hay que corregirlo.
+      if (e.errores?.mensaje) {
+        cuadro.classList.add('is-invalid');
+        document.getElementById('recMensajeError').textContent = e.errores.mensaje;
+        cuadro.focus();
+      }
+      throw e;
+    }
+  }
+
+  refrescarPrevia();
   pintar();
 });

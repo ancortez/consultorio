@@ -242,11 +242,59 @@ final class Caja
      * tutor llega y dice "le abono mil": nadie quiere elegir renglon
      * por renglon, y dejar el pago sin aplicar deja el saldo mintiendo.
      */
+    /**
+     * El dinero del paciente que todavia no se aplico a ningun cargo.
+     *
+     * Devuelve de QUE pagos sale, no solo cuanto: para aplicarlo hay
+     * que colgarlo de un pago concreto, porque pago_aplicacion une un
+     * pago con un cargo. Un total suelto no se puede aplicar a nada.
+     *
+     * Del mas viejo al mas nuevo: el anticipo que lleva meses ahi se
+     * gasta antes que el de hoy, que es lo que cualquiera espera al
+     * mirar el estado de cuenta.
+     */
+    public static function dineroSinAplicar(int $idExpediente): array
+    {
+        return Conexion::todos(
+            'SELECT p.id_pago, p.folio, p.monto,
+                    p.monto - COALESCE((
+                        SELECT SUM(pa.monto) FROM pago_aplicacion pa
+                         WHERE pa.id_pago = p.id_pago), 0) AS libre
+               FROM pago p
+              WHERE p.id_registro_paciente = :r AND p.estatus = 1
+             HAVING libre > 0.009
+              ORDER BY p.fecha_hora, p.id_pago',
+            [':r' => $idExpediente]
+        );
+    }
+
     public static function cobrar(array $datos): array
     {
         $idExpediente = (int) $datos['id_registro_paciente'];
         $idCorte      = (int) $datos['id_corte_caja'];
         $idPlan       = $datos['id_plan_tratamiento'] ?? null;
+
+        // ---------- Doble envio ----------
+        // La pantalla genera una huella al ABRIR el formulario de
+        // cobro. Dos envios del mismo formulario traen la misma, y el
+        // segundo no debe volver a cobrar.
+        //
+        // Se revisa aqui primero, porque es lo barato: si ya existe, se
+        // devuelve el cobro que ya se hizo y nadie se entera de que
+        // hubo un segundo envio. El indice unico de la tabla queda
+        // como red de abajo para el caso de verdad simultaneo, donde
+        // las dos peticiones leen "no existe" al mismo tiempo.
+        $huella = self::huellaValida($datos['huella_envio'] ?? null);
+
+        if ($huella !== null) {
+            $ya = Conexion::uno(
+                'SELECT id_pago, folio, monto FROM pago WHERE huella_envio = :h',
+                [':h' => $huella]
+            );
+            if ($ya !== null) {
+                return self::comoRespuesta($ya, repetido: true);
+            }
+        }
 
         $corte = Conexion::uno(
             'SELECT id_corte_caja, abierto FROM corte_caja WHERE id_corte_caja = :c',
@@ -283,15 +331,108 @@ final class Caja
         }
 
         $total = round($total, 2);
-        if ($total <= 0) {
-            throw new InvalidArgumentException('Captura el monto del cobro.');
-        }
+
+        // La comprobacion de "captura el monto" se movio mas abajo: si
+        // el saldo a favor del paciente cubre todo lo que debe, un
+        // cobro de cero pesos es correcto y no hay nada que capturar.
+        // Verla aqui cortaba justo ese caso.
 
         // ---------- Reparto contra los cargos ----------
         $pendientes = Cargos::pendientes($idExpediente, $idPlan !== null ? (int) $idPlan : null);
         $porCargo   = [];
         foreach ($pendientes as $p) {
             $porCargo[(int) $p['id_cargo']] = (float) $p['saldo'];
+        }
+
+        /*
+           Primero se gasta el dinero que el paciente YA entrego.
+
+           Es lo que pidio el consultorio: si dejo un anticipo, que se
+           le cobre solo la diferencia en vez de pedirle el total y
+           dejarle todavia mas a favor. La discusion en el mostrador
+           nace justo de ahi.
+
+           Se hace ANTES de repartir el cobro nuevo, y modificando
+           $porCargo: asi el dinero de hoy ya encuentra los cargos
+           rebajados y nunca se aplica dos veces sobre lo mismo. El
+           orden importa; al reves, los dos repartos pelearian por el
+           mismo cargo.
+
+           No se crea un pago nuevo por esto: el dinero ya entro a la
+           caja en su dia y volver a registrarlo lo contaria dos veces
+           en el corte. Lo que se crea es la APLICACION, que es lo
+           unico que faltaba.
+        */
+        $aFavorAplicado = 0.0;
+        $deDondeSalio   = [];
+
+        if (!empty($datos['usar_a_favor'])) {
+            $bolsas = self::dineroSinAplicar($idExpediente);
+
+            foreach ($pendientes as $p) {
+                $idCargo = (int) $p['id_cargo'];
+                $falta   = $porCargo[$idCargo] ?? 0;
+
+                foreach ($bolsas as &$b) {
+                    if ($falta <= 0.009) { break; }
+                    $libre = round((float) $b['libre'], 2);
+                    if ($libre <= 0.009) { continue; }
+
+                    $pone = round(min($libre, $falta), 2);
+
+                    $deDondeSalio[] = [
+                        'id_pago'  => (int) $b['id_pago'],
+                        'id_cargo' => $idCargo,
+                        'monto'    => $pone,
+                    ];
+
+                    $b['libre'] = round($libre - $pone, 2);
+                    $falta = round($falta - $pone, 2);
+                    $aFavorAplicado = round($aFavorAplicado + $pone, 2);
+                }
+                unset($b);
+
+                $porCargo[$idCargo] = $falta;
+            }
+        }
+
+        if ($total <= 0 && $aFavorAplicado <= 0.009) {
+            throw new InvalidArgumentException('Captura el monto del cobro.');
+        }
+
+        /*
+           El saldo a favor cubrio todo: no hay dinero nuevo que entre.
+
+           Se escriben las aplicaciones y se termina, sin crear un pago.
+           Crear uno de cero pesos ensuciaria el corte de caja con un
+           movimiento que no movio nada, y el recibo diria "recibimos
+           $0.00", que no es lo que paso: lo que paso es que se uso
+           dinero que ya habia entregado.
+        */
+        if ($total <= 0) {
+            foreach ($deDondeSalio as $d) {
+                Conexion::consulta(
+                    'INSERT INTO pago_aplicacion (id_pago, id_cargo, monto)
+                          VALUES (:p, :c, :m)',
+                    [':p' => $d['id_pago'], ':c' => $d['id_cargo'],
+                     ':m' => $d['monto']]
+                );
+            }
+
+            Bitacora::registrar('cajas', 'APLICA', 'pago_aplicacion', null, [
+                'expediente' => $idExpediente,
+                'a_favor_aplicado' => $aFavorAplicado,
+            ]);
+
+            return [
+                'id_pago'  => null,
+                'folio'    => null,
+                'monto'    => 0.0,
+                'aplicado' => $aFavorAplicado,
+                'a_favor'  => 0.0,
+                'a_favor_aplicado' => $aFavorAplicado,
+                'solo_a_favor' => true,
+            ];
         }
 
         $aplicaciones = [];
@@ -332,16 +473,43 @@ final class Caja
         // ---------- Guardado ----------
         $folio = siguienteFolio('pago', 'folio', 'RC');
 
-        Conexion::consulta(
-            'INSERT INTO pago
-                (folio, id_registro_paciente, id_plan_tratamiento,
-                 id_corte_caja, id_usuario, monto, observaciones)
-             VALUES (:fo, :r, :plan, :c, :u, :m, :o)',
-            [':fo' => $folio, ':r' => $idExpediente, ':plan' => $idPlan,
-             ':c' => $idCorte, ':u' => Auth::id(), ':m' => $total,
-             ':o' => !empty($datos['observaciones'])
-                 ? mb_substr(mayus((string) $datos['observaciones']), 0, 255) : null]
-        );
+        try {
+            Conexion::consulta(
+                'INSERT INTO pago
+                    (folio, id_registro_paciente, id_plan_tratamiento,
+                     id_corte_caja, id_usuario, monto, observaciones, huella_envio)
+                 VALUES (:fo, :r, :plan, :c, :u, :m, :o, :h)',
+                [':fo' => $folio, ':r' => $idExpediente, ':plan' => $idPlan,
+                 ':c' => $idCorte, ':u' => Auth::id(), ':m' => $total,
+                 // El concepto del saldo a favor va en las
+                 // observaciones, que es lo que sale impreso en la
+                 // ficha de pago. Sin esto, el paciente recibe un
+                 // recibo por menos de lo que debia y nada explica por
+                 // que: la pregunta vuelve al mostrador al mes
+                 // siguiente.
+                 ':o' => self::observacionesCobro(
+                     $datos['observaciones'] ?? null, $aFavorAplicado),
+                 ':h' => $huella]
+            );
+        } catch (PDOException $e) {
+            // 23000 es violacion de restriccion. Si fue la huella, es
+            // que dos peticiones del mismo formulario llegaron tan
+            // juntas que las dos leyeron "no existe" arriba. La que
+            // perdio la carrera devuelve el cobro de la que gano, que
+            // es justo lo que el usuario queria: un solo cobro.
+            if ($huella !== null && $e->getCode() === '23000'
+                && str_contains($e->getMessage(), 'uq_pago_huella')) {
+
+                $ya = Conexion::uno(
+                    'SELECT id_pago, folio, monto FROM pago WHERE huella_envio = :h',
+                    [':h' => $huella]
+                );
+                if ($ya !== null) {
+                    return self::comoRespuesta($ya, repetido: true);
+                }
+            }
+            throw $e;
+        }
 
         $idPago = Conexion::ultimoId();
 
@@ -369,6 +537,30 @@ final class Caja
             );
         }
 
+        /*
+           Las del saldo a favor cuelgan de SU pago original, no de
+           este. Es lo que mantiene honesta la cuenta: ese dinero entro
+           aquel dia y en aquel corte, y moverlo al cobro de hoy lo
+           contaria dos veces.
+
+           Pero ademas se apunta en que cobro se decidio gastarlo
+           (aplicada_en_pago). Sin ese segundo dato, la ficha de hoy no
+           puede decir "se te aplicaron 400 de tu saldo a favor": esos
+           400 estan a nombre de un folio de hace tres meses. El
+           paciente se llevaba un recibo por menos de lo que debia y
+           nada en el papel lo explicaba —solo una frase en las
+           observaciones, que es texto y no se puede sumar ni cuadrar—.
+        */
+        foreach ($deDondeSalio as $d) {
+            Conexion::consulta(
+                'INSERT INTO pago_aplicacion
+                    (id_pago, id_cargo, aplicada_en_pago, monto)
+                 VALUES (:p, :c, :en, :m)',
+                [':p' => $d['id_pago'], ':c' => $d['id_cargo'],
+                 ':en' => $idPago, ':m' => $d['monto']]
+            );
+        }
+
         Bitacora::registrar('cajas', 'COBRA', 'pago', (string) $idPago, [
             'expediente'   => $idExpediente,
             'monto'        => $total,
@@ -384,6 +576,70 @@ final class Caja
             // Lo que no encontro cargo donde caer. Queda como saldo a
             // favor y se avisa: un anticipo sin avisar se olvida.
             'a_favor'  => $porAplicar,
+            'a_favor_aplicado' => $aFavorAplicado,
+            'solo_a_favor' => false,
+        ];
+    }
+
+    /** El texto que sale impreso en la ficha de pago. */
+    private static function observacionesCobro(?string $propias, float $aFavor): ?string
+    {
+        $partes = [];
+
+        if ($propias !== null && trim($propias) !== '') {
+            $partes[] = mayus(trim($propias));
+        }
+        if ($aFavor > 0.009) {
+            $partes[] = 'SE APLICARON ' . money($aFavor) . ' DE SALDO A FAVOR.';
+        }
+
+        return $partes ? mb_substr(implode(' ', $partes), 0, 255) : null;
+    }
+
+    /**
+     * Normaliza la huella que manda la pantalla.
+     *
+     * Se espera un UUID. Se valida la forma en lugar de confiar: la
+     * huella entra a un indice unico, y basta con que alguien mande una
+     * fija para que el segundo cobro legitimo del dia sea rechazado
+     * como duplicado. Lo que no tiene forma de UUID se descarta, y el
+     * cobro procede sin proteccion de duplicado, que es como funcionaba
+     * antes: nunca se bloquea un cobro por esto.
+     */
+    private static function huellaValida($valor): ?string
+    {
+        $v = trim((string) ($valor ?? ''));
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-'
+                        . '[0-9a-f]{4}-[0-9a-f]{12}$/i', $v) === 1
+            ? strtolower($v)
+            : null;
+    }
+
+    /**
+     * Arma la respuesta de un cobro que ya existia.
+     *
+     * No recalcula aplicado ni a_favor: ese reparto ya se hizo y se
+     * guardo cuando el cobro se registro de verdad. Volver a calcularlo
+     * sobre los saldos de ahora daria otro numero, porque los cargos ya
+     * quedaron cubiertos.
+     */
+    private static function comoRespuesta(array $pago, bool $repetido = false): array
+    {
+        $aplicado = (float) Conexion::valor(
+            'SELECT COALESCE(SUM(monto), 0) FROM pago_aplicacion WHERE id_pago = :p',
+            [':p' => $pago['id_pago']]
+        );
+        $monto = (float) $pago['monto'];
+
+        return [
+            'id_pago'  => (int) $pago['id_pago'],
+            'folio'    => $pago['folio'],
+            'monto'    => $monto,
+            'aplicado' => round($aplicado, 2),
+            'a_favor'  => round($monto - $aplicado, 2),
+            // La pantalla lo usa para no volver a imprimir el recibo ni
+            // cantar "cobro registrado" por segunda vez.
+            'repetido' => $repetido,
         ];
     }
 
@@ -462,9 +718,36 @@ final class Caja
             );
         }
 
+        /*
+           Se devuelve el saldo a favor que este cobro gasto.
+
+           Las aplicaciones del saldo a favor NO cuelgan de este pago:
+           cuelgan del anticipo que trajo el dinero, que sigue vigente.
+           Cancelar este cobro apaga su pago y sus movimientos, pero
+           esas aplicaciones se quedaban vivas: el cargo seguia
+           apareciendo cubierto y el paciente perdia su anticipo sin
+           que nada lo registrara. Dinero suyo, desaparecido por
+           cancelar un cobro el mismo dia.
+
+           Esto no se podia arreglar antes porque no habia forma de
+           saber que aplicaciones habia hecho este cobro. Ahora lo dice
+           aplicada_en_pago, y se borran: el dinero vuelve a estar sin
+           aplicar, que es exactamente donde estaba antes del cobro.
+
+           Se BORRAN y no se apagan porque una aplicacion no tiene
+           estado: es la union entre un pago y un cargo, y lo que se
+           guarda para la auditoria es el cobro cancelado y su motivo,
+           que si quedan.
+        */
+        $devueltas = Conexion::consulta(
+            'DELETE FROM pago_aplicacion WHERE aplicada_en_pago = :p',
+            [':p' => $idPago]
+        )->rowCount();
+
         Bitacora::registrar('cajas', 'CANCELA', 'pago', (string) $idPago, [
             'folio' => $pago['folio'], 'monto' => $pago['monto'],
             'motivo' => $motivo,
+            'a_favor_devuelto' => $devueltas,
         ]);
     }
 }

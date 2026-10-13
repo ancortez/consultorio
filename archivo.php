@@ -9,6 +9,7 @@
  *
  * Uso:  /archivo.php?id=123        muestra el archivo
  *       /archivo.php?id=123&d=1    lo descarga
+ *       /archivo.php?id=123&mini=1 una miniatura, si es imagen
  */
 
 require_once __DIR__ . '/includes/core/bootstrap.php';
@@ -18,6 +19,7 @@ Auth::exigirPermiso('paciente.ver');
 
 $idDocumento = (int) ($_GET['id'] ?? 0);
 $descargar   = isset($_GET['d']);
+$miniatura   = isset($_GET['mini']);
 
 if ($idDocumento <= 0) {
     http_response_code(400);
@@ -57,6 +59,41 @@ if ($contenido === null) {
 if (!empty($doc['hash_sha256']) && hash('sha256', $contenido) !== $doc['hash_sha256']) {
     Bitacora::registrar('expediente', 'ALERTA', 'documento', (string) $idDocumento,
         ['motivo' => 'El contenido no coincide con la huella registrada']);
+}
+
+/*
+   La miniatura.
+
+   El expediente muestra la foto o la radiografia en un cuadro de unos
+   50 px. Servir ahi el archivo completo significa bajar una radiografia
+   de 2400 px —a veces varios megas— por cada renglon de la lista: con
+   quince documentos, la pantalla tarda en dibujarse y el consultorio
+   paga ese ancho de banda cada vez que alguien abre un expediente.
+
+   Se reduce aqui, al servirla. No se guarda una copia reducida en el
+   almacen a proposito: seria un segundo archivo que mantener
+   sincronizado con el primero, y la pregunta "¿cual de los dos es el
+   bueno?" ya me ha costado caro en otras partes de este sistema.
+
+   La bitacora NO anota las miniaturas. Una lista de quince documentos
+   generaria quince renglones de "CONSULTA" por cada vez que alguien
+   abre la pestania, y eso ahoga el rastro de los accesos de verdad,
+   que es para lo que existe la bitacora en un expediente clinico.
+*/
+if ($miniatura && str_starts_with((string) $doc['tipo_mime'], 'image/')) {
+    $mini = Imagen::miniatura($contenido, 160);
+
+    if ($mini !== null) {
+        header('Content-Type: image/jpeg');
+        header('Content-Length: ' . strlen($mini));
+        header('Content-Disposition: inline; filename="mini.jpg"');
+        header('Cache-Control: private, no-store, max-age=0');
+        header('X-Content-Type-Options: nosniff');
+        echo $mini;
+        exit;
+    }
+    // Si no se pudo reducir se entrega el original: vale mas una
+    // pantalla lenta que un hueco donde deberia haber una radiografia.
 }
 
 Bitacora::registrar('expediente', 'CONSULTA', 'documento', (string) $idDocumento);

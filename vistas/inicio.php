@@ -85,6 +85,46 @@ $totalPorCobrar = (float) (Conexion::valor(
     'SELECT COALESCE(SUM(saldo), 0) FROM v_paciente_saldo WHERE saldo > 0') ?? 0);
 
 /**
+ * Pacientes con saldo A FAVOR.
+ *
+ * Es el reverso de los pendientes de pago y se vigila por una razon
+ * distinta: el dinero ya entro, pero el paciente todavia no recibio
+ * nada a cambio. Mientras siga ahi, el consultorio le debe tratamiento.
+ *
+ * Y se olvida con facilidad. Un anticipo de hace cuatro meses no le
+ * grita a nadie; simplemente esta. Si el paciente deja de venir, ese
+ * saldo se convierte en una llamada incomoda o en una devolucion.
+ *
+ * El calculo no sale de v_paciente_saldo: esa vista suma CARGOS, y el
+ * dinero que entro sin encontrar cargo donde caer no aparece en
+ * ninguna de sus columnas. Hay que restar lo aplicado a lo cobrado.
+ */
+$aFavor = Auth::puede('cajas.ver')
+    ? Conexion::todos(
+        'SELECT vp.id_registro_paciente, vp.nombre_completo,
+                vp.num_expediente, vp.telefono,
+                SUM(p.monto) - COALESCE((
+                    SELECT SUM(pa.monto)
+                      FROM pago_aplicacion pa
+                      JOIN pago p2 ON p2.id_pago = pa.id_pago
+                     WHERE p2.id_registro_paciente = p.id_registro_paciente
+                       AND p2.estatus = 1), 0) AS favor,
+                MAX(p.fecha_hora) AS ultimo_pago
+           FROM pago p
+           JOIN v_paciente vp
+                ON vp.id_registro_paciente = p.id_registro_paciente
+          WHERE p.estatus = 1
+          GROUP BY p.id_registro_paciente, vp.id_registro_paciente,
+                   vp.nombre_completo, vp.num_expediente, vp.telefono
+         HAVING favor > 0.009
+          ORDER BY favor DESC
+          LIMIT 8')
+    : [];
+
+$totalAFavor = 0.0;
+foreach ($aFavor as $f) { $totalAFavor += (float) $f['favor']; }
+
+/**
  * Citas por confirmar.
  *
  * Nacen en Pendiente y se quedan asi hasta que alguien le llama al
@@ -94,7 +134,7 @@ $totalPorCobrar = (float) (Conexion::valor(
  * Se listan desde hoy hacia adelante: confirmar una cita de ayer no
  * sirve de nada.
  */
-$sqlPorConfirmar = 'SELECT c.id_cita, c.fecha_inicio, c.motivo,
+$sqlPorConfirmar = 'SELECT c.id_cita, c.fecha_inicio, c.motivo, c.notas,
             vp.nombre_completo, vp.telefono, vp.id_registro_paciente,
             u.nombre_completo AS dentista
        FROM cita c
@@ -108,9 +148,64 @@ if ($soloMisCitas) {
     $sqlPorConfirmar .= ' AND c.id_usuario_dentista = :yo';
     $paramsPorConfirmar[':yo'] = Auth::id();
 }
-$sqlPorConfirmar .= ' ORDER BY c.fecha_inicio LIMIT 12';
+// Sin tope apretado: la tarjeta recorta a cinco al pintar, y el modal
+// de "Ver todos" necesita la lista entera. Doscientas citas pendientes
+// de confirmar serian un problema de consultorio, no de consulta.
+$sqlPorConfirmar .= ' ORDER BY c.fecha_inicio LIMIT 200';
 
 $porConfirmar = Conexion::todos($sqlPorConfirmar, $paramsPorConfirmar);
+
+/**
+ * Pendientes de digitalizacion, de todo el consultorio.
+ *
+ * Hasta ahora esto solo se veia paciente por paciente, dentro de su
+ * ficha: habia que acordarse de entrar a cada expediente para
+ * enterarse de que faltaba un papel. Visto junto se convierte en una
+ * tarea que alguien puede despachar en una sentada con el escaner al
+ * lado.
+ *
+ * Los mas viejos primero: un consentimiento solicitado hace tres
+ * semanas y nunca escaneado es mas urgente que el de ayer.
+ */
+$porDigitalizar = Auth::puede('paciente.ver')
+    ? Conexion::todos(
+        'SELECT d.id_documento, d.fecha_solicitud, d.descripcion,
+                td.nombre_documento, td.icono, td.formatos,
+                vp.nombre_completo, vp.num_expediente,
+                vp.id_registro_paciente
+           FROM documento d
+           JOIN tipo_documento td ON td.id_tipo_documento = d.id_tipo_documento
+           JOIN v_paciente vp ON vp.id_registro_paciente = d.id_registro_paciente
+          WHERE d.estado = 0 AND d.estatus = 1
+          ORDER BY d.fecha_solicitud
+          LIMIT 200')
+    : [];
+
+/**
+ * Lista de espera.
+ *
+ * Quien pidio cita y no habia hueco. Va pegada a la agenda del dia a
+ * proposito: el momento util para acordarse de esta gente es cuando se
+ * esta mirando el dia y se ve un espacio libre, no en una pantalla
+ * aparte a la que hay que decidir entrar.
+ */
+$enEspera = Auth::puede('consultas.ver')
+    ? Conexion::todos(
+        // estado 1 = esperando. No hay columna "estatus" ni
+        // "prioridad" en esta tabla: el orden es por antiguedad, que es
+        // como se atiende una cola.
+        'SELECT le.id_espera, le.motivo, le.notas, le.fecha_registro,
+                le.preferencia_horario, le.duracion_min,
+                le.id_usuario_dentista,
+                vp.nombre_completo, vp.telefono, vp.id_registro_paciente,
+                u.nombre_completo AS dentista
+           FROM lista_espera le
+           JOIN v_paciente vp ON vp.id_registro_paciente = le.id_registro_paciente
+           LEFT JOIN usuario u ON u.id_usuario = le.id_usuario_dentista
+          WHERE le.estado = 1
+          ORDER BY le.fecha_registro
+          LIMIT 20')
+    : [];
 
 /**
  * Recordatorios que toca hacer.
@@ -147,6 +242,36 @@ $tarjetas = [
 ];
 ?>
 
+<?php
+/*
+   Entrada escalonada de las tarjetas.
+
+   Cada una aparece en medio segundo y arranca una decima de segundo
+   despues que la anterior. El escalon es lo que hace que se lea como
+   una pantalla armandose y no como un parpadeo: todas a la vez se
+   percibe como un salto, y de una en una con mas pausa se siente
+   lento.
+
+   El retraso se cuenta aqui y no con nth-child en la hoja de estilo
+   porque el contador de CSS se reinicia en cada fila y en cada
+   columna: la cascada salia partida en tres, con las dos columnas de
+   la derecha arrancando al mismo tiempo. Contando desde PHP, el orden
+   es uno solo y sigue el de lectura.
+*/
+// Medio segundo de espera antes de la primera. La cortinilla de carga
+// se retira a los 300 ms y tarda otros 300 en desvanecerse: sin esta
+// espera, las tarjetas entran DETRAS de ella y cuando se levanta ya
+// esta todo quieto. La animacion se habria ejecutado sin que nadie la
+// viera.
+$esperaCortinilla = 0.6;
+
+$escalon = 0;
+$entrada = static function () use (&$escalon, $esperaCortinilla): string {
+    $retraso = $esperaCortinilla + ($escalon++ * 0.1);
+    return 'style="animation-delay:' . number_format($retraso, 1) . 's"';
+};
+?>
+
 <div class="d-flex align-items-center justify-content-between mb-3">
     <div>
         <h1 class="titulo-vista">Buen d&iacute;a, <?= e(explode(' ', $usuarioSesion['nombre_completo'])[0]) ?></h1>
@@ -162,7 +287,7 @@ $tarjetas = [
 <div class="row g-3 mb-4">
     <?php foreach ($tarjetas as $t): ?>
     <div class="col-3">
-        <div class="card h-100">
+        <div class="card h-100 entra" <?= $entrada() ?>>
             <div class="card-body d-flex align-items-center gap-3">
                 <div style="width:48px;height:48px;border-radius:12px;
                             background:<?= $t['color'] ?>;color:#fff;
@@ -180,8 +305,13 @@ $tarjetas = [
 </div>
 
 <div class="row g-3">
-    <div class="col-8">
-        <div class="card h-100">
+    <?php /* La agenda se queda con lo que sobre, no con un 8 de 12
+             fijo: las tarjetas de al lado miden lo que miden y lo
+             demas es para la agenda. Con col-8 y dos columnas de
+             tarjetas al lado, la suma se pasaba de doce y la segunda
+             columna se iba abajo. */ ?>
+    <div class="col">
+        <div class="card h-100 entra" <?= $entrada() ?>>
             <div class="card-header d-flex align-items-center justify-content-between">
                 <span>
                     <i class="bi bi-calendar3 me-2"></i>Agenda de hoy
@@ -234,168 +364,201 @@ $tarjetas = [
                     </tbody>
                 </table>
             </div>
+
+            <?php /* ============ Lista de espera ============ */ ?>
+            <?php /* Pegada a la agenda del dia, y no en una pantalla
+                     aparte, porque el momento util para acordarse de
+                     esta gente es cuando se esta mirando el dia y se ve
+                     un hueco. En otra pantalla hay que decidir entrar, y
+                     nadie entra a una lista de espera "por si acaso". */ ?>
+            <?php if (Auth::puede('consultas.ver')): ?>
+            <div class="card-body border-top py-2">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="text-secondary small fw-semibold">
+                        <i class="bi bi-hourglass-split me-1"></i>Lista de espera
+                        <?php if ($enEspera): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($enEspera) ?></span>
+                        <?php endif; ?>
+                    </span>
+                    <a class="btn btn-sm btn-outline-morado"
+                       href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=agenda">
+                        Abrir la agenda
+                    </a>
+                </div>
+
+                <?php if (!$enEspera): ?>
+                    <div class="exp-vacio">Nadie esperando hueco.</div>
+                <?php else: ?>
+                <div class="espera-renglones">
+                    <?php foreach ($enEspera as $es): ?>
+                    <?php
+                    $franjas = [1 => 'Mañana', 2 => 'Tarde', 3 => 'Cualquier hora'];
+                    ?>
+                    <div class="espera-renglon">
+                        <div style="min-width:0">
+                            <a class="fw-semibold text-decoration-none"
+                               style="font-size:13px"
+                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $es['id_registro_paciente'] ?>">
+                                <?= e($es['nombre_completo']) ?>
+                            </a>
+                            <div class="text-secondary text-truncate" style="font-size:11px">
+                                <?php if (!empty($es['telefono'])): ?>
+                                    <i class="bi bi-telephone"></i> <?= e($es['telefono']) ?> &middot;
+                                <?php endif; ?>
+                                <?= e($franjas[(int) $es['preferencia_horario']] ?? 'Cualquier hora') ?>
+                                &middot; <?= (int) $es['duracion_min'] ?> min
+                                <?php if (!empty($es['dentista'])): ?>
+                                    &middot; <?= e($es['dentista']) ?>
+                                <?php endif; ?>
+                            </div>
+                            <?php if (!empty($es['motivo']) || !empty($es['notas'])): ?>
+                            <div class="nota-cita">
+                                <i class="bi bi-sticky"></i>
+                                <?= e(trim(($es['motivo'] ?? '') . ' ' . ($es['notas'] ?? ''))) ?>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <?php /* Lleva a la agenda con el paciente ya
+                                 puesto y la cita abierta: el dato lo
+                                 sabemos y volver a buscarlo es hacer
+                                 repetir trabajo. */ ?>
+                        <?php if (Auth::puede('consultas.agenda') || $usuarioSesion['es_dentista']): ?>
+                        <a class="btn btn-sm btn-morado"
+                           title="Agendarle cita"
+                           href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=agenda&nueva=1&paciente=<?= (int) $es['id_registro_paciente'] ?>">
+                            <i class="bi bi-calendar-plus me-1"></i> Agendar
+                        </a>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
-    <div class="col-4">
-        <?php if (Auth::puede('cajas.ver')): ?>
-        <div class="card mb-3">
-            <div class="card-header"><i class="bi bi-cash-coin me-2"></i>Estado de caja</div>
-            <div class="card-body">
-                <?php if ($cajaAbierta): ?>
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ABIERTA</span>
-                        <span class="text-secondary small">
-                            desde <?= e(fecha($cajaAbierta['fecha_apertura'], 'H:i')) ?>
-                        </span>
-                    </div>
-                    <div class="dato-identidad">
-                        <i class="bi bi-person"></i>
-                        <div><div class="etiqueta">Abri&oacute;</div>
-                             <div class="valor"><?= e($cajaAbierta['abrio']) ?></div></div>
-                    </div>
-                    <div class="dato-identidad">
-                        <i class="bi bi-wallet2"></i>
-                        <div><div class="etiqueta">Fondo inicial</div>
-                             <div class="valor"><?= e(money($cajaAbierta['monto_inicial'])) ?></div></div>
-                    </div>
-                <?php else: ?>
-                    <p class="text-secondary small mb-2">No hay una caja abierta.</p>
-                    <button class="btn btn-sm btn-morado w-100">Abrir caja</button>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
+    <?php /* Dos columnas de tarjetas, no una.
 
+             Apiladas en una sola columna, las dos ultimas quedaban
+             debajo del doblez: para ver los recordatorios del dia
+             —que son llamadas que alguien tiene que hacer HOY— habia
+             que desplazarse. El dashboard es justo la pantalla que no
+             deberia esconder nada: se abre para enterarse de un golpe
+             de como viene el dia.
+
+             Lo que se empareja: a la izquierda lo que hay que HACER
+             (confirmar citas, llamar); a la derecha lo que hay que
+             SABER (la caja, lo que deben, lo que tienen a favor). Son
+             dos lecturas distintas y mezclarlas obliga a separarlas
+             con la vista. */ ?>
+    <div class="col-auto tarjetas-inicio">
+      <div class="row g-3">
+
+        <div class="col-6">
         <?php if (Auth::puede('consultas.ver')): ?>
-        <div class="card mb-3">
+        <div class="card mb-3 entra" <?= $entrada() ?>>
             <div class="card-header d-flex align-items-center justify-content-between">
                 <span>
                     <i class="bi bi-telephone me-2"></i>Citas por confirmar
+                    <?php /* La clase la usa el JavaScript para bajar el
+                             contador al confirmar, aqui y en el modal:
+                             son dos y tienen que decir lo mismo. */ ?>
                     <?php if ($porConfirmar): ?>
-                        <span class="badge badge-pendiente ms-1"><?= count($porConfirmar) ?></span>
+                        <span class="badge badge-pendiente badge-por-confirmar ms-1"><?= count($porConfirmar) ?></span>
                     <?php endif; ?>
                 </span>
                 <a class="btn btn-sm btn-outline-morado"
                    href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=agenda">Agenda</a>
             </div>
+            <?php
+            /*
+               Cinco a la vista, el resto en "Ver todos".
+
+               La tarjeta cabe en media columna y con doce renglones se
+               come la pantalla, que es justo lo que se arreglo esta
+               ronda. Cinco es lo que se alcanza a leer de un vistazo;
+               quien de verdad va a ponerse a llamar abre la lista
+               completa y trabaja desde ahi.
+
+               El renglon se pinta con una funcion y no con dos bloques
+               de HTML copiados: la tarjeta y el modal ensenian lo
+               mismo, y teniendo dos copias una acabaria mostrando la
+               nota y la otra no.
+            */
+            $filaPorConfirmar = static function (array $pc): void { ?>
+                <div class="cita-pendiente" data-cita="<?= (int) $pc['id_cita'] ?>">
+                    <div class="cuando">
+                        <b><?= e(fecha($pc['fecha_inicio'], 'd/m')) ?></b>
+                        <?= e(fecha($pc['fecha_inicio'], 'H:i')) ?>
+                    </div>
+                    <div class="flex-grow-1" style="min-width:0">
+                        <a class="fw-semibold text-decoration-none d-block text-truncate"
+                           style="font-size:13px"
+                           href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $pc['id_registro_paciente'] ?>">
+                            <?= e($pc['nombre_completo']) ?>
+                        </a>
+                        <div class="text-secondary text-truncate" style="font-size:11px">
+                            <?php if (!empty($pc['telefono'])): ?>
+                                <i class="bi bi-telephone"></i> <?= e($pc['telefono']) ?> &middot;
+                            <?php endif; ?>
+                            <?= e($pc['dentista']) ?>
+                        </div>
+
+                        <?php /* La nota es lo que contesta "¿por que
+                                 venia este niño?" antes de levantar el
+                                 telefono. Sin ella hay que abrir la
+                                 agenda para saber de que se le habla. */ ?>
+                        <?php if (!empty($pc['notas'])): ?>
+                        <div class="nota-cita" title="<?= e($pc['notas']) ?>">
+                            <i class="bi bi-sticky"></i> <?= e($pc['notas']) ?>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-morado"
+                                data-confirmar="<?= (int) $pc['id_cita'] ?>"
+                                title="Confirmar cita">
+                            <i class="bi bi-check-lg"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-light text-danger"
+                                data-cancelar="<?= (int) $pc['id_cita'] ?>"
+                                title="Cancelar cita">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            <?php }; ?>
+
             <div id="listaPorConfirmar">
                 <?php if (!$porConfirmar): ?>
                     <div class="p-4 text-center text-secondary small">
                         <i class="bi bi-check2-circle fs-4 d-block mb-1" style="color:var(--exito)"></i>
                         Todas las citas est&aacute;n confirmadas.
                     </div>
-                <?php else: foreach ($porConfirmar as $pc): ?>
-                    <div class="cita-pendiente" data-cita="<?= (int) $pc['id_cita'] ?>">
-                        <div class="cuando">
-                            <b><?= e(fecha($pc['fecha_inicio'], 'd/m')) ?></b>
-                            <?= e(fecha($pc['fecha_inicio'], 'H:i')) ?>
-                        </div>
-                        <div class="flex-grow-1" style="min-width:0">
-                            <a class="fw-semibold text-decoration-none d-block text-truncate"
-                               style="font-size:13px"
-                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $pc['id_registro_paciente'] ?>">
-                                <?= e($pc['nombre_completo']) ?>
-                            </a>
-                            <div class="text-secondary text-truncate" style="font-size:11px">
-                                <?php if (!empty($pc['telefono'])): ?>
-                                    <i class="bi bi-telephone"></i> <?= e($pc['telefono']) ?> &middot;
-                                <?php endif; ?>
-                                <?= e($pc['dentista']) ?>
-                            </div>
-                        </div>
-                        <div class="d-flex gap-1">
-                            <button type="button" class="btn btn-sm btn-morado"
-                                    data-confirmar="<?= (int) $pc['id_cita'] ?>"
-                                    title="Confirmar cita">
-                                <i class="bi bi-check-lg"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-light text-danger"
-                                    data-cancelar="<?= (int) $pc['id_cita'] ?>"
-                                    title="Cancelar cita">
-                                <i class="bi bi-x-lg"></i>
-                            </button>
-                        </div>
-                    </div>
-                <?php endforeach; endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <?php if (Auth::puede('cajas.ver')): ?>
-        <div class="card mb-3">
-            <div class="card-header d-flex align-items-center justify-content-between">
-                <span>
-                    <i class="bi bi-cash-coin me-2"></i>Pendientes de pago
-                    <?php if ($porCobrar): ?>
-                        <span class="badge badge-pendiente ms-1"><?= count($porCobrar) ?></span>
-                    <?php endif; ?>
-                </span>
-                <a class="btn btn-sm btn-outline-morado"
-                   href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=pendientes">
-                    Ver todos
-                </a>
+                <?php else: ?>
+                    <?php foreach (array_slice($porConfirmar, 0, 5) as $pc) {
+                        $filaPorConfirmar($pc);
+                    } ?>
+                <?php endif; ?>
             </div>
 
-            <?php if ($totalPorCobrar > 0): ?>
-            <div class="px-3 pt-2">
-                <div class="resumen-saldo">
-                    <div>
-                        <span class="et">Total por cobrar</span>
-                        <span class="va fs-5" style="color:var(--error)">
-                            <?= e(money($totalPorCobrar)) ?>
-                        </span>
-                    </div>
-                </div>
-            </div>
+            <?php /* El boton solo sale si hay MAS de cinco: con cinco
+                     exactos ya se ven todos y el enlace seria ruido. */ ?>
+            <?php if (count($porConfirmar) > 5): ?>
+            <button type="button" class="ver-mas w-100 border-0 bg-transparent"
+                    data-bs-toggle="modal" data-bs-target="#modalPorConfirmar">
+                Ver todos (<?= count($porConfirmar) ?>)
+                <i class="bi bi-arrow-right"></i>
+            </button>
             <?php endif; ?>
-
-            <div class="list-group list-group-flush">
-                <?php if (!$porCobrar): ?>
-                    <div class="p-4 text-center text-secondary small">
-                        <i class="bi bi-check2-circle fs-3 d-block mb-2"
-                           style="color:var(--exito)"></i>
-                        Nadie debe nada.
-                    </div>
-                <?php else: foreach ($porCobrar as $p): ?>
-                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
-                        <div style="min-width:0">
-                            <a class="enlace-paciente" style="font-size:13px"
-                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $p['id_registro_paciente'] ?>">
-                                <?= e($p['nombre_completo']) ?>
-                            </a>
-                            <div class="text-secondary" style="font-size:11px">
-                                <?= (int) $p['cargos_abiertos'] ?> concepto(s)
-                                <?php /* Un adeudo de mas de un mes se marca:
-                                         es el que hay que atender primero. */ ?>
-                                <?php if ((int) $p['dias'] > 30): ?>
-                                    &middot; <span style="color:var(--error)">
-                                        hace <?= (int) $p['dias'] ?> d&iacute;as</span>
-                                <?php else: ?>
-                                    &middot; hace <?= (int) $p['dias'] ?> d&iacute;a(s)
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <div class="text-end">
-                            <div class="fw-semibold" style="color:var(--error)">
-                                <?= e(money($p['saldo'])) ?>
-                            </div>
-                            <?php if (Auth::puede('cajas.cobrar')): ?>
-                            <a class="btn btn-sm btn-morado mt-1"
-                               href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=cobrar&paciente=<?= (int) $p['id_registro_paciente'] ?>">
-                                Cobrar
-                            </a>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                <?php endforeach; endif; ?>
-            </div>
         </div>
         <?php endif; ?>
 
         <?php /* ============ Recordatorios ============ */ ?>
         <?php if (Auth::puede('consultas.ver')): ?>
-        <div class="card">
+        <div class="card entra" <?= $entrada() ?>>
             <div class="card-header d-flex align-items-center justify-content-between">
                 <span>
                     <i class="bi bi-whatsapp me-2"></i>Recordatorios de hoy
@@ -470,5 +633,266 @@ $tarjetas = [
             </div>
         </div>
         <?php endif; ?>
+
+        <?php /* ============ Pendientes de digitalizacion ============ */ ?>
+        <?php /* De TODO el consultorio, no de un paciente.
+
+                 Antes esto solo existia dentro de cada ficha, asi que
+                 enterarse de que faltaba un papel exigia entrar
+                 expediente por expediente. Juntos se vuelven una tarea
+                 que alguien despacha en una sentada con el escaner al
+                 lado, que es como se hace de verdad. */ ?>
+        <?php if (Auth::puede('paciente.ver')): ?>
+        <div class="card mt-3 entra" <?= $entrada() ?>>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-hourglass-split me-2"></i>Pendientes de digitalizar
+                    <?php if ($porDigitalizar): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($porDigitalizar) ?></span>
+                    <?php endif; ?>
+                </span>
+            </div>
+
+            <?php
+            $filaPendiente = static function (array $d): void { ?>
+                <a class="renglon-ficha"
+                   href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $d['id_registro_paciente'] ?>#expediente">
+                    <i class="bi <?= e($d['icono'] ?: 'bi-file-earmark') ?>"></i>
+                    <div style="min-width:0">
+                        <div class="rf-titulo"><?= e($d['nombre_documento']) ?></div>
+                        <div class="rf-sub"><?= e($d['nombre_completo']) ?>
+                            &middot; <?= e($d['num_expediente']) ?></div>
+                        <?php /* Desde cuando se pidio: un consentimiento
+                                 solicitado hace tres semanas pesa mas que
+                                 el de ayer. */ ?>
+                        <div class="rf-sub">Solicitado el
+                            <?= e(fecha($d['fecha_solicitud'])) ?></div>
+                    </div>
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            <?php }; ?>
+
+            <div class="card-body py-2">
+                <?php if (!$porDigitalizar): ?>
+                    <div class="exp-vacio">Nada por escanear. Todo al d&iacute;a.</div>
+                <?php else: ?>
+                    <?php foreach (array_slice($porDigitalizar, 0, 5) as $d) {
+                        $filaPendiente($d);
+                    } ?>
+                    <?php if (count($porDigitalizar) > 5): ?>
+                    <button type="button" class="ver-mas w-100 border-0 bg-transparent"
+                            data-bs-toggle="modal" data-bs-target="#modalPorDigitalizar">
+                        Ver todos (<?= count($porDigitalizar) ?>)
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        </div>
+
+        <div class="col-6">
+        <?php if (Auth::puede('cajas.ver')): ?>
+        <div class="card mb-3 entra" <?= $entrada() ?>>
+            <div class="card-header"><i class="bi bi-cash-coin me-2"></i>Estado de caja</div>
+            <div class="card-body">
+                <?php if ($cajaAbierta): ?>
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ABIERTA</span>
+                        <span class="text-secondary small">
+                            desde <?= e(fecha($cajaAbierta['fecha_apertura'], 'H:i')) ?>
+                        </span>
+                    </div>
+                    <div class="dato-identidad">
+                        <i class="bi bi-person"></i>
+                        <div><div class="etiqueta">Abri&oacute;</div>
+                             <div class="valor"><?= e($cajaAbierta['abrio']) ?></div></div>
+                    </div>
+                    <div class="dato-identidad">
+                        <i class="bi bi-wallet2"></i>
+                        <div><div class="etiqueta">Fondo inicial</div>
+                             <div class="valor"><?= e(money($cajaAbierta['monto_inicial'])) ?></div></div>
+                    </div>
+                <?php else: ?>
+                    <p class="text-secondary small mb-2">No hay una caja abierta.</p>
+                    <button class="btn btn-sm btn-morado w-100">Abrir caja</button>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if (Auth::puede('cajas.ver')): ?>
+        <div class="card mb-3 entra" <?= $entrada() ?>>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-cash-coin me-2"></i>Pendientes de pago
+                    <?php if ($porCobrar): ?>
+                        <span class="badge badge-pendiente ms-1"><?= count($porCobrar) ?></span>
+                    <?php endif; ?>
+                </span>
+                <a class="btn btn-sm btn-outline-morado"
+                   href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=pendientes">
+                    Ver todos
+                </a>
+            </div>
+
+            <?php if ($totalPorCobrar > 0): ?>
+            <div class="px-3 pt-2">
+                <div class="resumen-saldo">
+                    <div>
+                        <span class="et">Total por cobrar</span>
+                        <span class="va fs-5" style="color:var(--error)">
+                            <?= e(money($totalPorCobrar)) ?>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <div class="list-group list-group-flush">
+                <?php if (!$porCobrar): ?>
+                    <div class="p-4 text-center text-secondary small">
+                        <i class="bi bi-check2-circle fs-3 d-block mb-2"
+                           style="color:var(--exito)"></i>
+                        Nadie debe nada.
+                    </div>
+                <?php else: foreach ($porCobrar as $p): ?>
+                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                        <div style="min-width:0">
+                            <a class="enlace-paciente" style="font-size:13px"
+                               href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $p['id_registro_paciente'] ?>">
+                                <?= e($p['nombre_completo']) ?>
+                            </a>
+                            <div class="text-secondary" style="font-size:11px">
+                                <?= (int) $p['cargos_abiertos'] ?> concepto(s)
+                                <?php /* Un adeudo de mas de un mes se marca:
+                                         es el que hay que atender primero. */ ?>
+                                <?php if ((int) $p['dias'] > 30): ?>
+                                    &middot; <span style="color:var(--error)">
+                                        hace <?= (int) $p['dias'] ?> d&iacute;as</span>
+                                <?php else: ?>
+                                    &middot; hace <?= (int) $p['dias'] ?> d&iacute;a(s)
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-semibold" style="color:var(--error)">
+                                <?= e(money($p['saldo'])) ?>
+                            </div>
+                            <?php if (Auth::puede('cajas.cobrar')): ?>
+                            <a class="btn btn-sm btn-morado mt-1"
+                               href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=cobrar&paciente=<?= (int) $p['id_registro_paciente'] ?>">
+                                Cobrar
+                            </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php /* ============ Saldo a favor ============ */ ?>
+        <?php if (Auth::puede('cajas.ver') && $aFavor): ?>
+        <div class="card mb-3 entra" <?= $entrada() ?>>
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span>
+                    <i class="bi bi-piggy-bank me-2"></i>Con saldo a favor
+                    <span class="badge badge-suave ms-1"><?= count($aFavor) ?></span>
+                </span>
+                <span class="fw-semibold" style="color:var(--exito)">
+                    <?= e(money($totalAFavor)) ?>
+                </span>
+            </div>
+            <div class="card-body py-2">
+                <?php /* No es una lista de cobro: es una lista de deuda del
+                         consultorio hacia el paciente. El dinero ya entro y
+                         todavia no recibio nada a cambio. */ ?>
+                <div class="exp-vacio mb-2" style="background:#e8f6ef;color:#1c7a52">
+                    Ya pagaron y a&uacute;n no se les aplica a ning&uacute;n
+                    cargo. Se descuenta solo en su pr&oacute;ximo tratamiento.
+                </div>
+                <?php foreach ($aFavor as $f): ?>
+                <a class="renglon-ficha"
+                   href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $f['id_registro_paciente'] ?>">
+                    <div style="min-width:0">
+                        <div class="rf-titulo"><?= e($f['nombre_completo']) ?></div>
+                        <div class="rf-sub">
+                            <?= e($f['num_expediente']) ?>
+                            <?php if ($f['telefono']): ?>
+                                &middot; <?= e($f['telefono']) ?>
+                            <?php endif; ?>
+                            &middot; &uacute;ltimo pago <?= e(fecha($f['ultimo_pago'])) ?>
+                        </div>
+                    </div>
+                    <span class="fw-semibold" style="color:var(--exito)">
+                        <?= e(money($f['favor'])) ?>
+                    </span>
+                </a>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php endif; ?>
+        </div>
+
+      </div>
     </div>
 </div>
+
+<?php /* =====================================================================
+         Las listas completas
+         =====================================================================
+         Las tarjetas ensenian cinco y estos modales el resto. Se pintan
+         con la MISMA funcion que la tarjeta, no con HTML copiado: dos
+         copias del renglon acabarian ensenando cosas distintas, que es
+         justo lo que acaba de pasar con la nota de la cita.
+
+         Van al final del archivo, fuera de la rejilla: un modal dentro
+         de una columna hereda su ancho y sale estrujado contra un lado.
+         ===================================================================== */ ?>
+
+<?php if (Auth::puede('consultas.ver') && count($porConfirmar) > 5): ?>
+<div class="modal fade" id="modalPorConfirmar" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-telephone me-2"></i>Citas por confirmar
+          <span class="badge badge-pendiente badge-por-confirmar ms-1"><?= count($porConfirmar) ?></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" id="listaPorConfirmarTodas">
+        <?php foreach ($porConfirmar as $pc) { $filaPorConfirmar($pc); } ?>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
+<?php if (Auth::puede('paciente.ver') && count($porDigitalizar) > 5): ?>
+<div class="modal fade" id="modalPorDigitalizar" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-hourglass-split me-2"></i>Pendientes de digitalizar
+          <span class="badge badge-pendiente ms-1"><?= count($porDigitalizar) ?></span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <?php foreach ($porDigitalizar as $d) { $filaPendiente($d); } ?>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>

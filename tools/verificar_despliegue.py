@@ -8,6 +8,7 @@ contrasenia de fabrica que se quedo, un archivo .env servido por HTTP.
 Lo que se puede probar de verdad (el cifrado del respaldo, el
 generador de claves) se prueba corriendolo, no leyendolo.
 """
+import sys
 import re, pathlib, subprocess, os, tempfile
 
 raiz = pathlib.Path('.')
@@ -227,15 +228,30 @@ with tempfile.TemporaryDirectory() as tmp:
     else:
         print('  ok   cifrado del respaldo: 200 KB ida y vuelta, identicos')
 
-    # Con la clave equivocada no debe abrir
+    # Con la clave equivocada no debe abrir.
+    #
+    # Lo que se mira es el CONTENIDO, no solo el codigo de salida. Y es
+    # por un fallo de esta prueba, no del respaldo: en AES-CBC, una
+    # clave equivocada produce basura, y una de cada 256 veces esa
+    # basura termina por casualidad en un relleno que openssl acepta,
+    # asi que sale con exito. Esta comprobacion fallaba sola de vez en
+    # cuando, y una prueba que falla al azar es peor que ninguna:
+    # ensenia a volver a correrla hasta que pase, que es exactamente la
+    # costumbre que hace que un fallo de verdad pase desapercibido.
+    #
+    # El contenido si es determinista: con la clave mala NUNCA sale el
+    # original, pase lo que pase con el relleno.
+    malo = os.path.join(tmp, 'con-clave-mala')
     mal = subprocess.run(
         ['openssl', 'enc', '-d', '-aes-256-cbc', '-pbkdf2', '-iter', '200000',
-         '-in', cifrado, '-out', os.path.join(tmp, 'x'), '-pass', 'pass:otra'],
+         '-in', cifrado, '-out', malo, '-pass', 'pass:otra'],
         capture_output=True)
-    if mal.returncode == 0:
+
+    salio = open(malo, 'rb').read() if os.path.exists(malo) else b''
+    if mal.returncode == 0 and salio == datos:
         fallos.append('el respaldo se abre con una clave equivocada')
     else:
-        print('  ok   con la clave equivocada, el respaldo no abre')
+        print('  ok   con la clave equivocada, el respaldo no devuelve los datos')
 
 # ---------- 10. Prueba real del generador de claves ----------
 # Se corre la misma linea del instalador cien veces: tienen que ser
@@ -462,8 +478,102 @@ if "500)" not in instala:
     fallos.append('el instalador no distingue un 500 de una falta de respuesta')
 print('  ok   comprobacion final por HTTPS, distinguiendo 500 de sin respuesta')
 
+# ---------- El despliegue comprueba las fotos de iPhone ----------
+# El 13 de octubre de 2026 las .heic se guardaron sin convertir durante
+# dias porque la imagen de PHP no se habia reconstruido, y nada lo
+# dijo: la pantalla abria bien. Levantar y preguntar si responde no
+# basta; hay que preguntar por las piezas de dentro.
+desp = (raiz/'infra/produccion/desplegar.sh').read_text(encoding='utf-8')
+if 'porQueNoConvierteHeic' not in desp:
+    fallos.append('el despliegue no comprueba que las fotos de iPhone se '
+                  'puedan convertir: el fallo se descubriria dias despues')
+else:
+    print('  ok   el despliegue comprueba la conversion de .heic')
+
+# ---------- 18. Las migraciones hablan MySQL, no MariaDB ----------
+# "ALTER TABLE ... ADD COLUMN IF NOT EXISTS" existe en MariaDB y NO en
+# MySQL 8. Se lee perfectamente bien, parece correcto, y revienta con un
+# error de sintaxis a mitad de la migracion: las anteriores ya se
+# aplicaron y la base queda a medio camino.
+#
+# Es un error facil de cometer porque medio internet lo usa. Por eso se
+# revisa aqui en lugar de confiar en acordarse.
+import glob as _glob
+
+MARIADB_NO_MYSQL = [
+    ('ADD COLUMN IF NOT EXISTS',  'ADD COLUMN no admite IF NOT EXISTS'),
+    ('DROP COLUMN IF EXISTS',     'DROP COLUMN no admite IF EXISTS'),
+    ('ADD INDEX IF NOT EXISTS',   'ADD INDEX no admite IF NOT EXISTS'),
+    ('ADD KEY IF NOT EXISTS',     'ADD KEY no admite IF NOT EXISTS'),
+    ('ADD UNIQUE IF NOT EXISTS',  'ADD UNIQUE no admite IF NOT EXISTS'),
+    ('DROP INDEX IF EXISTS',      'DROP INDEX no admite IF EXISTS'),
+    ('ALTER TABLE IF EXISTS',     'ALTER TABLE no admite IF EXISTS'),
+]
+
+migraciones = sorted(_glob.glob('db/migraciones/*.sql'))
+for archivo in migraciones:
+    texto = pathlib.Path(archivo).read_text(encoding='utf-8')
+    sinComent = '\n'.join(l for l in texto.splitlines()
+                          if not l.lstrip().startswith('--'))
+    for frase, porque in MARIADB_NO_MYSQL:
+        if frase.lower() in sinComent.lower():
+            fallos.append(f'{archivo}: "{frase}" es de MariaDB. '
+                          f'En MySQL 8 {porque}: usa el bloque '
+                          'SET @hay / PREPARE del LEEME.')
+
+    # Dentro de una cadena SQL, las comillas dobles se rompen si el
+    # servidor corre con ANSI_QUOTES: dejan de ser texto y pasan a ser
+    # nombres de columna.
+    for linea in sinComent.splitlines():
+        if "PREPARE" in linea.upper():
+            continue
+        if linea.count("'") >= 2 and '"' in linea and 'SELECT' in linea.upper():
+            fallos.append(f'{archivo}: comillas dobles dentro de una cadena SQL. '
+                          'Con ANSI_QUOTES se leen como nombre de columna; '
+                          "duplica el apostrofe en vez de usar comillas.")
+
+print(f'  ok   {len(migraciones)} migracion(es), todas en MySQL valido')
+
+# Cada migracion tiene que poder correrse dos veces. La que toca
+# estructura sin preguntar por el catalogo fallaria en el segundo
+# intento, que es justo lo que pasa cuando una falla a la mitad y hay
+# que volver a correrla.
+for archivo in migraciones:
+    texto = pathlib.Path(archivo).read_text(encoding='utf-8')
+    sinComent = '\n'.join(l for l in texto.splitlines()
+                          if not l.lstrip().startswith('--'))
+
+    tocaEstructura = re.search(r'\bALTER TABLE\b', sinComent, re.I)
+    seProtege = ('information_schema' in sinComent.lower()
+                 or 'PREPARE' in sinComent.upper())
+
+    if tocaEstructura and not seProtege:
+        fallos.append(f'{archivo}: cambia la estructura sin preguntar al '
+                      'catalogo. Si se corre dos veces va a fallar.')
+
+    # Se revisa CADA insert por separado, hasta su punto y coma. Mirar
+    # el archivo entero no sirve: un "CREATE TABLE IF NOT EXISTS" en la
+    # linea de arriba daria por protegido a un INSERT que no lo esta.
+    for insert in re.findall(r'\bINSERT\b.*?;', sinComent, re.I | re.S):
+        if not re.search(r'NOT EXISTS|ON DUPLICATE KEY|\bIGNORE\b',
+                         insert, re.I):
+            tabla = re.search(r'INSERT\s+(?:IGNORE\s+)?INTO\s+(\w+)', insert, re.I)
+            fallos.append(f'{archivo}: el INSERT en '
+                          f'{tabla.group(1) if tabla else "?"} duplicaria '
+                          'los datos al correrse dos veces.')
+print('  ok   todas se pueden correr dos veces sin romper')
+
+
 print()
 for a in avisos: print('  ~   ', a)
 for f in fallos: print('  !!  ', f)
 print()
 print('*** TODO EN ORDEN ***' if not fallos else f'*** {len(fallos)} PROBLEMA(S) ***')
+
+# Salir con error cuando hay fallos.
+#
+# Sin esto el verificador IMPRIME el problema y devuelve 0, asi que
+# cualquier guion que lo encadene con && sigue de largo y el fallo se
+# queda en la pantalla, leido por nadie. Un verificador que siempre
+# dice que si no verifica nada.
+sys.exit(1 if fallos else 0)

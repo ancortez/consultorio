@@ -526,6 +526,19 @@ if [[ ${TABLAS:-0} -lt 60 ]]; then
 fi
 ok "base armada: $TABLAS tablas y vistas"
 
+# Los archivos de db/ solo corren con la carpeta de datos vacia. Todo
+# cambio de estructura posterior vive en db/migraciones/ y se aplica
+# aqui, en cada instalacion y en cada actualizacion.
+if [[ -x "$DESTINO/infra/produccion/migrar.sh" ]]; then
+    paso "Poniendo la base al dia"
+    if sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/produccion' && ./migrar.sh"; then
+        ok "migraciones aplicadas"
+    else
+        aviso "las migraciones no terminaron. El sistema puede quedar a medias."
+        aviso "Revisa con: cd $DESTINO/infra/produccion && ./migrar.sh --ver"
+    fi
+fi
+
 # Y que el sistema conteste de verdad, no solo que el contenedor viva.
 # Se pregunta por HTTPS al dominio: es el camino que va a usar la
 # doctora, no un atajo interno que podria funcionar cuando el de

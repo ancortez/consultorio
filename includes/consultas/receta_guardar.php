@@ -11,7 +11,7 @@ endpoint('consultas.crear');
 
 $idReceta     = paramInt('id_receta');
 $idConsulta   = paramInt('id_consulta');
-$indicaciones = limpiarEspacios(paramMayus('indicaciones'));
+$indicaciones = paramTexto('indicaciones');
 $idDentista   = paramInt('id_usuario_dentista');
 $fecha        = trim((string) param('fecha', date('Y-m-d')));
 

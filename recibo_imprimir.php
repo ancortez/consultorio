@@ -53,13 +53,46 @@ $formas = Conexion::todos(
     [':p' => $idPago]
 );
 
+/*
+   A que cargos se aplico este cobro.
+
+   Son DOS cosas que caen en la misma tabla:
+
+     - lo que cubrio el dinero que entro hoy  (pa.id_pago = este)
+     - lo que cubrio su saldo a favor         (pa.aplicada_en_pago = este)
+
+   Las segundas estan a nombre del pago viejo que trajo ese dinero, y
+   por eso antes no salian en la ficha: el paciente recibia un recibo
+   por 600 habiendo una cuenta de 1,000 y el papel no decia de donde
+   salieron los otros 400.
+
+   Van juntas y marcadas, porque para quien lee la ficha son el mismo
+   hecho —"esto es lo que quedo cubierto hoy"— y lo que cambia es de
+   donde salio el dinero.
+*/
 $aplicaciones = Conexion::todos(
-    'SELECT pa.monto, c.descripcion, c.fecha
+    'SELECT pa.monto, c.descripcion, c.fecha,
+            (pa.aplicada_en_pago IS NOT NULL) AS de_saldo_a_favor
        FROM pago_aplicacion pa
        JOIN cargo c ON c.id_cargo = pa.id_cargo
-      WHERE pa.id_pago = :p ORDER BY c.fecha, c.id_cargo',
-    [':p' => $idPago]
+      WHERE pa.id_pago = :p OR pa.aplicada_en_pago = :en
+      ORDER BY c.fecha, c.id_cargo',
+    [':p' => $idPago, ':en' => $idPago]
 );
+
+// Cuanto de lo cubierto hoy salio del saldo a favor. Es el renglon
+// negativo de la ficha y lo que hace que los numeros cuadren: lo
+// cubierto menos el saldo aplicado tiene que dar lo recibido.
+$aFavorAplicado = 0.0;
+$totalCubierto  = 0.0;
+foreach ($aplicaciones as $a) {
+    $totalCubierto += (float) $a['monto'];
+    if ((int) $a['de_saldo_a_favor'] === 1) {
+        $aFavorAplicado += (float) $a['monto'];
+    }
+}
+$totalCubierto  = round($totalCubierto, 2);
+$aFavorAplicado = round($aFavorAplicado, 2);
 
 // Saldo despues del cobro: es la pregunta que hace el tutor al recibir
 // el papel, asi que viene contestada de fabrica.
@@ -167,6 +200,25 @@ $cancelado = (int) $pago['estatus'] === 0;
     .letra { font-size: 7.5pt; color: #8a7a90; margin-top: .12cm;
              text-transform: uppercase; }
 
+    /* El renglon que salio del saldo a favor va marcado en el propio
+       concepto: sin la marca, la ficha dice que se cubrieron 1,000 y
+       que se recibieron 600, y el hueco de 400 queda sin explicar. */
+    .desde-favor {
+        font-size: 6.5pt; text-transform: uppercase; letter-spacing: .04em;
+        background: #eaf6ee; color: #1d6b48;
+        border-radius: 3px; padding: .02cm .15cm; margin-left: .15cm;
+        white-space: nowrap;
+    }
+
+    /* El cuadre: lo cubierto, menos el saldo aplicado. Lo que queda es
+       lo que de verdad entro hoy, que es el total de abajo. */
+    .cuadre { margin-top: .25cm; font-size: 8.5pt; }
+    .cuadre > div {
+        display: flex; justify-content: space-between;
+        border-bottom: 1px dotted var(--linea); padding: .05cm 0;
+    }
+    .cuadre .menos b { color: #1d6b48; }
+
     .saldo {
         display: flex; justify-content: space-between;
         font-size: 8.5pt; margin-top: .25cm;
@@ -223,7 +275,8 @@ $cancelado = (int) $pago['estatus'] === 0;
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario" href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=cobrar">Volver</a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=cajas&vista=cobrar'; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
     <?php if ($cancelado): ?>
         <span style="color:#c0392b;font-weight:600">
             Este cobro est&aacute; cancelado.
@@ -292,13 +345,39 @@ $cancelado = (int) $pago['estatus'] === 0;
             <tbody>
             <?php foreach ($aplicaciones as $a): ?>
                 <tr>
-                    <td><?= e($a['descripcion']) ?></td>
+                    <td>
+                        <?= e($a['descripcion']) ?>
+                        <?php if ((int) $a['de_saldo_a_favor'] === 1): ?>
+                            <span class="desde-favor">con saldo a favor</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= e(fecha($a['fecha'])) ?></td>
                     <td class="der"><?= e(money($a['monto'])) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
+
+        <?php /* El cuadre, solo cuando hubo saldo a favor de por medio.
+
+                 Sin esto, la ficha de un cobro con anticipo aplicado no
+                 se sostiene sola: dice que se cubrieron 1,000 y que se
+                 recibieron 600, y entre las dos cifras hay un hueco de
+                 400 que el papel no explica. Puesto como renglon
+                 NEGATIVO, el recibo se lee de arriba abajo y cierra;
+                 es la diferencia entre un comprobante y un volante. */ ?>
+        <?php if ($aFavorAplicado > 0.009): ?>
+        <div class="cuadre">
+            <div>
+                <span>Total cubierto</span>
+                <b><?= e(money($totalCubierto)) ?></b>
+            </div>
+            <div class="menos">
+                <span>Saldo a favor aplicado</span>
+                <b>&minus;<?= e(money($aFavorAplicado)) ?></b>
+            </div>
+        </div>
+        <?php endif; ?>
         <?php else: ?>
             <div class="letra" style="margin-top:.3cm">
                 Anticipo. Se aplicar&aacute; a los pr&oacute;ximos cargos.

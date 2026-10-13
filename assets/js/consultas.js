@@ -136,7 +136,11 @@ function moduloAgenda() {
             ${c.edad != null ? ' · ' + c.edad + ' años' : ''}
           </div>
         </td>
-        <td class="text-secondary">${App.esc(c.motivo ?? '-')}</td>
+        <td class="text-secondary">
+          ${App.esc(c.motivo ?? '-')}
+          ${c.notas ? `<div class="nota-cita" title="${App.esc(c.notas)}">
+                         <i class="bi bi-sticky"></i> ${App.esc(c.notas)}</div>` : ''}
+        </td>
         <td class="text-secondary" style="font-size:12.5px">
           ${App.esc(c.dentista)}
           ${c.nombre_sala ? `<div style="font-size:11px">${App.esc(c.nombre_sala)}</div>` : ''}
@@ -239,7 +243,7 @@ function moduloAgenda() {
     document.getElementById('citaGuardar').disabled = true;
 
     document.getElementById('tituloModalCita').textContent =
-      cita ? 'Reagendar cita' : 'Nueva cita';
+      cita ? 'Modificar cita' : 'Nueva cita';
 
     document.getElementById('citaFecha').value = cita
       ? cita.fecha_inicio.substring(0, 10)
@@ -249,6 +253,16 @@ function moduloAgenda() {
       document.getElementById('citaDentista').value = cita.id_usuario_dentista;
       formCita.querySelector('[name="motivo"]').value = cita.motivo ?? '';
       formCita.querySelector('[name="id_sala"]').value = cita.id_sala ?? '';
+
+      /* La nota TAMBIEN se recarga.
+
+         Este era el bug de "la nota no se guarda". Si se guardaba: lo
+         que pasaba es que al reagendar, el formulario se limpia con
+         reset() y la nota no se volvia a poner, asi que al dar Guardar
+         se mandaba vacia y pisaba la que ya estaba. El dato se perdia
+         en la EDICION, no en el alta, que es por lo que parecia que
+         nunca se habia guardado. */
+      formCita.querySelector('[name="notas"]').value = cita.notas ?? '';
 
       const min = (new Date(cita.fecha_fin.replace(' ', 'T'))
                  - new Date(cita.fecha_inicio.replace(' ', 'T'))) / 60000;
@@ -425,21 +439,57 @@ function moduloAgenda() {
         if (!ok) return;
       }
 
-      await App.api('consultas/cita_estatus.php', {
-        id_cita: cita.id_cita, id_estado_cita: nuevo,
-      });
-      App.alerta.toast('Cita actualizada');
-      cargar();
-
-      // 3 = En sala. El paciente ya esta enfrente: es el momento de
-      // abrir su consulta, no diez minutos despues cuando alguien se
-      // acuerde y vuelva a teclear los mismos datos.
-      if (nuevo === 3) await ofrecerConsulta(cita);
-
-      // 5 = Cancelada. El hueco quedo libre: si alguien lo estaba
-      // esperando, este es el unico momento en que sirve saberlo.
-      if (nuevo === 5) await ofrecerListaEspera(cita);
+      await cambiarEstatus(cita, nuevo);
     }
+  });
+
+  /*
+     El cambio de estatus, en un solo sitio.
+
+     Lo llaman el menu de tres puntos del renglon y el detalle de la
+     cita. Antes vivia suelto dentro del manejador del menu, y al
+     agregar el detalle habria quedado duplicado: dos copias que
+     avisan distinto, o que una ofrece abrir la consulta al poner en
+     sala y la otra no.
+  */
+  async function cambiarEstatus(cita, nuevo) {
+    await App.api('consultas/cita_estatus.php', {
+      id_cita: cita.id_cita, id_estado_cita: nuevo,
+    });
+    App.alerta.toast('Cita actualizada');
+    cargar();
+
+    // 3 = En sala. El paciente ya esta enfrente: es el momento de
+    // abrir su consulta, no diez minutos despues cuando alguien se
+    // acuerde y vuelva a teclear los mismos datos.
+    if (nuevo === 3) await ofrecerConsulta(cita);
+
+    // 5 = Cancelada. El hueco quedo libre: si alguien lo estaba
+    // esperando, este es el unico momento en que sirve saberlo.
+    if (nuevo === 5) await ofrecerListaEspera(cita);
+  }
+
+  /*
+     Picar el renglon abre el detalle.
+
+     Va DESPUES del manejador del menu y comprueba que el clic no venga
+     de un enlace ni del menu: dentro del renglon hay un enlace al
+     expediente y un desplegable de acciones, y si el renglon entero se
+     tragara el clic, ninguno de los dos funcionaria.
+  */
+  tabla.addEventListener('click', (ev) => {
+    if (ev.target.closest('a, button, .dropdown')) return;
+
+    const fila = ev.target.closest('tr[data-cita]');
+    if (!fila) return;
+
+    DetalleCita.abrir(JSON.parse(fila.dataset.cita), {
+      alCambiar: async (idCita, idEstado) => {
+        const c = JSON.parse(fila.dataset.cita);
+        await cambiarEstatus(c, idEstado);
+      },
+      alModificar: (c) => abrirCita(c),
+    });
   });
 
   /** Al poner al paciente en sala, se ofrece abrir su consulta. */
@@ -522,6 +572,57 @@ function moduloAgenda() {
   document.getElementById('btnNuevaCita')?.addEventListener('click', () => abrirCita());
 
   cargar();
+
+  /*
+     Llegando desde la ficha del paciente con "?paciente=4", la cita se
+     abre con ese paciente ya puesto.
+
+     Sin esto, el boton de la ficha dejaba a la recepcionista en la
+     agenda teniendo que buscar de nuevo al paciente que acababa de
+     tener abierto. El dato ya lo sabemos: pedirlo otra vez es hacerle
+     repetir trabajo al sistema.
+  */
+  // Llegando con "?nueva=1" —desde la vista de semana— el modal se abre
+  // solo. Sin esto el boton de alla dejaba a la persona en la agenda
+  // del dia correcto pero teniendo que picar "Nueva cita" otra vez.
+  if (document.getElementById('agAbrirNueva')) {
+    abrirCita();
+  }
+
+  /* Y con "?cita=N", esa cita se abre para modificarla.
+
+     Hay que esperar a que el listado llegue: la cita se busca en lo
+     que devolvio el servidor, no se pide aparte. cargar() ya se
+     disparo arriba, asi que aqui solo se encadena a esa misma promesa
+     en vez de pedir el dia dos veces. */
+  const pedida = document.getElementById('agAbrirCita');
+  if (pedida?.dataset.id) {
+    cargar().then(() => {
+      // Se compara el dato, no el texto del JSON. Un selector del tipo
+      // [data-cita*='"id_cita":5'] parece mas corto pero depende de
+      // como quede serializado, y PDO devuelve los enteros como
+      // CADENA: el atributo dice "id_cita":"5" con comillas, asi que
+      // ese selector no casaria nunca y el boton Modificar de la
+      // semana no haria nada.
+      const buscada = Number(pedida.dataset.id);
+      for (const fila of tabla.querySelectorAll('tr[data-cita]')) {
+        const c = JSON.parse(fila.dataset.cita);
+        if (Number(c.id_cita) === buscada) { abrirCita(c); return; }
+      }
+      App.alerta.info('No encontré esa cita',
+        'Puede que se haya movido a otro día o la hayan cancelado.');
+    });
+  }
+
+  const pre = document.getElementById('agPacientePrevio');
+  if (pre?.dataset.id) {
+    abrirCita();
+    document.getElementById('citaPaciente').value = pre.dataset.id;
+    document.getElementById('citaPacienteTexto').value = pre.dataset.nombre;
+    // El boton de guardar se habilita mirando los campos llenos.
+    document.getElementById('citaPaciente')
+      .dispatchEvent(new Event('change', { bubbles: true }));
+  }
 }
 
 
@@ -559,9 +660,6 @@ function moduloPlan() {
           <div class="fw-semibold">${App.esc(r.nombre_procedimiento)}</div>
           ${r.requiere_anestesia
             ? '<span class="chip-estado chip-alerta-clinica">ANESTESIA</span>' : ''}
-          <input type="text" class="form-control campo-nota campo-nota-chica mt-1"
-                 placeholder="Nota" value="${App.esc(r.notas ?? '')}"
-                 maxlength="255">
         </td>
         <td>
           ${r.aplica_por_diente
@@ -594,29 +692,6 @@ function moduloPlan() {
     totalizar();
   }
 
-  /** Tabla de solo lectura del ultimo paso, para revisar antes de guardar. */
-  function pintarResumen() {
-    const caja = document.getElementById('planResumen');
-    if (!caja) return;
-
-    caja.innerHTML = renglones.length
-      ? renglones.map((r, i) => `
-          <tr>
-            <td class="text-secondary">${i + 1}</td>
-            <td>
-              <div class="fw-semibold">${App.esc(r.nombre_procedimiento)}</div>
-              ${r.notas ? `<div class="text-secondary" style="font-size:11px">
-                             ${App.esc(r.notas)}</div>` : ''}
-            </td>
-            <td class="text-secondary" style="font-size:11.5px">
-              ${Dientes.etiqueta(r.dientes, r.no_aplica)}
-            </td>
-            <td class="text-center">${r.cantidad}</td>
-            <td class="text-end fw-semibold">${App.money(r.importe)}</td>
-          </tr>`).join('')
-      : `<tr class="fila-vacia"><td colspan="5">Sin procedimientos.</td></tr>`;
-  }
-
   function totalizar() {
     const subtotal = renglones.reduce((s, r) => s + Number(r.importe), 0);
     const desc = Number(descuento.value) || 0;
@@ -624,7 +699,6 @@ function moduloPlan() {
 
     document.getElementById('planSubtotal').textContent = App.money(subtotal);
     document.getElementById('planTotal').textContent = App.money(total);
-    pintarResumen();
   }
 
   /** Recalcula el importe de un renglon con sus valores actuales. */
@@ -648,7 +722,6 @@ function moduloPlan() {
     if (el.classList.contains('campo-cant'))   r.cantidad = Math.max(1, Number(el.value) || 1);
     if (el.classList.contains('campo-precio')) r.precio_unitario = Number(el.value) || 0;
     if (el.classList.contains('campo-desc'))   r.descuento = Number(el.value) || 0;
-    if (el.classList.contains('campo-nota'))   r.notas = el.value;
 
     if (['campo-cant', 'campo-precio', 'campo-desc'].some((c) => el.classList.contains(c))) {
       recalcular(i);
@@ -677,6 +750,9 @@ function moduloPlan() {
       procedimiento: r.nombre_procedimiento,
       dientes: r.dientes,
       noAplica: r.no_aplica,
+      // Para decidir con que denticion abrir cuando el renglon todavia
+      // no trae dientes elegidos.
+      edad: document.querySelector('[data-edad-paciente]')?.dataset.edadPaciente,
       alElegir({ dientes, noAplica }) {
         r.dientes = dientes;
         r.no_aplica = noAplica;
@@ -712,7 +788,6 @@ function moduloPlan() {
         importe: Number(p.costo_sugerido),
         fecha_programada: '',
         proxima_cita: '',
-        notas: '',
       });
       pintar();
     });
@@ -739,11 +814,441 @@ function moduloPlan() {
     },
   });
 
+  /**
+   * Abre la hoja del plan y, si se pide, tambien el consentimiento.
+   *
+   * Los dos se firman en la misma sentada, asi que al CREAR un plan se
+   * abren juntos: imprimir uno, recordar que falta el otro y volver a
+   * buscarlo es como se traspapela el consentimiento.
+   *
+   * Van en ventanas distintas y no en una sola con dos paginas porque
+   * son dos documentos: uno se queda en el expediente y el otro lo
+   * firma el tutor. Con nombres de ventana distintos, el navegador no
+   * reusa la misma y de verdad salen los dos.
+   */
+  function imprimirDelPlan(idPlan) {
+    if (!idPlan) return;
+    App.abrirVentana(`${App.URL_BASE}/plan_imprimir.php?id=${idPlan}`,
+      880, 1020, 'plan');
+  }
+
+  function imprimirConsentimiento(idPlan, idExpediente) {
+    App.abrirVentana(
+      `${App.URL_BASE}/consentimiento.php?id=${idExpediente}&plan=${idPlan}`,
+      880, 1020, 'consentimiento');
+  }
+
+  /**
+   * Plan guardado: un boton por cada papel, y cada uno marcado hasta
+   * que se abre.
+   *
+   * Lo de antes era un solo boton, "Imprimir los dos", que abria dos
+   * ventanas con 400 ms de diferencia. No funciono: el navegador tomo
+   * la segunda por una emergente no pedida y la bloqueo sin avisar. Y
+   * como el pendiente del consentimiento lo creaba esa misma ventana al
+   * abrirse, se perdieron las dos cosas de golpe —el papel y el aviso
+   * de que faltaba—.
+   *
+   * El pendiente ya se crea al guardar, en el servidor (ver
+   * plan_guardar.php). Y aqui las ventanas se abren DE UNA EN UNA,
+   * cada una por un clic: una ventana pedida con un clic no la bloquea
+   * nadie. El truco de los 400 ms era pelear contra el navegador
+   * cuando lo que estaba mal era pedirle dos cosas con un solo gesto.
+   *
+   * La advertencia dice "pendiente de imprimir" y se quita al picar.
+   * Significa "ya lo abriste", no "ya salio de la impresora": eso no
+   * se puede saber desde aqui, y la etiqueta lo dice asi.
+   */
+  async function avisarYOfrecerImpresiones(datos) {
+    const idPlan = datos.id_plan_tratamiento;
+    const idExpediente = idExpedienteDelPlan();
+
+    const papeles = [
+      { clave: 'plan', titulo: 'Hoja del plan de tratamiento',
+        pie: 'La firma el tutor para aceptar el presupuesto.',
+        abrir: () => imprimirDelPlan(idPlan) },
+      { clave: 'consentimiento', titulo: 'Consentimiento bajo información',
+        pie: 'Autoriza los procedimientos. Va firmado al expediente.',
+        abrir: () => imprimirConsentimiento(idPlan, idExpediente) },
+    ];
+
+    const fila = (p) => `
+      <button type="button" class="papel-plan" data-papel="${p.clave}">
+        <i class="bi bi-file-earmark-text icono"></i>
+        <span class="texto">
+          <b>${p.titulo}</b>
+          <small>${p.pie}</small>
+        </span>
+        <span class="marca">
+          <i class="bi bi-exclamation-triangle-fill"></i>
+          Pendiente de imprimir
+        </span>
+      </button>`;
+
+    await Swal.fire({
+      icon: 'success',
+      title: 'Plan guardado',
+      html: `<div class="guardado-plan">
+               <div class="total">Total: <b>${App.money(datos.total)}</b>
+                 ${datos.folio ? `<span class="folio">${App.esc(datos.folio)}</span>` : ''}
+               </div>
+               <p class="intro">
+                 Imprime los dos papeles, recoge las firmas y s&uacute;belos
+                 escaneados desde el <b>Expediente electr&oacute;nico</b>.
+                 Los pendientes ya quedaron registrados.
+               </p>
+               ${papeles.map(fila).join('')}
+             </div>`,
+      showConfirmButton: true,
+      confirmButtonText: 'Listo, ir al expediente',
+      confirmButtonColor: '#7b2d8e',
+      allowOutsideClick: false,
+      width: 560,
+      didOpen: (caja) => {
+        caja.querySelectorAll('[data-papel]').forEach((boton) => {
+          boton.addEventListener('click', () => {
+            papeles.find((p) => p.clave === boton.dataset.papel)?.abrir();
+            // Se marca como visto, no se desactiva: reimprimir es
+            // legitimo —la impresora se atasca, sale torcido— y un
+            // boton apagado obligaria a salirse y volver a entrar.
+            boton.classList.add('impreso');
+            boton.querySelector('.marca').innerHTML =
+              '<i class="bi bi-check-circle-fill"></i> Enviado a imprimir';
+          });
+        });
+      },
+    });
+  }
+
+  /** El expediente al que pertenece el plan que se esta capturando. */
+  function idExpedienteDelPlan() {
+    return document.querySelector('[name="id_registro_paciente"]')?.value ?? '';
+  }
+
   document.getElementById('planImprimir')?.addEventListener('click', () => {
-    const id = document.getElementById('planId').value;
-    if (!id) return;
-    App.abrirVentana(`${App.URL_BASE}/plan_imprimir.php?id=${id}`, 880, 1020, 'plan');
+    imprimirDelPlan(document.getElementById('planId').value);
   });
+
+  document.getElementById('planConsentimiento')?.addEventListener('click', (ev) => {
+    const b = ev.currentTarget;
+    App.abrirVentana(
+      `${App.URL_BASE}/consentimiento.php?id=${b.dataset.expediente}`
+      + `&plan=${b.dataset.plan}`,
+      880, 1020, 'consentimiento');
+  });
+
+  /* -------------------------------------------------------------------
+     Cerrar el plan: terminarlo o cancelarlo
+     -------------------------------------------------------------------
+     Las dos cosas que no se deshacen. La regla de cuando se puede vive
+     en PHP; aqui solo se pregunta bien antes de hacerlo.
+  */
+  document.getElementById('planTerminar')?.addEventListener('click', async (ev) => {
+    const b = ev.currentTarget;
+    const faltan = Number(b.dataset.pendientes || 0);
+
+    const ok = await App.alerta.confirmar(
+      '¿Dar por terminado este plan?',
+      faltan > 0
+        // El numero delante, no escondido: cerrar un plan con cuatro
+        // conceptos sin hacer puede ser lo correcto —el paciente dejo
+        // de venir— o puede ser un descuido, y quien decide tiene que
+        // saber cual de los dos es.
+        ? `Quedan ${faltan} concepto(s) sin realizar. Se cerrará de todas `
+          + 'formas y ya no podrá volver a otro estatus.'
+        : 'Ya no podrá volver a otro estatus.',
+      'Sí, terminarlo');
+    if (!ok) return;
+
+    try {
+      await App.api('consultas/plan_terminar.php', {
+        id_plan_tratamiento: b.dataset.plan,
+      });
+      location.reload();
+    } catch (e) { /* App.api ya aviso */ }
+  });
+
+  document.getElementById('planCancelar')?.addEventListener('click', async (ev) => {
+    const b = ev.currentTarget;
+
+    const { value: motivo, isConfirmed } = await Swal.fire({
+      icon: 'warning',
+      title: '¿Cancelar este plan?',
+      html: 'Se quitarán sus pendientes de digitalización y ya no podrá '
+          + 'volver a otro estatus.<br><span class="text-secondary small">'
+          + 'Si el paciente dejó dinero a cuenta, se queda a su favor.</span>',
+      input: 'textarea',
+      inputLabel: '¿Por qué se cancela?',
+      inputPlaceholder: 'El paciente se cambió de ciudad, prefirió otra opción...',
+      inputAttributes: { maxlength: 255 },
+      // Se exige aqui y tambien en el servidor. Aqui para no hacer un
+      // viaje en balde; alla porque es donde de verdad importa.
+      inputValidator: (v) => (!v || !v.trim())
+        ? 'Escribe el motivo: dentro de seis meses nadie se va a acordar.'
+        : undefined,
+      showCancelButton: true,
+      confirmButtonText: 'Sí, cancelar el plan',
+      confirmButtonColor: '#c0392b',
+      cancelButtonText: 'No',
+      cancelButtonColor: '#6c6577',
+      reverseButtons: true,
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await App.api('consultas/plan_cancelar.php', {
+        id_plan_tratamiento: b.dataset.plan,
+        motivo,
+      });
+      location.reload();
+    } catch (e) { /* App.api ya aviso */ }
+  });
+
+  /* -------------------------------------------------------------------
+     Oclusion y traumatismos
+
+     Los dos son datos que la mayoria de los pacientes no tiene. Como
+     campos siempre visibles solo servian para que alguien pasara por
+     encima con el tabulador; fuera del formulario, el caso normal
+     —"no aplica"— no cuesta ni un clic.
+     ------------------------------------------------------------------- */
+  let oclusion = [];      // ['CLASE II', 'MORDIDA CRUZADA']
+  let traumatismos = [];  // [{descripcion, secuela}]
+
+  const modalOclusion = document.getElementById('modalOclusion')
+    ? bootstrap.Modal.getOrCreateInstance(document.getElementById('modalOclusion'))
+    : null;
+  const modalTrauma = document.getElementById('modalTraumatismo')
+    ? bootstrap.Modal.getOrCreateInstance(document.getElementById('modalTraumatismo'))
+    : null;
+
+  function pintarOclusion() {
+    const texto = document.getElementById('plOclusionTexto');
+    const campo = document.getElementById('plOclusion');
+    if (!texto || !campo) return;
+
+    const vacio = oclusion.length === 0;
+    texto.textContent = vacio ? 'No aplica' : oclusion.join(' · ');
+    texto.classList.toggle('vacio', vacio);
+
+    // Lo que viaja al servidor es una cadena separada por comas. No se
+    // manda "NO APLICA" como texto: vacio ya significa eso, y guardar
+    // la frase haria imposible distinguir "no tiene" de "no se
+    // pregunto".
+    campo.value = oclusion.join(', ');
+  }
+
+  document.getElementById('plOclusionAbrir')?.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    document.querySelectorAll('#oclOpciones input[type="checkbox"]')
+      .forEach((c) => { c.checked = oclusion.includes(c.value); });
+    modalOclusion?.show();
+  });
+
+  document.getElementById('oclAceptar')?.addEventListener('click', () => {
+    oclusion = [...document.querySelectorAll('#oclOpciones input:checked')]
+      .map((c) => c.value);
+    pintarOclusion();
+    modalOclusion?.hide();
+  });
+
+  function pintarTraumatismos() {
+    const texto = document.getElementById('plTraumaTexto');
+    const lista = document.getElementById('plTraumaLista');
+    const campo = document.getElementById('plTraumaJson');
+    if (!texto || !lista || !campo) return;
+
+    const vacio = traumatismos.length === 0;
+    texto.textContent = vacio
+      ? 'No aplica'
+      : `${traumatismos.length} registrado${traumatismos.length > 1 ? 's' : ''}`;
+    texto.classList.toggle('vacio', vacio);
+
+    lista.innerHTML = traumatismos.map((t, i) => `
+      <div class="traumatismo">
+        <div style="min-width:0">
+          <div class="trm-desc">${App.esc(t.descripcion)}</div>
+          ${t.secuela ? `<div class="trm-secuela">
+            <i class="bi bi-arrow-return-right"></i> ${App.esc(t.secuela)}
+          </div>` : ''}
+        </div>
+        <button type="button" class="btn btn-sm btn-link p-0 text-danger"
+                data-quitar-trm="${i}" title="Quitar">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>`).join('');
+
+    campo.value = JSON.stringify(traumatismos);
+  }
+
+  document.getElementById('plTraumaAbrir')?.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    document.getElementById('trmDescripcion').value = '';
+    document.getElementById('trmSecuela').value = '';
+    modalTrauma?.show();
+  });
+
+  document.getElementById('trmAceptar')?.addEventListener('click', () => {
+    const d = document.getElementById('trmDescripcion');
+    const descripcion = d.value.trim().toUpperCase();
+
+    if (descripcion.length < 3) {
+      d.classList.add('is-invalid');
+      d.focus();
+      return;
+    }
+    d.classList.remove('is-invalid');
+
+    traumatismos.push({
+      descripcion,
+      secuela: document.getElementById('trmSecuela').value.trim().toUpperCase(),
+    });
+    pintarTraumatismos();
+    modalTrauma?.hide();
+  });
+
+  document.getElementById('plTraumaLista')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-quitar-trm]');
+    if (!b) return;
+    traumatismos.splice(Number(b.dataset.quitarTrm), 1);
+    pintarTraumatismos();
+  });
+
+  pintarOclusion();
+  pintarTraumatismos();
+
+  /* -------------------------------------------------------------------
+     Panel del plan: consultas, album y notas
+
+     Un plan no es un documento que se firma y se archiva: se ejecuta
+     durante meses, cita por cita. Antes, para ver que habia pasado con
+     el, habia que salirse al expediente, buscar las consultas, entrar a
+     cada una y volver. Estas tres tarjetas contestan eso sin moverse.
+     ------------------------------------------------------------------- */
+  const modalNotaVer = document.getElementById('modalNotaVer')
+    ? bootstrap.Modal.getOrCreateInstance(document.getElementById('modalNotaVer'))
+    : null;
+
+  let panel = { consultas: [], album: [], notas: [] };
+
+  async function cargarPanel() {
+    if (!idPlan || !document.getElementById('ppConsultas')) return;
+
+    try {
+      const r = await App.api('consultas/plan_panel.php', {
+        id_plan_tratamiento: idPlan,
+      });
+      panel = r.datos;
+      pintarPanel();
+    } catch (e) { /* ya se mostro */ }
+  }
+
+  function pintarPanel() {
+    pintarPanelConsultas();
+    pintarPanelAlbum();
+    pintarPanelNotas();
+  }
+
+  function pintarPanelConsultas() {
+    const caja = document.getElementById('ppConsultas');
+    document.getElementById('ppConsultasCuenta').textContent = panel.consultas.length;
+
+    caja.innerHTML = panel.consultas.length
+      ? panel.consultas.map((c) => `
+          <a class="pp-consulta"
+             href="${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&id=${c.id_consulta}">
+            <div style="min-width:0">
+              <div class="pp-folio">
+                ${App.esc(c.folio)}
+                ${Number(c.cerrada) === 1
+                  ? '<span class="chip-estado badge-suave">CERRADA</span>'
+                  : '<span class="chip-estado badge-pendiente">ABIERTA</span>'}
+              </div>
+              <div class="pp-fecha">${App.esc(App.fechaHora(c.fecha_hora))}</div>
+              ${c.motivo ? `<div class="pp-motivo">${App.esc(c.motivo)}</div>` : ''}
+              <div class="pp-marcas">
+                ${Number(c.hallazgos) ? `<span><i class="bi bi-search-heart"></i> ${c.hallazgos}</span>` : ''}
+                ${Number(c.imagenes)  ? `<span><i class="bi bi-image"></i> ${c.imagenes}</span>` : ''}
+                ${Number(c.notas)     ? `<span><i class="bi bi-journal-text"></i> ${c.notas}</span>` : ''}
+              </div>
+            </div>
+            <i class="bi bi-chevron-right"></i>
+          </a>`).join('')
+      : `<div class="exp-vacio">
+           Sin consultas todavía. Usa <b>Nueva consulta</b> arriba.
+         </div>`;
+  }
+
+  function pintarPanelAlbum() {
+    const caja = document.getElementById('ppAlbum');
+    const total = panel.album.reduce((t, g) => t + g.elementos.length, 0);
+    document.getElementById('ppAlbumCuenta').textContent = total;
+
+    caja.innerHTML = total
+      ? panel.album.map((g, i) => `
+          <button type="button" class="pp-album" data-album-grupo="${i}">
+            <img src="${App.URL_BASE}/archivo.php?id=${g.elementos[0].id_documento}" alt="">
+            <div style="min-width:0">
+              <div class="pp-folio">${App.esc(g.folio)}</div>
+              <div class="pp-fecha">
+                ${g.fecha ? App.esc(App.fecha(g.fecha)) : ''}
+              </div>
+              <div class="pp-cuenta-elementos">
+                ${g.elementos.length} elemento${g.elementos.length > 1 ? 's' : ''}
+              </div>
+            </div>
+          </button>`).join('')
+      : `<div class="exp-vacio">
+           Sin imágenes. Se agregan desde la consulta.
+         </div>`;
+  }
+
+  function pintarPanelNotas() {
+    const caja = document.getElementById('ppNotas');
+    document.getElementById('ppNotasCuenta').textContent = panel.notas.length;
+
+    caja.innerHTML = panel.notas.length
+      ? panel.notas.map((n, i) => `
+          <button type="button" class="pp-nota" data-nota="${i}">
+            <div class="pp-fecha">
+              ${App.esc(App.fechaHora(n.fecha_registro))} · ${App.esc(n.consulta_folio)}
+            </div>
+            <div class="pp-nota-texto">${App.esc(n.texto)}</div>
+          </button>`).join('')
+      : `<div class="exp-vacio">
+           Sin notas. Se escriben dentro de cada consulta.
+         </div>`;
+  }
+
+  /* ---- Abrir el album ---- */
+  // El visor vive en comun.js: lo usan tambien el expediente y la
+  // consulta. Aqui solo se le dice que lista mostrar.
+  document.getElementById('ppAlbum')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-album-grupo]');
+    if (!b) return;
+
+    const g = panel.album[Number(b.dataset.albumGrupo)];
+    Album.abrir({ titulo: g.folio, imagenes: g.elementos });
+  });
+
+  /* ---- Detalle de una nota ---- */
+  document.getElementById('ppNotas')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-nota]');
+    if (!b) return;
+
+    const n = panel.notas[Number(b.dataset.nota)];
+    document.getElementById('notaVerConsulta').textContent = n.consulta_folio;
+    document.getElementById('notaVerFecha').textContent = App.fechaHora(n.fecha_registro);
+    document.getElementById('notaVerAutor').textContent = n.autor;
+    document.getElementById('notaVerTexto').textContent = n.texto;
+    document.getElementById('notaVerIrConsulta').href =
+      `${App.URL_BASE}/index.php?modulo=consultas&vista=consulta&id=${n.id_consulta}`;
+
+    modalNotaVer?.show();
+  });
+
+  cargarPanel();
 
   /* -------------------------------------------------------------------
      Carga de un plan existente
@@ -755,15 +1260,26 @@ function moduloPlan() {
       });
       const p = r.datos;
 
-      ['descripcion', 'diagnostico', 'oclusion', 'traumatismos',
-       'secuelas_traumatismos', 'observaciones', 'fecha'].forEach((c) => {
+      ['descripcion', 'diagnostico', 'fecha'].forEach((c) => {
         const el = form.querySelector(`[name="${c}"]`);
         if (el && p[c] != null) el.value = p[c];
       });
 
       form.querySelector('[name="id_usuario_dentista"]').value = p.id_usuario_dentista;
-      form.querySelector('[name="id_estado_plan"]').value = p.id_estado_plan;
       descuento.value = Number(p.descuento).toFixed(2);
+
+      // El estatus ya no es un campo: se muestra tal cual viene.
+      const chipEstado = document.querySelector('#plEstatus .chip-estado');
+      if (chipEstado && p.nombre_estado) chipEstado.textContent = p.nombre_estado;
+
+      oclusion = (p.oclusion ?? '').split(',')
+        .map((x) => x.trim()).filter(Boolean);
+      pintarOclusion();
+
+      traumatismos = (p.traumatismos_lista ?? []).map((t) => ({
+        descripcion: t.descripcion, secuela: t.secuela ?? '',
+      }));
+      pintarTraumatismos();
 
       renglones = p.renglones.map((d) => ({
         id_procedimiento: d.id_procedimiento,
@@ -780,7 +1296,6 @@ function moduloPlan() {
         importe: Number(d.importe),
         fecha_programada: d.fecha_programada ?? '',
         proxima_cita: d.proxima_cita ?? '',
-        notas: d.notas ?? '',
       }));
 
       pintar();
@@ -808,36 +1323,10 @@ function moduloPlan() {
       document.getElementById('planImprimir').classList.remove('d-none');
       pasos?.aplicarModo('colapsable');
 
-      const decision = await Swal.fire({
-        icon: 'success',
-        title: 'Plan guardado',
-        html: `<div style="font-size:14px;line-height:1.6">
-                 Total: <b>${App.money(r.datos.total)}</b>
-                 ${r.datos.pendiente ? `
-                   <div style="background:#fff6e5;border:1px solid #f0d9a8;
-                               border-radius:9px;padding:.7rem .9rem;
-                               color:#7a5a12;margin-top:.9rem;font-size:12.5px">
-                     Imprímelo, recoge la firma del tutor y súbelo escaneado
-                     desde el <b>Expediente electrónico</b>.
-                   </div>` : ''}
-               </div>`,
-        showCancelButton: true,
-        confirmButtonText: 'Imprimir ahora',
-        confirmButtonColor: '#7b2d8e',
-        cancelButtonText: 'Ir al expediente',
-        cancelButtonColor: '#6c6577',
-        reverseButtons: true,
-      });
-
-      if (decision.isConfirmed) {
-        App.abrirVentana(
-          `${App.URL_BASE}/plan_imprimir.php?id=${r.datos.id_plan_tratamiento}`,
-          880, 1020, 'plan');
-        return;
-      }
+      await avisarYOfrecerImpresiones(r.datos);
 
       App.ir(`index.php?modulo=paciente&vista=detalle_paciente`
-        + `&id=${form.querySelector('[name="id_registro_paciente"]').value}#tab-planes`);
+        + `&id=${form.querySelector('[name="id_registro_paciente"]').value}`);
     } catch (e) {
       App.marcarErrores(form, e.errores);
     }
@@ -954,7 +1443,7 @@ function listadoConsultas() {
               <li><a class="dropdown-item" href="${detalle}">
                 <i class="bi bi-eye me-2"></i>${cerrada ? 'Ver' : 'Ver o modificar'}</a></li>
               <li><a class="dropdown-item"
-                     href="${App.URL_BASE}/index.php?modulo=paciente&vista=detalle_paciente&id=${c.id_registro_paciente}#tab-expediente">
+                     href="${App.URL_BASE}/index.php?modulo=paciente&vista=expediente&id=${c.id_registro_paciente}">
                 <i class="bi bi-folder2-open me-2"></i>Expediente del paciente</a></li>
             </ul>
           </div>
@@ -1011,9 +1500,7 @@ function detalleConsulta() {
   }
 
   function llenar() {
-    ['motivo', 'padecimiento_actual', 'exploracion', 'diagnostico',
-     'plan_indicaciones', 'presion_arterial', 'frecuencia_cardiaca',
-     'temperatura'].forEach((c) => {
+    ['motivo', 'padecimiento_actual', 'plan_indicaciones'].forEach((c) => {
       const el = form.querySelector(`[name="${c}"]`);
       if (el && datos[c] != null) el.value = datos[c];
     });
@@ -1035,12 +1522,83 @@ function detalleConsulta() {
 
     bloquear(cerrada);
     habilitarAnexos(true);
+    barraALectura();
 
+    pintarHallazgos();
     pintarRecetas();
-    pintarDocumentos();
     pintarNotas();
+    cuentaDeDocumentos();
     cargarCargos();
   }
+
+  /* -------------------------------------------------------------------
+     La barra de arriba: fecha, dentista y plan
+
+     En una consulta guardada se leen como texto. El lapiz descubre uno
+     solo, y descubrir uno vuelve a tapar los otros dos: si quedan los
+     tres abiertos se pierde la razon de haberlos cerrado.
+     ------------------------------------------------------------------- */
+  const barra = document.getElementById('cnBarra');
+
+  /** El texto que se ve cuando el campo esta cerrado. */
+  function textoDelCampo(campo) {
+    if (campo === 'fecha') {
+      return datos ? App.fechaHora(datos.fecha_hora) : '';
+    }
+    if (campo === 'dentista') {
+      const sel = form.querySelector('[name="id_usuario_dentista"]');
+      return sel.selectedOptions[0]?.textContent.trim() ?? '';
+    }
+    // El plan: el folio y su descripcion, o la ausencia dicha como tal.
+    const sel = document.getElementById('cnPlan');
+    return sel.value ? sel.selectedOptions[0].textContent.trim() : '';
+  }
+
+  function barraALectura() {
+    if (!barra) return;
+
+    barra.querySelectorAll('[data-campo]').forEach((caja) => {
+      const campo  = caja.dataset.campo;
+      const texto  = caja.querySelector('[data-texto]');
+      const lapiz  = caja.querySelector('.lapiz-campo');
+      const valor  = textoDelCampo(campo);
+
+      texto.textContent = valor || 'Consulta general (sin plan)';
+      texto.classList.toggle('vacio', valor === '');
+      texto.classList.remove('d-none');
+
+      // Una consulta cerrada no se edita: el lapiz solo estorbaria.
+      const cerrada = Number(datos?.cerrada) === 1;
+      lapiz.classList.toggle('d-none', cerrada);
+
+      controlDe(caja).classList.add('d-none');
+    });
+  }
+
+  /** El control de captura de una caja de la barra. */
+  function controlDe(caja) {
+    return caja.querySelector('input:not([type="hidden"]), select');
+  }
+
+  function abrirCampo(campo) {
+    // Primero se cierran todos; asi solo hay uno abierto a la vez.
+    barraALectura();
+
+    const caja = barra.querySelector(`[data-campo="${campo}"]`);
+    if (!caja) return;
+
+    caja.querySelector('[data-texto]').classList.add('d-none');
+    const control = controlDe(caja);
+    control.classList.remove('d-none');
+    control.focus();
+  }
+
+  barra?.addEventListener('click', (ev) => {
+    const lapiz = ev.target.closest('[data-editar]');
+    if (!lapiz) return;
+    ev.preventDefault();
+    abrirCampo(lapiz.dataset.editar);
+  });
 
   /**
    * Una consulta cerrada bloquea lo clinico y deja viva la columna de
@@ -1051,24 +1609,81 @@ function detalleConsulta() {
     form.querySelectorAll('input, textarea, select')
       .forEach((el) => { if (el.type !== 'hidden') el.disabled = cerrada; });
 
-    document.getElementById('cnGuardar').disabled = cerrada;
-    btnCerrar.disabled = cerrada;
+    // Los DOS botones de Guardar. Apagar solo uno dejaba el otro vivo
+    // sobre una consulta cerrada, y el servidor contestaba con un error
+    // que parecia un fallo del sistema y no una regla.
+    document.querySelectorAll('[data-guardar]')
+      .forEach((b) => { b.disabled = cerrada; });
+
+    if (btnCerrar) btnCerrar.disabled = cerrada;
     document.getElementById('cnAvisoCerrada').classList.toggle('d-none', !cerrada);
   }
 
+  /**
+   * Lo que no sirve hasta que la consulta exista.
+   *
+   * Un hallazgo, una receta, un cargo o una nota tienen que colgar de
+   * una consulta guardada. Antes se veian iguales que si funcionaran,
+   * con un aviso de texto arriba que se leia una vez y despues era
+   * decorado: lo que pasaba era picar, no ver nada, y volver a picar.
+   *
+   * Se difuminan y se marcan `inert`. Las dos cosas, no una: el
+   * difuminado es lo que se ve y el `inert` es lo que de verdad apaga
+   * los clics, el tabulador y el lector de pantalla. El `disabled` de
+   * los botones se mantiene porque es la unica de las tres que viaja
+   * en el HTML y vale antes de que corra este archivo.
+   */
   function habilitarAnexos(si) {
-    ['cnNuevaReceta', 'cnNuevaNota', 'cnNuevoCargo'].forEach((id) => {
+    ['cnNuevaReceta', 'cnNuevaNota', 'cnNuevoCargo', 'cnNuevoHallazgo',
+     'cnOtroDocumento'].forEach((id) => {
       const b = document.getElementById(id);
       if (b) b.disabled = !si;
     });
-    if (!document.getElementById('cnGuardar').disabled) btnCerrar.disabled = !si;
-    document.getElementById('cnAvisoGuardar').classList.toggle('d-none', si);
+
+    document.querySelectorAll('.zona-sin-consulta').forEach((z) => {
+      z.classList.toggle('difuminada', !si);
+      z.inert = !si;
+    });
+
+    /*
+       El Guardar cambia de sitio, no de estado.
+
+       Mientras la consulta no existe vive al pie del motivo, que es el
+       ultimo campo que se escribe y el unico sitio vivo de la pantalla.
+       Una vez creada sube a la cabecera, junto a Cerrar: a partir de
+       ahi el trabajo es ir y venir entre hallazgos, recetas y notas, y
+       el boton ya no pertenece al pie de UNA tarjeta sino a la
+       pantalla entera.
+
+       Se ve uno solo de los dos. Los dos a la vez no serian dos
+       atajos: serian la duda de si hacen lo mismo.
+    */
+    document.getElementById('cnPieGuardar')?.classList.toggle('d-none', si);
+    document.getElementById('cnGuardarArriba')?.classList.toggle('d-none', !si);
+
+    // Sin permiso de capturar no existen ni Guardar ni Cerrar. Se
+    // comprueba porque esta pantalla si se abre en modo lectura.
+    const guardar = document.getElementById('cnGuardar');
+    if (btnCerrar && guardar && !guardar.disabled) btnCerrar.disabled = !si;
   }
 
   /* -------------------------------------------------------------------
      Guardado
      ------------------------------------------------------------------- */
-  document.getElementById('cnGuardar')?.addEventListener('click', async () => {
+  /*
+     Un solo manejador para los dos botones de Guardar.
+
+     Hay uno en la cabecera y uno al pie, y solo se ve el que toca
+     —abajo mientras la consulta no existe, arriba una vez creada—. Lo
+     que los une es data-guardar y una escucha delegada en el documento.
+
+     Delegada y no una por boton a proposito: dos escuchas sobre el
+     mismo gesto es como nacio el bug del boton que se disparaba dos
+     veces, y dos elementos con el mismo id es como nacio el de la foto
+     del paciente. Aqui no hay ni lo uno ni lo otro.
+  */
+  document.addEventListener('click', async (ev) => {
+    if (!ev.target.closest('[data-guardar]')) return;
     if (!form.reportValidity()) return;
 
     try {
@@ -1253,11 +1868,49 @@ function detalleConsulta() {
   /* -------------------------------------------------------------------
      Recetas
      ------------------------------------------------------------------- */
+  /**
+   * El documento de una receta: el pendiente de escanearla firmada.
+   *
+   * La receta lo apunta en su columna id_documento desde que se crea,
+   * asi que no hay que adivinar cual de los papeles de la consulta es
+   * el suyo —y una consulta con tres recetas tiene tres pendientes
+   * iguales de nombre—.
+   */
+  function documentoDeReceta(receta) {
+    if (!receta.id_documento) return null;
+    return (datos.documentos ?? []).find(
+      (d) => Number(d.id_documento) === Number(receta.id_documento)) ?? null;
+  }
+
   function pintarRecetas() {
     const caja = document.getElementById('cnRecetas');
 
     caja.innerHTML = datos.recetas.length
-      ? datos.recetas.map((r) => `
+      ? datos.recetas.map((r) => {
+          /*
+             El escaneo, en el renglon de su receta.
+
+             Vivia en la tarjeta "Documentos de la consulta", en la que
+             habia que reconocer cual de los pendientes correspondia a
+             cual receta leyendo folios. Aqui no hay nada que
+             reconocer: el papel que hay que subir es el de esta
+             receta, y esta pegado a ella.
+          */
+          const doc = documentoDeReceta(r);
+          const papel = doc === null ? '' : (Number(doc.estado) === 0 ? `
+            <button type="button" class="anexo-chip pendiente"
+                    data-rx-escanear="${doc.id_documento}"
+                    data-formatos="pdf,jpg,jpeg,png"
+                    title="Adjuntar la receta firmada">
+              <i class="bi bi-cloud-arrow-up"></i> Adjuntar firmada
+            </button>` : `
+            <a class="anexo-chip" target="_blank"
+               href="${App.URL_BASE}/archivo.php?id=${doc.id_documento}"
+               title="${App.esc(doc.nombre_original ?? '')}">
+              <i class="bi bi-eye"></i> Ver la firmada
+            </a>`);
+
+          return `
           <div class="anexo">
             <div class="flex-grow-1" style="min-width:0">
               <div class="fw-semibold">${App.esc(r.folio)}</div>
@@ -1265,6 +1918,7 @@ function detalleConsulta() {
                 ${App.esc(App.fecha(r.fecha))} · ${App.esc(r.dentista)}
               </div>
               <div class="anexo-texto">${App.esc(r.indicaciones)}</div>
+              ${papel ? `<div class="anexo-archivos mt-1">${papel}</div>` : ''}
             </div>
             <div class="d-flex flex-column gap-1">
               <button type="button" class="btn btn-sm btn-outline-morado"
@@ -1276,13 +1930,20 @@ function detalleConsulta() {
                 <i class="bi bi-pencil"></i>
               </button>
             </div>
-          </div>`).join('')
+          </div>`;
+        }).join('')
       : '<div class="exp-vacio">Sin recetas.</div>';
   }
 
   document.getElementById('cnNuevaReceta')?.addEventListener('click', () => abrirReceta(null));
 
   document.getElementById('cnRecetas').addEventListener('click', (ev) => {
+    const escanear = ev.target.closest('[data-rx-escanear]');
+    if (escanear) {
+      pedirArchivo(escanear.dataset.rxEscanear, escanear.dataset.formatos);
+      return;
+    }
+
     const imprimir = ev.target.closest('[data-rx-imprimir]');
     if (imprimir) {
       App.abrirVentana(
@@ -1339,6 +2000,283 @@ function detalleConsulta() {
   });
 
   /* -------------------------------------------------------------------
+     Hallazgos
+
+     Uno por observacion. La diferencia con la caja de texto que habia
+     antes no es cosmetica: un hallazgo puede traer su propia imagen, y
+     en la siguiente cita se puede ver cual sigue ahi y cual no.
+     ------------------------------------------------------------------- */
+  const modalHallazgo = document.getElementById('modalHallazgo')
+    ? bootstrap.Modal.getOrCreateInstance(document.getElementById('modalHallazgo'))
+    : null;
+
+  /**
+   * Las imagenes de TODOS los hallazgos de la consulta, en el orden en
+   * que se dictaron.
+   *
+   * El album se abre con el conjunto completo, no con las de un
+   * hallazgo suelto: al revisar una cita uno quiere pasar de una
+   * imagen a la siguiente, y partirlas por hallazgo obliga a cerrar y
+   * volver a abrir en cada grupo.
+   */
+  function imagenesDeLaConsulta() {
+    return (datos.hallazgos ?? []).flatMap((h) => Album.soloImagenes(h.imagenes));
+  }
+
+  function pintarHallazgos() {
+    const caja = document.getElementById('cnHallazgos');
+    if (!caja) return;
+
+    const lista = datos.hallazgos ?? [];
+    const cerrada = Number(datos.cerrada) === 1;
+
+    // El boton de album en la cabecera solo aparece si hay que ver algo.
+    const todas = imagenesDeLaConsulta();
+    document.getElementById('cnAlbumHallazgos')
+      ?.classList.toggle('d-none', todas.length === 0);
+
+    caja.innerHTML = lista.length
+      ? lista.map((h) => {
+          const esRx = h.tipo === 'RADIOGRAFICO';
+          return `
+          <div class="hallazgo" data-hallazgo="${h.id_hallazgo}">
+            <span class="hz-tipo ${esRx ? 'rx' : 'cl'}"
+                  title="${esRx ? 'Visto en placa' : 'Visto en boca'}">
+              <i class="bi ${esRx ? 'bi-radioactive' : 'bi-eye'}"></i>
+              ${esRx ? 'Radiográfico' : 'Clínico'}
+            </span>
+
+            <div class="hz-cuerpo">
+              <div class="hz-texto">${App.esc(h.descripcion)}</div>
+              <div class="hz-pie">
+                ${App.esc(App.fechaHora(h.fecha_registro))} · ${App.esc(h.autor)}
+              </div>
+            </div>
+
+            ${(() => {
+              const imgs = Album.soloImagenes(h.imagenes);
+              if (!imgs.length) return '';
+
+              // La primera como miniatura y, si hay mas, un contador
+              // encima. Dibujar las seis en un renglon de lista
+              // empujaria el texto del hallazgo fuera de la pantalla,
+              // y el texto es lo que se lee.
+              return `
+                <button type="button" class="hz-imagen"
+                        data-album-hz="${h.id_hallazgo}"
+                        title="Ver ${imgs.length} imagen${imgs.length > 1 ? 'es' : ''}">
+                  <img src="${App.URL_BASE}/archivo.php?id=${imgs[0].id_documento}" alt="">
+                  ${imgs.length > 1
+                    ? `<span class="cuantas">${imgs.length}</span>` : ''}
+                </button>`;
+            })()}
+
+            ${cerrada ? '' : `
+              <div class="hz-acciones">
+                <button type="button" class="btn btn-sm btn-link p-0"
+                        data-editar-hz title="Editar">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-link p-0 text-danger"
+                        data-quitar-hz title="Quitar">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>`}
+          </div>`;
+        }).join('')
+      : `<div class="exp-vacio">
+           Sin hallazgos. Agrega uno por cada cosa que observes, en boca
+           o en placa.
+         </div>`;
+  }
+
+  /** Deja el modal listo. Sin hallazgo = alta; con hallazgo = edicion. */
+  function abrirHallazgo(h = null) {
+    document.getElementById('hzId').value = h ? h.id_hallazgo : '';
+    document.getElementById('hzConsulta').value = idConsulta();
+    document.getElementById('hzTitulo').textContent =
+      h ? 'Editar hallazgo' : 'Nuevo hallazgo';
+    document.getElementById('hzDescripcion').value = h ? h.descripcion : '';
+    document.getElementById('hzArchivos').value = '';
+
+    elegirTipoHallazgo(h ? h.tipo : 'CLINICO');
+
+    // Las imagenes que ya tiene se muestran, no se tocan. El campo de
+    // archivo AGREGA: dejarlo vacio no significa "borralas".
+    const caja  = document.getElementById('hzImagenActual');
+    const imgs  = h ? Album.soloImagenes(h.imagenes) : [];
+
+    caja.classList.toggle('d-none', imgs.length === 0);
+    if (imgs.length) {
+      document.getElementById('hzImagenCuenta').textContent = `(${imgs.length})`;
+      /*
+         Cada miniatura con su cruz para quitarla.
+
+         Hasta ahora las imagenes guardadas solo se podian mirar: el
+         campo de archivo AGREGA, y no habia forma de deshacer una foto
+         subida por error —la del paciente equivocado, o una que salio
+         movida— sin irse al expediente a buscarla entre todas.
+
+         La cruz aparece al pasar por encima: con ocho miniaturas, ocho
+         cruces siempre visibles compiten con las fotos, que es lo que
+         se viene a ver.
+      */
+      document.getElementById('hzImagenLista').innerHTML = imgs.map((d) => `
+        <div class="mini-hz">
+          <a href="${App.URL_BASE}/archivo.php?id=${d.id_documento}" target="_blank"
+             title="${App.esc(d.descripcion ?? '')}">
+            <img src="${App.URL_BASE}/archivo.php?id=${d.id_documento}" alt="">
+          </a>
+          <button type="button" class="quitar-mini"
+                  data-quitar-imagen="${d.id_documento}"
+                  title="Quitar esta imagen">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>`).join('');
+    }
+
+    modalHallazgo?.show();
+  }
+
+  function elegirTipoHallazgo(valor) {
+    document.getElementById('hzTipoValor').value = valor;
+    document.querySelectorAll('#hzTipo .opcion-hallazgo').forEach((b) => {
+      b.classList.toggle('activa', b.dataset.valor === valor);
+    });
+  }
+
+  document.getElementById('hzImagenLista')?.addEventListener('click', async (ev) => {
+    const boton = ev.target.closest('[data-quitar-imagen]');
+    if (!boton) return;
+
+    ev.preventDefault();      // la miniatura es un enlace: no abrirla
+
+    const ok = await App.alerta.confirmar(
+      '¿Quitar esta imagen?',
+      'Se borra del expediente. Las demás imágenes del hallazgo se quedan.',
+      'Sí, quitarla');
+    if (!ok) return;
+
+    boton.disabled = true;
+
+    try {
+      await App.api('consultas/hallazgo_imagen_quitar.php', {
+        id_documento: boton.dataset.quitarImagen,
+      });
+
+      // Se quita del DOM y de los datos en memoria: si no, al cerrar y
+      // volver a abrir el hallazgo reaparecería hasta recargar.
+      boton.closest('.mini-hz')?.remove();
+      quitarDeLosDatos(Number(boton.dataset.quitarImagen));
+
+      const quedan = document.querySelectorAll('#hzImagenLista .mini-hz').length;
+      document.getElementById('hzImagenCuenta').textContent = `(${quedan})`;
+      document.getElementById('hzImagenActual')
+        .classList.toggle('d-none', quedan === 0);
+
+      App.alerta.toast('Imagen quitada');
+    } catch (e) {
+      boton.disabled = false;
+    }
+  });
+
+  /** Borra la imagen de los datos que ya tiene cargados la pantalla. */
+  function quitarDeLosDatos(idDocumento) {
+    (datos.hallazgos ?? []).forEach((h) => {
+      h.imagenes = (h.imagenes ?? [])
+        .filter((d) => Number(d.id_documento) !== idDocumento);
+    });
+  }
+
+  document.getElementById('hzTipo')?.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.opcion-hallazgo');
+    if (b) elegirTipoHallazgo(b.dataset.valor);
+  });
+
+  document.getElementById('cnAlbumHallazgos')?.addEventListener('click', () => {
+    Album.abrir({
+      titulo: `Consulta ${datos.folio}`,
+      imagenes: imagenesDeLaConsulta(),
+    });
+  });
+
+  document.getElementById('cnNuevoHallazgo')?.addEventListener('click', () => {
+    if (!idConsulta()) {
+      App.alerta.info('Guarda la consulta primero',
+        'Un hallazgo tiene que colgar de una consulta que ya exista.');
+      return;
+    }
+    abrirHallazgo();
+  });
+
+  document.getElementById('cnHallazgos')?.addEventListener('click', async (ev) => {
+    const fila = ev.target.closest('[data-hallazgo]');
+    if (!fila) return;
+    const h = (datos.hallazgos ?? [])
+      .find((x) => String(x.id_hallazgo) === fila.dataset.hallazgo);
+    if (!h) return;
+
+    if (ev.target.closest('[data-album-hz]')) {
+      // Se abre con TODAS las de la consulta, pero empezando en la
+      // primera de este hallazgo: se ve lo que se pico y de ahi se
+      // puede seguir al resto sin cerrar.
+      const todas = imagenesDeLaConsulta();
+      const suya  = Album.soloImagenes(h.imagenes)[0];
+      const desde = todas.findIndex(
+        (d) => String(d.id_documento) === String(suya?.id_documento));
+
+      Album.abrir({
+        titulo: `Consulta ${datos.folio}`,
+        imagenes: todas,
+        desde: Math.max(0, desde),
+      });
+      return;
+    }
+
+    if (ev.target.closest('[data-editar-hz]')) { abrirHallazgo(h); return; }
+
+    if (ev.target.closest('[data-quitar-hz]')) {
+      const ok = await App.alerta.confirmar(
+        '¿Quitar este hallazgo?',
+        'Deja de verse en la consulta. La imagen, si tiene, se queda en el expediente.',
+        'Sí, quitar');
+      if (!ok) return;
+
+      try {
+        await App.api('consultas/hallazgo_quitar.php', { id_hallazgo: h.id_hallazgo });
+        App.alerta.toast('Hallazgo quitado');
+        cargar();
+      } catch (e) { /* ya se mostro */ }
+    }
+  });
+
+  document.getElementById('formHallazgo')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+
+    const boton = document.getElementById('hzGuardar');
+    if (boton.dataset.enviando === '1') return;
+
+    // Va como FormData porque puede traer un archivo: armar un objeto
+    // plano perderia el File.
+    const cuerpo = new FormData(ev.target);
+
+    boton.dataset.enviando = '1';
+    boton.disabled = true;
+
+    try {
+      const r = await App.api('consultas/hallazgo_guardar.php', cuerpo);
+      modalHallazgo?.hide();
+      App.alerta.toast(r.mensaje);
+      cargar();
+    } catch (e) {
+      App.marcarErrores(ev.target, e.errores);
+    } finally {
+      boton.dataset.enviando = '0';
+      boton.disabled = false;
+    }
+  });
+
+  /* -------------------------------------------------------------------
      Notas de evolucion
      ------------------------------------------------------------------- */
   function pintarNotas() {
@@ -1378,47 +2316,91 @@ function detalleConsulta() {
   });
 
   /* -------------------------------------------------------------------
-     Documentos
+     Documentos de la consulta
+
+     Se fue la tarjeta que los listaba por tipo. Eran cuatro grupos
+     —receta, radiografia, fotografia, otro— y tres de los cuatro no se
+     usaban desde aqui: las imagenes entran por su hallazgo, que es lo
+     que les da sentido clinico, y la receta trae su propio pendiente.
+     Media columna para decir "Sin archivos" cuatro veces.
+
+     De lo que hacia queda lo que de verdad se usaba:
+
+       - el escaneo de la receta, ahora pegado a su receta
+       - anexar un estudio externo, en un enlace al pie
+       - la cuenta de lo subido, para que no parezca que se perdio
+
+     Lo demas se ve completo en el expediente del paciente, agrupado
+     bajo su consulta, que es donde se busca un papel de hace un anio.
      ------------------------------------------------------------------- */
-  function pintarDocumentos() {
-    const caja = document.getElementById('cnDocumentos');
 
-    caja.innerHTML = tipos.map((t) => {
-      const suyos = datos.documentos.filter((d) => d.clave === t.clave);
-
-      return `
-      <div class="exp-grupo">
-        <div class="exp-grupo-titulo">
-          <i class="bi ${App.esc(t.icono)}"></i>
-          <span>${App.esc(t.nombre_documento)}</span>
-          ${suyos.length ? `<span class="cuenta">${suyos.length}</span>` : ''}
-          <button type="button" class="btn btn-sm btn-link p-0 ms-auto"
-                  data-album="${App.esc(t.clave)}">
-            <i class="bi bi-plus-lg"></i> Agregar
-          </button>
-        </div>
-        ${suyos.length ? `
-          <div class="anexo-archivos">
-            ${suyos.map((d) => Number(d.estado) === 0 ? `
-              <span class="anexo-chip pendiente" title="${App.esc(d.descripcion ?? '')}">
-                <i class="bi bi-hourglass-split"></i> Por escanear
-              </span>` : `
-              <a class="anexo-chip" href="${App.URL_BASE}/archivo.php?id=${d.id_documento}"
-                 target="_blank" title="${App.esc(d.nombre_original ?? '')}">
-                <i class="bi bi-eye"></i> ${App.esc(d.descripcion ?? 'Ver')}
-              </a>`).join('')}
-          </div>` : '<div class="exp-vacio">Sin archivos.</div>'}
-      </div>`;
-    }).join('');
+  /** Lo que ya tiene archivo, sin contar las imagenes de hallazgos. */
+  function documentosAnexados() {
+    return (datos?.documentos ?? []).filter(
+      (d) => Number(d.estado) === 1 && !d.id_hallazgo);
   }
 
-  document.getElementById('cnDocumentos').addEventListener('click', (ev) => {
-    const boton = ev.target.closest('[data-album]');
-    if (!boton) return;
+  function cuentaDeDocumentos() {
+    const caja = document.getElementById('cnCuentaDocumentos');
+    if (!caja) return;
 
-    const tipo = tipos.find((t) => t.clave === boton.dataset.album);
-    if (!tipo) return;
+    const n = documentosAnexados().length;
+    caja.classList.toggle('d-none', n === 0);
+    caja.textContent = n === 1
+      ? '1 archivo anexado'
+      : `${n} archivos anexados`;
+  }
 
+  /* ---- Adjuntar el escaneo de un pendiente, sin salir de aqui ---- */
+  // Se usa un campo de archivo oculto en vez de un modal: son dos
+  // clics en lugar de cuatro, y lo unico que hay que decidir es cual
+  // archivo. Un modal para eso solo agrega pasos.
+  function pedirArchivo(idDocumento, formatos) {
+    const campo = document.getElementById('cnArchivoPendiente');
+    campo.value = '';
+    campo.dataset.documento = idDocumento;
+    campo.setAttribute('accept',
+      (formatos || '').split(',').map((e) => '.' + e.trim()).join(','));
+    campo.click();
+  }
+
+  /* ---- Anexar un estudio externo o una interconsulta ---- */
+  // Papel que llega de fuera y no es hallazgo ni receta: el estudio de
+  // un laboratorio, la nota de otro medico. Pasa pocas veces, asi que
+  // es un renglon y no una tarjeta, pero tiene que poder hacerse aqui:
+  // llega en la mano del tutor, durante la cita.
+  document.getElementById('cnOtroDocumento')?.addEventListener('click', () => {
+    const tipo = tipos.find((t) => t.clave === 'OTRO_CONSULTA');
+    if (!tipo) {
+      App.alerta.error('No se puede anexar',
+        'Falta el tipo de documento OTRO_CONSULTA en el catálogo.');
+      return;
+    }
+    abrirAlbumDeTipo(tipo);
+  });
+
+  document.getElementById('cnArchivoPendiente')?.addEventListener('change', async (ev) => {
+    const archivo = ev.target.files?.[0];
+    if (!archivo) return;
+
+    const cuerpo = new FormData();
+    cuerpo.append('id_documento', ev.target.dataset.documento);
+    cuerpo.append('archivo', archivo);
+
+    App.alerta.cargando('Guardando el escaneo...');
+    try {
+      await App.api('expediente/subir.php', cuerpo);
+      App.alerta.cerrar();
+      App.alerta.toast('Escaneo guardado');
+      cargar();
+    } catch (e) {
+      App.alerta.cerrar();
+    } finally {
+      ev.target.value = '';
+    }
+  });
+
+  function abrirAlbumDeTipo(tipo) {
     document.getElementById('albumClave').value = tipo.clave;
     document.getElementById('albumConsulta').value = idConsulta();
     document.getElementById('albumTitulo').textContent = tipo.nombre_documento;
@@ -1430,7 +2412,7 @@ function detalleConsulta() {
 
     limpiarAlbum();
     modalAlbum.show();
-  });
+  }
 
   function limpiarAlbum() {
     archivos = [];
@@ -1507,7 +2489,110 @@ function detalleConsulta() {
     }
   });
 
+  /* -------------------------------------------------------------------
+     ¿De que plan es esta consulta?
+
+     Se pregunta al abrir una consulta nueva, cuando el paciente tiene
+     tratamiento abierto. No es un adorno de bienvenida: el plan decide
+     en que parte del expediente caen los papeles de hoy y es lo que
+     empuja el plan a "En proceso" al guardarse su primera consulta.
+
+     Como combo con "Consulta general" preseleccionado, lo que pasaba es
+     que nadie lo tocaba: las consultas del tratamiento quedaban sueltas
+     en el bloque general y el plan se quedaba en "Aceptado" aunque el
+     paciente llevara seis citas.
+     ------------------------------------------------------------------- */
+  const selPlan = document.getElementById('cnPlan');
+  const campoMotivo = form.querySelector('[name="motivo"]');
+  const campoPadecimiento = form.querySelector('[name="padecimiento_actual"]');
+
+  /** Las propuestas de todos los planes, para saber si un texto es mio. */
+  function propuestas() {
+    return [...(selPlan?.options ?? [])]
+      .filter((o) => o.value)
+      .map((o) => ({ motivo: o.dataset.motivo ?? '',
+                     padecimiento: o.dataset.padecimiento ?? '' }));
+  }
+
+  /**
+   * Escribe la propuesta del plan elegido.
+   *
+   * Respeta lo escrito a mano: solo pisa un campo que este vacio o que
+   * tenga TEXTUALMENTE la propuesta de otro plan. Si el usuario corrigio
+   * el motivo y luego cambia de plan, su correccion se queda. Una
+   * propuesta que borra lo que alguien tecleo deja de ser una propuesta.
+   */
+  function proponerDelPlan() {
+    const opcion = selPlan?.selectedOptions?.[0];
+    if (!opcion || !opcion.value) return;
+
+    const mias = propuestas();
+
+    const pisable = (campo, nuevo, clave) => {
+      const actual = campo.value.trim();
+      const esMia  = mias.some((p) => p[clave] === actual);
+      if (actual === '' || esMia) campo.value = nuevo;
+    };
+
+    pisable(campoMotivo, opcion.dataset.motivo ?? '', 'motivo');
+    pisable(campoPadecimiento, opcion.dataset.padecimiento ?? '', 'padecimiento');
+  }
+
+  // Cambiar el plan a mano tambien reescribe la propuesta, pero solo
+  // mientras la consulta no exista. En una guardada, cambiar el plan es
+  // una correccion de donde va el papeleo y no tiene por que tocar lo
+  // que ya dice el expediente.
+  selPlan?.addEventListener('change', () => {
+    if (!idConsulta()) proponerDelPlan();
+  });
+
+  const cajaPlan = document.getElementById('modalPlanConsulta');
+  const modalPlan = cajaPlan
+    ? bootstrap.Modal.getOrCreateInstance(cajaPlan) : null;
+
+  function preguntarDePlan() {
+    if (!modalPlan || !selPlan) return;
+    if (document.getElementById('cnPreguntarPlan')?.value !== '1') return;
+
+    const opciones = [...selPlan.options].filter((o) => o.value);
+    if (!opciones.length) return;
+
+    document.getElementById('pcPlanes').innerHTML = opciones.map((o) => `
+      <button type="button" class="btn btn-outline-morado text-start"
+              data-plan="${App.esc(o.value)}">
+        <b>${App.esc(o.textContent.trim())}</b>
+        <div class="text-secondary" style="font-size:11.5px">
+          Se propondrá como motivo: ${App.esc(o.dataset.motivo ?? '')}
+        </div>
+      </button>`).join('');
+
+    modalPlan.show();
+  }
+
+  document.getElementById('pcPlanes')?.addEventListener('click', (ev) => {
+    const boton = ev.target.closest('[data-plan]');
+    if (!boton) return;
+
+    selPlan.value = boton.dataset.plan;
+    proponerDelPlan();
+    modalPlan.hide();
+    campoMotivo.focus();
+  });
+
+  document.getElementById('pcGeneral')?.addEventListener('click', () => {
+    selPlan.value = '';
+    modalPlan.hide();
+    campoMotivo.focus();
+  });
+
   cargar();
+
+  // La pregunta se abre AL FINAL, despues de colgar los manejadores de
+  // sus dos botones. El orden es carga, no estilo: ese modal no tiene
+  // aspa ni escape, asi que si se abriera antes de que existan sus
+  // escuchas, la pantalla quedaria tapada sin salida. Abriendolo aqui,
+  // si se ve es porque se puede contestar.
+  preguntarDePlan();
 }
 
 /* =====================================================================
@@ -1533,6 +2618,32 @@ function vistaSemana() {
   }
 
   campoLunes.value = lunesDe(new Date().toISOString().substring(0, 10));
+
+  /*
+     "Nueva cita" en la vista de semana.
+
+     No hacia nada: el boton nunca tuvo escucha, y aunque lo hubiera
+     tenido, en esta pantalla no existe el modal de la cita —vive en la
+     agenda del dia, junto con el buscador de paciente y el formulario.
+
+     En vez de duplicar los tres aqui, el boton lleva a la agenda del
+     dia con el modal ya abierto. Una cita se agenda SOBRE un dia
+     concreto: hay que elegir la hora y ver que mas hay a esa hora, y
+     eso es justo lo que la vista de semana no muestra. Se manda el
+     lunes que se esta viendo para no caer en otra semana, y el
+     dentista filtrado para no volver a elegirlo.
+  */
+  document.getElementById('smNuevaCita')?.addEventListener('click', () => {
+    const parametros = new URLSearchParams({
+      modulo: 'consultas',
+      vista:  'agenda',
+      fecha:  campoLunes.value || new Date().toISOString().substring(0, 10),
+      nueva:  '1',
+    });
+    if (selDentista?.value) parametros.set('dentista', selDentista.value);
+    App.ir(`index.php?${parametros}`);
+  });
+
 
   async function cargar() {
     caja.innerHTML = `<div class="cargando">
@@ -1737,6 +2848,54 @@ function vistaSemana() {
       App.alerta.error('No se pudo reagendar', e.mensaje ?? '');
       cargar();
     }
+  });
+
+  /*
+     Picar un bloque de la semana abre su detalle.
+
+     Hasta ahora el bloque solo servia para arrastrarlo a otra hora: se
+     veia el nombre y poco mas, y para saber el motivo o el telefono
+     habia que irse a la agenda del dia a buscarlo. Ahora el bloque se
+     pica.
+
+     Arrastrar y picar conviven sin estorbarse: el navegador dispara
+     'click' solo cuando el raton se solto donde se apreto, asi que
+     terminar un arrastre no abre el detalle.
+  */
+  caja.addEventListener('click', (ev) => {
+    const bloque = ev.target.closest('[data-cita]');
+    if (!bloque) return;
+
+    const cita = buscarCita(Number(bloque.dataset.cita));
+    if (!cita) return;
+
+    DetalleCita.abrir(cita, {
+      alCambiar: async (idCita, idEstado) => {
+        await App.api('consultas/cita_estatus.php', {
+          id_cita: idCita, id_estado_cita: idEstado,
+        });
+        App.alerta.toast('Cita actualizada');
+        cargar();
+      },
+      /*
+         Modificar lleva a la agenda del dia con esa cita abierta.
+
+         El formulario de reagendar necesita los espacios libres del
+         dia para avisar de los choques, y eso la vista de semana no lo
+         tiene cargado. Traerlo aqui serian dos formularios validando
+         distinto sobre la misma tabla; llevar a quien sabe es mas
+         barato y no se desincroniza.
+      */
+      alModificar: (c) => {
+        const parametros = new URLSearchParams({
+          modulo: 'consultas',
+          vista:  'agenda',
+          fecha:  String(c.fecha_inicio).substring(0, 10),
+          cita:   c.id_cita,
+        });
+        App.ir(`index.php?${parametros}`);
+      },
+    });
   });
 
   function buscarCita(id) {

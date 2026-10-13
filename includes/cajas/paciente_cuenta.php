@@ -34,8 +34,48 @@ Respuesta::ok([
           WHERE vps.id_registro_paciente = :r
           ORDER BY pt.fecha DESC',
         [':r' => $idExpediente]),
-    'resumen'  => Conexion::uno(
-        'SELECT * FROM v_paciente_saldo WHERE id_registro_paciente = :r',
-        [':r' => $idExpediente])
-        ?? ['cargado' => 0, 'pagado' => 0, 'saldo' => 0, 'cargos_abiertos' => 0],
+    // Del mismo sitio que el estado de cuenta impreso. Antes salia de
+    // v_paciente_saldo directo, que suma cargos y por lo tanto no sabe
+    // del dinero a favor: la cajera no veia que el paciente ya tenia un
+    // anticipo y le volvia a cobrar completo.
+    'resumen'  => Cargos::estadoDeCuenta($idExpediente)['resumen'],
+
+    /*
+       Las fichas que ya se le cobraron.
+
+       Lo pidio el consultorio y la razon es de mostrador: el tutor
+       llega diciendo "ya le pague eso" y hasta ahora la unica forma de
+       comprobarlo era imprimir el estado de cuenta completo o buscar el
+       cobro en el corte del dia en que se hizo. Con la lista aqui
+       mismo, el recibo se reimprime en dos clics.
+
+       Van los cancelados tambien, marcados: "no aparece mi pago" se
+       contesta mucho mejor con "aqui esta, y se cancelo este dia por
+       esto" que con un hueco en la lista.
+
+       Veinte alcanzan. Un paciente de ortodoncia con tres anios de
+       mensualidades pasa de treinta, y para eso esta el estado de
+       cuenta, que es el documento que si los lista todos.
+    */
+    'pagos'    => Conexion::todos(
+        'SELECT p.id_pago, p.folio, p.monto, p.fecha_hora, p.estatus,
+                p.motivo_cancelacion, p.fecha_cancelacion,
+                u.nombre_completo AS cobro,
+                pt.folio AS plan_folio,
+                COALESCE((SELECT SUM(pa.monto) FROM pago_aplicacion pa
+                           WHERE pa.aplicada_en_pago = p.id_pago), 0)
+                    AS a_favor_aplicado,
+                (SELECT GROUP_CONCAT(fp.nombre_forma
+                            ORDER BY fp.nombre_forma SEPARATOR ", ")
+                   FROM pago_forma pf
+                   JOIN forma_pago fp ON fp.id_forma_pago = pf.id_forma_pago
+                  WHERE pf.id_pago = p.id_pago) AS formas
+           FROM pago p
+           JOIN usuario u ON u.id_usuario = p.id_usuario
+           LEFT JOIN plan_tratamiento pt
+                  ON pt.id_plan_tratamiento = p.id_plan_tratamiento
+          WHERE p.id_registro_paciente = :r
+          ORDER BY p.fecha_hora DESC, p.id_pago DESC
+          LIMIT 20',
+        [':r' => $idExpediente]),
 ]);

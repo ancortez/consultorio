@@ -39,7 +39,14 @@ $dentistas = $verTodas
                 <label class="form-label" for="cnFiltro">Filtro de b&uacute;squeda</label>
                 <div class="input-group">
                     <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+                    <?php /* El filtro puede venir en la direccion: la ficha del
+                             paciente enlaza aqui con "?buscar=EXP-0004" para
+                             que la lista llegue ya acotada a ese paciente.
+                             Llegar a una lista de trescientos renglones
+                             sabiendo cual quieres es hacer buscar dos
+                             veces. */ ?>
                     <input type="text" class="form-control" id="cnFiltro"
+                           value="<?= e(limpiarEspacios((string) param('buscar', '')) ?? '') ?>"
                            placeholder="Folio, paciente, expediente, motivo o plan"
                            autocomplete="off">
                     <button class="btn btn-outline-secondary" type="button"

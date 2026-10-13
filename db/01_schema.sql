@@ -229,6 +229,12 @@ CREATE TABLE registro_paciente (
   -- La ocupacion vive en persona, no aqui: los tutores tambien la tienen
   -- y no tienen expediente.
   motivo_primera_visita TEXT        NULL,
+  -- Nanai atiende ninios y adultos. NULL = todavia nadie ha dicho si
+  -- este paciente lleva tutor; 1 = lo lleva; 0 = responde por si mismo.
+  -- La edad de la decision permite volver a preguntar al llegar a 24
+  -- sin preguntar en cada visita.
+  requiere_tutor       TINYINT UNSIGNED NULL,
+  tutor_decidido_edad  TINYINT UNSIGNED NULL,
   observaciones        TEXT         NULL,
   estatus              TINYINT UNSIGNED NOT NULL DEFAULT 1,
   fecha_registro       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -337,6 +343,12 @@ CREATE TABLE documento (
   -- tablas apuntadas ya existen.
   id_plan_tratamiento  INT UNSIGNED NULL,
   id_consulta          INT UNSIGNED NULL,
+  -- Hallazgo del que salio la imagen, si salio de uno. Un hallazgo
+  -- puede tener varias: "fractura del 11" se documenta con la foto
+  -- intraoral y con dos periapicales desde angulos distintos. La
+  -- llave foranea se agrega al final del archivo, porque hallazgo se
+  -- declara despues.
+  id_hallazgo          INT UNSIGNED NULL,
 
   -- Referencia a lo que origino el pendiente (un plan, un tutor...).
   -- Sirve para saber a que se refiere sin tener que adivinar.
@@ -362,6 +374,7 @@ CREATE TABLE documento (
   KEY ix_doc_expediente (id_registro_paciente, estado),
   KEY ix_doc_plan (id_plan_tratamiento),
   KEY ix_doc_consulta (id_consulta),
+  KEY ix_doc_hallazgo (id_hallazgo),
   KEY ix_doc_tipo (id_tipo_documento),
   KEY ix_doc_origen (origen_tabla, origen_id),
   CONSTRAINT fk_doc_expediente FOREIGN KEY (id_registro_paciente)
@@ -439,6 +452,10 @@ CREATE TABLE historia_clinica (
 
   -- ---- Ficha de identificacion ----
   apodo                VARCHAR(60)  NULL,   -- "le gusta que le llamen"
+  -- numero_hijo y estatura_cm salieron de la pantalla en octubre 2026
+  -- (la doctora no los usaba). Las columnas se conservan: lo que se
+  -- capturo en su momento es parte del expediente de ese paciente y no
+  -- se borra porque el formulario haya cambiado.
   numero_hijo          TINYINT UNSIGNED NULL,
   estatura_cm          SMALLINT UNSIGNED NULL,
   peso_kg              DECIMAL(5,2) NULL,
@@ -468,7 +485,13 @@ CREATE TABLE historia_clinica (
   -- 1 completa | 0 incompleta
   dieta_completa       TINYINT UNSIGNED NULL,
   dieta_porque         VARCHAR(255) NULL,
+  -- momentos_azucar_dia pedia un numero ("¿cuantas veces al dia?") y
+  -- nadie sabe contestarlo. Se reemplazo por una frecuencia, que es
+  -- como la gente si piensa el asunto. La columna vieja se conserva
+  -- con lo ya capturado.
   momentos_azucar_dia  TINYINT UNSIGNED NULL,
+  -- REGULAR | DIARIO | EVENTUALMENTE | NO CONSUME
+  momentos_azucar      VARCHAR(20) NULL,
   alimentos_azucar     TEXT NULL,
 
   -- ---- Antecedentes patologicos ----
@@ -504,6 +527,21 @@ CREATE TABLE historia_clinica (
   -- 1 normal | 2 macroglosia | 3 geografica | 4 escrotal
   lengua               TINYINT UNSIGNED NULL,
   mucosa               VARCHAR(255) NULL,
+  -- ¿El examen bucal salio normal?
+  --
+  -- 1 normal | 0 anormal. Con los tres hallazgos escritos no se podia
+  -- distinguir un examen normal de un examen que no se hizo: los dos
+  -- dejaban los campos en blanco, y en una hoja firmada son dos cosas
+  -- muy distintas. Asi "NORMAL" es una afirmacion.
+  --
+  -- NULL en las historias capturadas antes de que existiera: de esas no
+  -- se sabe, y poner 1 seria afirmar en nombre de la doctora.
+  examen_bucal_normal  TINYINT UNSIGNED NULL DEFAULT 1,
+  -- Octubre 2026: el examen bucal se redujo a tres hallazgos escritos.
+  -- Los campos de opciones (labios, frenillos, lengua) dejaron de
+  -- usarse; sus columnas se conservan con lo ya capturado.
+  frenillo_detalle     VARCHAR(255) NULL,
+  lengua_detalle       VARCHAR(255) NULL,
   lesiones_gingival    VARCHAR(255) NULL,
   observaciones_blandos TEXT NULL,
 
@@ -828,10 +866,15 @@ CREATE TABLE consulta (
   fecha_hora           DATETIME NOT NULL,
   motivo               VARCHAR(255) NULL,
   padecimiento_actual  TEXT NULL,
+  -- Octubre 2026: la exploracion dejo de ser una caja de texto y pasó
+  -- a la tabla hallazgo, uno por uno. El diagnostico salio de la
+  -- consulta: vive en el plan de tratamiento, que es donde la doctora
+  -- lo razona. Las dos columnas se conservan con lo ya capturado.
   exploracion          TEXT NULL,
   diagnostico          TEXT NULL,
   plan_indicaciones    TEXT NULL,
-  -- signos vitales
+  -- signos vitales: salieron de la pantalla en octubre 2026 (en
+  -- odontopediatria no se tomaban). Se conservan con lo ya capturado.
   presion_arterial     VARCHAR(15) NULL,
   frecuencia_cardiaca  SMALLINT UNSIGNED NULL,
   temperatura          DECIMAL(4,1) NULL,
@@ -859,6 +902,54 @@ CREATE TABLE consulta (
 -- No son un documento que se escanee: se escriben en el sistema y ahi
 -- se quedan. Por eso viven en su propia tabla y no en 'documento', que
 -- es la lista de papeles que falta digitalizar.
+CREATE TABLE hallazgo (
+  id_hallazgo       INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_consulta       INT UNSIGNED NOT NULL,
+  -- CLINICO = lo que se ve en boca.  RADIOGRAFICO = lo que se ve en la
+  -- placa. Son dos miradas distintas sobre el mismo paciente y la
+  -- doctora las separa al dictarlas, asi que se guardan separadas.
+  tipo              VARCHAR(14) NOT NULL,
+  descripcion       TEXT NOT NULL,
+  -- SIN USO desde octubre 2026. Aqui vivia la unica imagen que podia
+  -- tener un hallazgo. Al permitir varias, el enlace se invirtio: ahora
+  -- es documento.id_hallazgo el que apunta para aca. La columna se
+  -- conserva con lo que se hubiera capturado antes del cambio.
+  id_documento      INT UNSIGNED NULL,
+  orden             SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  id_usuario        INT UNSIGNED NOT NULL,
+  fecha_registro    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  estatus           TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (id_hallazgo),
+  KEY ix_hallazgo_consulta (id_consulta, orden),
+  KEY ix_hallazgo_documento (id_documento),
+  CONSTRAINT fk_hallazgo_consulta FOREIGN KEY (id_consulta)
+    REFERENCES consulta (id_consulta) ON DELETE CASCADE,
+  -- SET NULL y no CASCADE: si alguien borra la imagen, el hallazgo
+  -- escrito tiene que sobrevivir. Lo que la doctora observo no deja de
+  -- ser cierto porque se haya perdido la foto.
+  CONSTRAINT fk_hallazgo_documento FOREIGN KEY (id_documento)
+    REFERENCES documento (id_documento) ON DELETE SET NULL,
+  CONSTRAINT fk_hallazgo_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario)
+) ENGINE=InnoDB;
+
+CREATE TABLE plan_traumatismo (
+  id_plan_traumatismo INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  id_plan_tratamiento INT UNSIGNED NOT NULL,
+  -- El golpe: "CAIDA A LOS 4 ANOS, FRACTURA DE 51".
+  descripcion         VARCHAR(255) NOT NULL,
+  -- Lo que dejo: "NECROSIS PULPAR", "DISCROMIA". Puede ir vacio: un
+  -- traumatismo reciente todavia no tiene secuela, y eso no lo
+  -- convierte en un dato incompleto sino en un dato de hoy.
+  secuela             VARCHAR(255) NULL,
+  orden               SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  estatus             TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  PRIMARY KEY (id_plan_traumatismo),
+  KEY ix_traumatismo_plan (id_plan_tratamiento, orden),
+  CONSTRAINT fk_traumatismo_plan FOREIGN KEY (id_plan_tratamiento)
+    REFERENCES plan_tratamiento (id_plan_tratamiento) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE nota_evolucion (
   id_nota_evolucion INT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_consulta       INT UNSIGNED NOT NULL,
@@ -1049,6 +1140,11 @@ CREATE TABLE plan_tratamiento (
   descripcion          VARCHAR(150) NULL,
   fecha                DATE NOT NULL,
   id_estado_plan       TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  -- Terminado y Cancelado son finales: de ellos no se sale. Ver la
+  -- clase Planes, que es donde vive esa regla.
+  motivo_cancelacion   VARCHAR(255) NULL,
+  fecha_cancelacion    DATETIME NULL,
+  fecha_terminado      DATETIME NULL,
   descuento            DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   subtotal             DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   total                DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -1186,6 +1282,17 @@ CREATE TABLE pago (
   fecha_hora           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   monto                DECIMAL(12,2) NOT NULL,
   observaciones        VARCHAR(255) NULL,
+  -- Huella del envio que genero este cobro. La pantalla manda una
+  -- distinta cada vez que se abre el formulario; si llegan dos
+  -- peticiones con la misma, la segunda NO crea otro cobro: el indice
+  -- unico la rechaza y el sistema devuelve el pago que ya existia.
+  --
+  -- Es la unica proteccion real contra el doble clic. Deshabilitar el
+  -- boton en la pantalla ayuda, pero no cubre el navegador que
+  -- reintenta solo, la conexion que se cae a medio envio ni al usuario
+  -- que da Enter dos veces antes de que corra el JavaScript. Con
+  -- dinero, el que decide tiene que ser el servidor.
+  huella_envio         CHAR(36) NULL,
   -- 1 vigente | 0 cancelado
   estatus              TINYINT UNSIGNED NOT NULL DEFAULT 1,
   id_usuario_cancela   INT UNSIGNED NULL,
@@ -1193,6 +1300,7 @@ CREATE TABLE pago (
   motivo_cancelacion   VARCHAR(255) NULL,
   PRIMARY KEY (id_pago),
   UNIQUE KEY uq_pago_folio (folio),
+  UNIQUE KEY uq_pago_huella (huella_envio),
   KEY ix_pago_expediente (id_registro_paciente),
   KEY ix_pago_plan (id_plan_tratamiento),
   KEY ix_pago_corte (id_corte_caja),
@@ -1296,14 +1404,30 @@ CREATE TABLE pago_aplicacion (
   id_pago_aplicacion INT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_pago            INT UNSIGNED NOT NULL,
   id_cargo           INT UNSIGNED NOT NULL,
+  -- El cobro donde se decidio gastar este saldo a favor.
+  --
+  -- La aplicacion se cuelga del pago que TRAJO el dinero (el anticipo),
+  -- porque entro aquel dia y en aquel corte. Esta columna guarda la
+  -- otra mitad: en que cobro se decidio gastarlo, que es lo que la
+  -- ficha de ese cobro necesita para poder decir "se te aplicaron 400
+  -- de tu saldo a favor".
+  --
+  -- NULL en las aplicaciones normales, donde el pago que aplica y el
+  -- cobro que lo decide son el mismo.
+  aplicada_en_pago   INT UNSIGNED NULL,
   monto              DECIMAL(12,2) NOT NULL,
   PRIMARY KEY (id_pago_aplicacion),
   KEY ix_pa_pago (id_pago),
   KEY ix_pa_cargo (id_cargo),
+  KEY ix_pa_en_pago (aplicada_en_pago),
   CONSTRAINT fk_pa_pago FOREIGN KEY (id_pago)
     REFERENCES pago (id_pago) ON DELETE CASCADE,
   CONSTRAINT fk_pa_cargo FOREIGN KEY (id_cargo)
-    REFERENCES cargo (id_cargo)
+    REFERENCES cargo (id_cargo),
+  -- SET NULL y no CASCADE: ese dinero se gasto de verdad y el cargo
+  -- quedo cubierto. Borrar la aplicacion resucitaria una deuda pagada.
+  CONSTRAINT fk_pa_en_pago FOREIGN KEY (aplicada_en_pago)
+    REFERENCES pago (id_pago) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- todo lo que entra o sale de la caja, incluidos los egresos operativos
@@ -1596,6 +1720,14 @@ GROUP BY cc.id_corte_caja, fp.id_forma_pago, fp.nombre_forma, fp.afecta_efectivo
 
 
 -- =====================================================================
+-- documento.id_hallazgo apunta a una tabla que se declara despues, asi
+-- que su llave va aqui. SET NULL y no CASCADE: borrar el hallazgo
+-- escrito no debe llevarse la radiografia, que es un documento del
+-- expediente por derecho propio.
+ALTER TABLE documento
+  ADD CONSTRAINT fk_doc_hallazgo FOREIGN KEY (id_hallazgo)
+  REFERENCES hallazgo (id_hallazgo) ON DELETE SET NULL;
+
 -- SECCION 11 : LLAVES QUE CRUZAN SECCIONES
 --
 -- documento y consulta se declaran mucho antes que plan_tratamiento, y

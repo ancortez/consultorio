@@ -18,16 +18,18 @@ $idDentista   = paramInt('id_usuario_dentista');
 $fechaHora    = trim((string) param('fecha_hora', date('Y-m-d H:i')));
 
 $motivo       = limpiarEspacios(paramMayus('motivo'));
-$padecimiento = limpiarEspacios(paramMayus('padecimiento_actual'));
-$exploracion  = limpiarEspacios(paramMayus('exploracion'));
-$diagnostico  = limpiarEspacios(paramMayus('diagnostico'));
-$indicaciones = limpiarEspacios(paramMayus('plan_indicaciones'));
+$padecimiento = paramTexto('padecimiento_actual');
+$indicaciones = paramTexto('plan_indicaciones');
 
-$presion     = limpiarEspacios(paramMayus('presion_arterial'));
-$frecuencia  = paramInt('frecuencia_cardiaca') ?: null;
-$temperatura = param('temperatura');
-$temperatura = ($temperatura === null || $temperatura === '')
-    ? null : round((float) $temperatura, 1);
+// Octubre 2026. Tres campos dejaron de llegar de la pantalla:
+//
+//   exploracion  paso a ser la tabla hallazgo, uno por renglon, para
+//                poder colgarle su radiografia a cada observacion.
+//   diagnostico  vive en el plan de tratamiento, que es donde se razona.
+//   signos vitales  en odontopediatria no se tomaban.
+//
+// Las columnas siguen en la base con lo ya capturado y se siguen
+// leyendo e imprimiendo; simplemente ya no se escriben desde aqui.
 
 $errores = [];
 if (!$idExpediente) { $errores['id_registro_paciente'] = 'Falta el paciente.'; }
@@ -44,26 +46,41 @@ if (!$f || $f->format('Y-m-d H:i:s') !== $fechaHora) {
     $errores['fecha_hora'] = 'La fecha y hora no son validas.';
 }
 
-// Un signo vital fuera de rango casi siempre es un dedazo, y en un
-// expediente clinico un dedazo se lee como un dato real.
-if ($frecuencia !== null && ($frecuencia < 20 || $frecuencia > 250)) {
-    $errores['frecuencia_cardiaca'] = 'Revisa la frecuencia cardiaca.';
-}
-if ($temperatura !== null && ($temperatura < 30 || $temperatura > 45)) {
-    $errores['temperatura'] = 'Revisa la temperatura.';
-}
 
 if ($errores) { Respuesta::validacion($errores); }
 
 // El plan tiene que ser de este paciente.
 if ($idPlan !== null) {
-    $suyo = (int) Conexion::valor(
-        'SELECT COUNT(*) FROM plan_tratamiento
+    $plan = Conexion::uno(
+        'SELECT folio, id_estado_plan FROM plan_tratamiento
           WHERE id_plan_tratamiento = :p AND id_registro_paciente = :r',
         [':p' => $idPlan, ':r' => $idExpediente]
     );
-    if ($suyo === 0) {
+    if ($plan === null) {
         Respuesta::error('Ese plan de tratamiento no es de este paciente.');
+    }
+
+    /*
+       A un plan cancelado no se le cuelgan consultas.
+
+       Un plan terminado si: la revision de control de un tratamiento
+       que se cerro en marzo es una consulta de ESE plan, y mandarla al
+       bloque general partiria el expediente del tratamiento en dos.
+       El avance automatico ya no lo saca de Terminado.
+
+       Pero cancelado significa que el tratamiento no ocurrio. Una
+       consulta dentro de un plan cancelado es una contradiccion en el
+       expediente, y pasa por una razon concreta: la pantalla solo
+       ofrece planes vivos, asi que si llega un cancelado es porque la
+       pestania llevaba un rato abierta cuando alguien lo cancelo
+       desde otra. Se avisa con nombre y apellido en vez de guardar
+       algo que nadie va a poder explicar.
+    */
+    if ((int) $plan['id_estado_plan'] === Planes::CANCELADO) {
+        Respuesta::error(
+            'El plan ' . $plan['folio'] . ' esta cancelado y no puede '
+            . 'recibir consultas. Recarga la pantalla y registrala como '
+            . 'consulta general o dentro de otro plan.');
     }
 }
 
@@ -87,12 +104,10 @@ if ($idCita !== null) {
 
 $campos = [
     ':cita' => $idCita,
-    ':d'    => $idDentista,   ':f'    => $fechaHora,
-    ':mo'   => $motivo,       ':pa'   => $padecimiento,
-    ':ex'   => $exploracion,  ':di'   => $diagnostico,
+    ':d'    => $idDentista, ':f'  => $fechaHora,
+    ':mo'   => $motivo,     ':pa' => $padecimiento,
     ':pl'   => $indicaciones,
-    ':pre'  => $presion,      ':fc'   => $frecuencia,
-    ':temp' => $temperatura,  ':plan' => $idPlan,
+    ':plan' => $idPlan,
 ];
 
 if ($idConsulta) {
@@ -115,10 +130,8 @@ if ($idConsulta) {
         'UPDATE consulta
             SET id_usuario_dentista = :d, fecha_hora = :f,
                 id_plan_tratamiento = :plan, id_cita = :cita,
-                motivo = :mo, padecimiento_actual = :pa, exploracion = :ex,
-                diagnostico = :di, plan_indicaciones = :pl,
-                presion_arterial = :pre, frecuencia_cardiaca = :fc,
-                temperatura = :temp
+                motivo = :mo, padecimiento_actual = :pa,
+                plan_indicaciones = :pl
           WHERE id_consulta = :c',
         $campos + [':c' => $idConsulta]
     );
@@ -133,10 +146,8 @@ if ($idConsulta) {
         'INSERT INTO consulta
             (id_registro_paciente, folio, id_plan_tratamiento, id_cita,
              id_usuario_dentista, fecha_hora, motivo, padecimiento_actual,
-             exploracion, diagnostico, plan_indicaciones,
-             presion_arterial, frecuencia_cardiaca, temperatura)
-         VALUES (:r, :fo, :plan, :cita, :d, :f, :mo, :pa, :ex, :di, :pl,
-                 :pre, :fc, :temp)',
+             plan_indicaciones)
+         VALUES (:r, :fo, :plan, :cita, :d, :f, :mo, :pa, :pl)',
         $campos + [':r' => $idExpediente, ':fo' => $folio]
     );
 
@@ -150,6 +161,40 @@ Conexion::consulta(
     'UPDATE documento SET id_plan_tratamiento = :p WHERE id_consulta = :c',
     [':p' => $idPlan, ':c' => $idConsulta]
 );
+
+/*
+   El plan arranca con su primera consulta.
+
+   Aceptado significa "el tutor firmo"; En proceso significa "ya se
+   esta trabajando". Lo segundo lo prueba un hecho: existe una consulta
+   ligada a ese plan.
+
+   Como con la aceptacion, el estado lo mueve algo que ocurrio y no una
+   opinion de quien captura. Y solo AVANZA: un plan Terminado no
+   retrocede a En proceso porque alguien agregue una consulta tardia
+   —una revision de control, por ejemplo—, ni uno Cancelado revive.
+*/
+if ($idPlan !== null) {
+    // Los numeros salen de Planes, no escritos a mano aqui: el 2 y el 3
+    // repartidos por los archivos fue exactamente como nacio el fallo
+    // de que un plan terminado volviera a En proceso.
+    $filas = Conexion::consulta(
+        'UPDATE plan_tratamiento
+            SET id_estado_plan = :proceso
+          WHERE id_plan_tratamiento = :p
+            AND id_estado_plan = :aceptado',
+        [':p' => $idPlan,
+         ':proceso'  => Planes::EN_PROCESO,
+         ':aceptado' => Planes::ACEPTADO]
+    )->rowCount();
+
+    if ($filas > 0) {
+        Bitacora::registrar('consultas', 'PLAN_EN_PROCESO',
+            'plan_tratamiento', (string) $idPlan,
+            ['motivo' => 'se registro su primera consulta',
+             'consulta' => $idConsulta]);
+    }
+}
 
 Bitacora::registrar('consultas', $accion, 'consulta', (string) $idConsulta, [
     'expediente' => $idExpediente,

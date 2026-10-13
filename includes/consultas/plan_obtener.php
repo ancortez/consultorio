@@ -25,6 +25,18 @@ if ($plan === null) {
     Respuesta::error('El plan no existe.', 404);
 }
 
+// Se llama traumatismos_lista y no traumatismos para no chocar con la
+// columna del mismo nombre, que sigue ahi con lo capturado antes del
+// cambio. Si se llamaran igual, una sobrescribiria a la otra en el
+// arreglo y nadie entenderia por que se perdio el dato viejo.
+$plan['traumatismos_lista'] = Conexion::todos(
+    'SELECT id_plan_traumatismo, descripcion, secuela, orden
+       FROM plan_traumatismo
+      WHERE id_plan_tratamiento = :p AND estatus = 1
+      ORDER BY orden, id_plan_traumatismo',
+    [':p' => $idPlan]
+);
+
 $plan['renglones'] = Conexion::todos(
     'SELECT d.*, pr.nombre_procedimiento, pr.aplica_por_diente,
             pr.requiere_anestesia, di.nombre_diente

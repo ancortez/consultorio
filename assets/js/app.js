@@ -204,6 +204,55 @@ const App = (() => {
   }
 
   /**
+   * Muestra una imagen sola, en grande y al centro de la pantalla.
+   *
+   * No es el album: el album es para recorrer un conjunto —una consulta
+   * con sus radiografias— y trae tira de miniaturas, flechas y contador.
+   * Para una fotografia suelta todo eso sobra, y abrir una ventana
+   * aparte saca a la persona de la ficha para ver una cara.
+   *
+   * Se construye al vuelo y se destruye al cerrar. Dejarlo en el HTML de
+   * cada pantalla seria repetir el mismo bloque en cuatro vistas para
+   * algo que se usa de vez en cuando.
+   */
+  function verImagen(url, titulo = '') {
+    const fondo = document.createElement('div');
+    fondo.className = 'visor-imagen';
+    fondo.innerHTML = `
+      <button type="button" class="vi-cerrar" title="Cerrar" aria-label="Cerrar">
+        <i class="bi bi-x-lg"></i>
+      </button>
+      <figure>
+        <img src="${url}" alt="">
+        ${titulo ? `<figcaption></figcaption>` : ''}
+      </figure>`;
+
+    // El titulo va por textContent y no dentro de la plantilla: puede
+    // ser el nombre del paciente, y un apellido con comillas o con un
+    // signo de menor que rompria el HTML.
+    if (titulo) fondo.querySelector('figcaption').textContent = titulo;
+
+    function cerrar() {
+      fondo.remove();
+      document.removeEventListener('keydown', porTecla);
+    }
+
+    function porTecla(ev) { if (ev.key === 'Escape') cerrar(); }
+
+    // Clic en el fondo cierra; clic en la imagen, no. Quien pica la
+    // foto para verla mejor no espera que eso la cierre.
+    fondo.addEventListener('click', (ev) => {
+      if (ev.target.closest('figure') && !ev.target.closest('.vi-cerrar')) return;
+      cerrar();
+    });
+
+    document.addEventListener('keydown', porTecla);
+    document.body.appendChild(fondo);
+    fondo.querySelector('.vi-cerrar').focus();
+    return fondo;
+  }
+
+  /**
    * Solo la fecha, en formato dd/mm/aaaa.
    *
    * No se usa Date() a proposito: un DATE de MySQL ("2026-09-16") lo
@@ -283,7 +332,7 @@ const App = (() => {
    * y el usuario pierde de vista lo que acaba de modificar: guarda un
    * domicilio y aparece en Identificacion, sin saber si se guardo.
    *
-   * La pestania viaja en el ancla de la direccion (#tab-domicilio), que
+   * La pestania viaja en el ancla de la direccion (#sec-domicilio), que
    * sobrevive a la recarga sin necesidad de guardar nada en el navegador.
    * Solo aplica a las pestanias de la pagina, no a las de los modales:
    * esas se reinician a proposito cada vez que se abre el modal.
@@ -306,16 +355,34 @@ const App = (() => {
     activarPestania(location.hash);
   }
 
-  /** Activa una pestania de la pagina por su selector (#tab-domicilio). */
+  /**
+   * Lleva la vista a la parte indicada por el ancla.
+   *
+   * Entiende dos formas, porque el sistema usa las dos: las pestanias
+   * de siempre (#tab-algo) y las secciones plegables de la ficha del
+   * paciente (#sec-algo), que desde octubre 2026 reemplazaron a varias
+   * pestanias. Si no reconociera la segunda, guardar un telefono
+   * recargaria la pagina con la seccion cerrada y el usuario tendria
+   * que volver a abrirla para ver si su cambio quedo.
+   */
   function activarPestania(destino) {
     if (!destino || destino.length < 2) return false;
 
     const btn = document.querySelector(
       `[data-bs-toggle="tab"][data-bs-target="${destino}"]`);
-    if (!btn || btn.closest('.modal')) return false;
+    if (btn && !btn.closest('.modal')) {
+      bootstrap.Tab.getOrCreateInstance(btn).show();
+      return true;
+    }
 
-    bootstrap.Tab.getOrCreateInstance(btn).show();
-    return true;
+    const seccion = document.querySelector(`details${destino}`);
+    if (seccion) {
+      seccion.open = true;
+      seccion.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -404,7 +471,7 @@ const App = (() => {
     URL_BASE, aMayusculas, activarMayusculas, datosEnMayusculas,
     recordarPestania, activarPestania, recargarEnPestania,
     quitarCortinilla, desactivarAutocompletar,
-    tamanoLegible, fecha, fechaHora, abrirVentana,
+    tamanoLegible, fecha, fechaHora, abrirVentana, verImagen,
   };
 })();
 

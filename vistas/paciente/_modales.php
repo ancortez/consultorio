@@ -136,6 +136,38 @@
                      maxlength="15" placeholder="10 d&iacute;gitos">
             </div>
 
+            <?php /* Solo sale si la fecha de nacimiento dice que es
+                     mayor de edad. En un menor no hay nada que
+                     preguntar, y ofrecerlo invitaria a apagarlo por
+                     error dejando el expediente de un ninio sin quien
+                     firme por el. Lo ensenia y lo esconde el
+                     JavaScript al cambiar la fecha. */ ?>
+            <div class="col-12 d-none" id="gpBloqueTutor">
+              <label class="form-label">
+                &iquest;Este paciente necesita que un tutor firme por &eacute;l?
+              </label>
+              <div class="d-flex gap-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="requiere_tutor"
+                         id="gpTutorNo" value="0" checked>
+                  <label class="form-check-label" for="gpTutorNo">
+                    No, responde por su cuenta
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="requiere_tutor"
+                         id="gpTutorSi" value="1">
+                  <label class="form-check-label" for="gpTutorSi">
+                    S&iacute;, lleva tutor
+                  </label>
+                </div>
+              </div>
+              <div class="form-text">
+                Un adulto puede llevar tutor: por ejemplo si hay una
+                discapacidad de por medio.
+              </div>
+            </div>
+
             <div class="col-12">
               <div class="alert alert-light border small mb-0 d-flex gap-2">
                 <i class="bi bi-lightbulb" style="color:var(--morado-600)"></i>

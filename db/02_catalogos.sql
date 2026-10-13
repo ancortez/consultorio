@@ -685,7 +685,7 @@ INSERT INTO tipo_documento
 -- ---- Del paciente: valen para todo el expediente ----
 (1,'FOTO_PACIENTE','Fotografia del paciente',
  'Foto de frente para identificarlo en el expediente',
- 'bi-person-badge', 0, 0, 'PACIENTE', 'jpg,jpeg,png', 1),
+ 'bi-person-badge', 0, 0, 'PACIENTE', 'jpg,jpeg,png,heic', 1),
 (5,'IDENTIFICACION_TUTOR','Credencial del tutor',
  'Credencial vigente del tutor o responsable legal. Una por cada tutor.',
  'bi-person-vcard', 0, 1, 'PACIENTE', 'pdf,jpg,jpeg,png', 2),
@@ -713,13 +713,13 @@ INSERT INTO tipo_documento
  'bi-prescription2', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png', 1),
 (6,'RADIOGRAFIA','Radiografia',
  'Radiografias periapicales o panoramicas',
- 'bi-radioactive', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png', 2),
+ 'bi-radioactive', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png,bmp,heic', 2),
 (9,'FOTOGRAFIA','Fotografia clinica',
  'Fotografias intraorales y de avance del tratamiento',
- 'bi-camera', 0, 1, 'CONSULTA', 'jpg,jpeg,png', 3),
+ 'bi-camera', 0, 1, 'CONSULTA', 'jpg,jpeg,png,bmp,heic', 3),
 (11,'OTRO_CONSULTA','Otro documento de la consulta',
  'Estudios externos, interconsultas, cualquier otro papel',
- 'bi-paperclip', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png,doc,docx', 9);
+ 'bi-paperclip', 0, 1, 'CONSULTA', 'pdf,jpg,jpeg,png,bmp,heic,doc,docx', 9);
 
 -- NOTA_EVOLUCION ya no es un tipo de documento: las notas se escriben
 -- en el sistema y viven en la tabla nota_evolucion. No hay papel que
@@ -1164,7 +1164,7 @@ INSERT INTO uso_cfdi (id_uso_cfdi, descripcion) VALUES
 -- OJO: aqui no va la version del sistema. Esa vive en config/config.php
 -- (APP_VERSION) porque pertenece al codigo, no a los datos.
 INSERT INTO parametro (clave, valor, descripcion) VALUES
-('nombre_sistema','Sistema Consultorio Dental','Nombre comercial del sistema'),
+('nombre_sistema','Nanai','Nombre del sistema. Nanai es sonrisa en wixarika.'),
 ('estado_default','18','Estado preseleccionado en formularios de domicilio'),
 ('prefijo_expediente','EXP','Prefijo del folio de expediente'),
 ('pacientes_lista_inicio','25','Cuantos pacientes recientes se listan'),

@@ -26,8 +26,6 @@ if (!$idExpediente) {
 $campos = [
     // Ficha de identificacion
     'apodo'                   => 'txt',
-    'numero_hijo'             => 'num',
-    'estatura_cm'             => 'num',
     'peso_kg'                 => 'dec',
     'escuela'                 => 'txt',
     'grado_escolar'           => 'txt',
@@ -52,7 +50,10 @@ $campos = [
     'inicio_alimentacion_complementaria' => 'txt',
     'dieta_completa'          => 'bool',
     'dieta_porque'            => 'txt',
-    'momentos_azucar_dia'     => 'num',
+    // Antes era un numero ("¿cuantas veces al dia?"). Nadie sabe
+    // contestar eso; todos saben decir "a diario". La columna vieja
+    // sigue en la base con lo ya capturado, pero ya no se escribe.
+    'momentos_azucar'         => 'txt',
     'alimentos_azucar'        => 'txt',
 
     // Antecedentes patologicos
@@ -79,15 +80,19 @@ $campos = [
     'otro_higiene_detalle'    => 'txt',
 
     // Examen bucal
-    'labios'                  => 'opc',
-    'labios_lesiones'         => 'txt',
-    'frenillos'               => 'opc',
-    'lengua'                  => 'opc',
+    //
+    // Se redujo a tres hallazgos en texto libre. Los campos de opciones
+    // (labios, frenillos, lengua) y los de observaciones salieron de la
+    // pantalla; sus columnas siguen en la base con lo ya capturado,
+    // pero dejan de escribirse.
+    // Normal o anormal, antes de los hallazgos: con solo los tres
+    // campos escritos no se podia distinguir un examen normal de uno
+    // que no se hizo, porque los dos los dejan en blanco.
+    'examen_bucal_normal'     => 'opc',
+    'frenillo_detalle'        => 'txt',
     'mucosa'                  => 'txt',
-    'lesiones_gingival'       => 'txt',
-    'observaciones_blandos'   => 'txt',
+    'lengua_detalle'          => 'txt',
     'tipo_denticion'          => 'opc',
-    'observaciones_duros'     => 'txt',
 ];
 
 $valores = [];
@@ -127,15 +132,15 @@ foreach ($campos as $campo => $tipo) {
 if ($valores['peso_kg'] !== null && ($valores['peso_kg'] <= 0 || $valores['peso_kg'] > 200)) {
     $errores['peso_kg'] = 'El peso no parece correcto.';
 }
-if ($valores['estatura_cm'] !== null
-    && ($valores['estatura_cm'] < 20 || $valores['estatura_cm'] > 230)) {
-    $errores['estatura_cm'] = 'La estatura no parece correcta.';
-}
 if ($valores['cepillados_dia'] !== null && $valores['cepillados_dia'] > 10) {
     $errores['cepillados_dia'] = 'Revisa el numero de cepillados.';
 }
-if ($valores['momentos_azucar_dia'] !== null && $valores['momentos_azucar_dia'] > 20) {
-    $errores['momentos_azucar_dia'] = 'Revisa el numero de momentos de azucar.';
+// La frecuencia viene de una lista cerrada, pero el valor llega por
+// POST y cualquiera puede mandar otra cosa. Se valida contra la lista.
+$frecuenciasAzucar = ['REGULAR', 'DIARIO', 'EVENTUALMENTE', 'NO CONSUME'];
+if ($valores['momentos_azucar'] !== null
+    && !in_array($valores['momentos_azucar'], $frecuenciasAzucar, true)) {
+    $errores['momentos_azucar'] = 'Elige una de las opciones de la lista.';
 }
 if ($valores['medico_telefono'] !== null) {
     $tel = preg_replace('/\D/', '', $valores['medico_telefono']);

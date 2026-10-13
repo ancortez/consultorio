@@ -177,7 +177,8 @@ Bitacora::registrar('cajas', 'IMPRIME', 'corte_caja', (string) $idCorte);
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario" href="<?= URL_BASE ?>/index.php?modulo=cajas&vista=corte">Volver</a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=cajas&vista=corte'; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
 </div>
 
 <div class="hoja">

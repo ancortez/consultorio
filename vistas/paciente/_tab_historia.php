@@ -120,24 +120,16 @@ function casillas(array $lista, string $titulo): string
         <div class="card-header"><i class="bi bi-person-badge me-2"></i>Ficha de identificaci&oacute;n</div>
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-3">
+                <div class="col-4">
                     <label class="form-label">Le gusta que le llamen</label>
                     <input type="text" class="form-control" name="apodo" maxlength="60">
                 </div>
-                <div class="col-2">
-                    <label class="form-label">N&uacute;mero de hijo</label>
-                    <input type="number" class="form-control" name="numero_hijo" min="1" max="20">
-                </div>
-                <div class="col-2">
-                    <label class="form-label">Estatura (cm)</label>
-                    <input type="number" class="form-control" name="estatura_cm" min="20" max="230">
-                </div>
-                <div class="col-2">
+                <div class="col-3">
                     <label class="form-label">Peso (kg)</label>
                     <input type="number" class="form-control" name="peso_kg"
                            step="0.1" min="1" max="200">
                 </div>
-                <div class="col-3">
+                <div class="col-5">
                     <label class="form-label">Personaje favorito</label>
                     <input type="text" class="form-control" name="personaje_favorito" maxlength="80">
                 </div>
@@ -158,10 +150,18 @@ function casillas(array $lista, string $titulo): string
                 <div class="col-3">
                     <?= siNo('primera_visita_dentista', '&iquest;Es la primera visita al dentista?') ?>
                 </div>
-                <div class="col-4">
+                <?php /* Cuelga del NO, no del SI.
+
+                         Si es la primera visita al dentista, no hay una
+                         "ultima vez" que preguntar: la respuesta seria
+                         "nunca" en todos los casos. La pregunta tiene
+                         sentido justo al reves, cuando el paciente dice
+                         que ya ha ido antes. */ ?>
+                <div class="col-4"
+                     data-depende="primera_visita_dentista" data-cuando="0">
                     <label class="form-label">&iquest;Cu&aacute;ndo fue la &uacute;ltima vez?</label>
                     <input type="text" class="form-control" name="ultima_visita_dentista"
-                           maxlength="120" placeholder="HACE 6 MESES, NUNCA...">
+                           maxlength="120" placeholder="HACE 6 MESES, HACE 1 AÑO...">
                 </div>
                 <div class="col-5">
                     <label class="form-label">&iquest;Cu&aacute;l es el motivo de la consulta?</label>
@@ -195,7 +195,8 @@ function casillas(array $lista, string $titulo): string
                             <?= opciones('tipo_parto', [1 => 'Natural', 2 => 'Ces&aacute;rea'], 'Parto') ?>
                         </div>
                         <div class="col-6"><?= siNo('complicaciones_parto', 'Complicaciones') ?></div>
-                        <div class="col-12">
+                        <div class="col-12"
+                     data-depende="complicaciones_parto" data-cuando="1">
                             <input type="text" class="form-control form-control-sm"
                                    name="complicaciones_detalle" maxlength="255"
                                    placeholder="Especifique las complicaciones">
@@ -207,13 +208,15 @@ function casillas(array $lista, string $titulo): string
                     <p class="form-label">Alimentaci&oacute;n del reci&eacute;n nacido</p>
                     <div class="row g-3 mb-2">
                         <div class="col-6"><?= siNo('lactancia_materna', 'Lactancia materna') ?></div>
-                        <div class="col-6">
+                        <div class="col-6"
+                     data-depende="lactancia_materna" data-cuando="1">
                             <label class="form-label">&iquest;Hasta cu&aacute;ndo?</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="lactancia_hasta" maxlength="60">
                         </div>
                         <div class="col-6"><?= siNo('formula', 'F&oacute;rmula') ?></div>
-                        <div class="col-6">
+                        <div class="col-6"
+                     data-depende="formula" data-cuando="1">
                             <label class="form-label">&iquest;Hasta cu&aacute;ndo?</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="formula_hasta" maxlength="60">
@@ -233,20 +236,28 @@ function casillas(array $lista, string $titulo): string
                         <div class="col-6">
                             <?= opciones('dieta_completa', [1 => 'Completa', 0 => 'Incompleta'], 'Dieta actual') ?>
                         </div>
-                        <div class="col-6">
+                        <div class="col-6"
+                     data-depende="dieta_completa" data-cuando="0">
                             <label class="form-label">&iquest;Por qu&eacute;?</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="dieta_porque" maxlength="255">
                         </div>
                         <div class="col-5">
-                            <label class="form-label">Momentos de az&uacute;car al d&iacute;a</label>
-                            <input type="number" class="form-control" name="momentos_azucar_dia"
-                                   min="0" max="20">
+                            <label class="form-label">Momentos de az&uacute;car</label>
+                            <select class="form-select" name="momentos_azucar">
+                                <option value="">Seleccionar...</option>
+                                <option value="REGULAR">Regular</option>
+                                <option value="DIARIO">Diario</option>
+                                <option value="EVENTUALMENTE">Eventualmente</option>
+                                <option value="NO CONSUME">No consume</option>
+                            </select>
                             <div class="form-text">
-                                Cu&aacute;ntas veces consume az&uacute;car libre o a&ntilde;adida.
+                                Con qu&eacute; frecuencia consume az&uacute;car libre o
+                                a&ntilde;adida.
                             </div>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="momentos_azucar" data-cuando="!NO CONSUME">
                             <label class="form-label">&iquest;Qu&eacute; alimentos o bebidas con az&uacute;car?</label>
                             <textarea class="form-control" name="alimentos_azucar" rows="2"></textarea>
                         </div>
@@ -278,7 +289,8 @@ function casillas(array $lista, string $titulo): string
                             <?= siNo('enfermedad_cronica',
                                 '&iquest;Enfermedad cr&oacute;nica o alteraci&oacute;n gen&eacute;tica?') ?>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="enfermedad_cronica" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="enfermedad_detalle" maxlength="255">
@@ -288,7 +300,8 @@ function casillas(array $lista, string $titulo): string
                             <?= siNo('discapacidad', '&iquest;Tiene alguna discapacidad?') ?>
                             <div class="form-text">Visual, auditiva, motora, sensitiva.</div>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="discapacidad" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="discapacidad_detalle" maxlength="255">
@@ -297,7 +310,8 @@ function casillas(array $lista, string $titulo): string
                         <div class="col-5">
                             <?= siNo('alergia', '&iquest;Es al&eacute;rgico a alg&uacute;n alimento o medicamento?') ?>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="alergia" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm is-alergia"
                                    name="alergia_detalle" maxlength="255">
@@ -306,7 +320,8 @@ function casillas(array $lista, string $titulo): string
                         <div class="col-5">
                             <?= siNo('tratamiento_medico', '&iquest;Est&aacute; bajo tratamiento m&eacute;dico?') ?>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="tratamiento_medico" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="tratamiento_detalle" maxlength="255">
@@ -315,21 +330,11 @@ function casillas(array $lista, string $titulo): string
                         <div class="col-5">
                             <?= siNo('cirugias', '&iquest;Ha tenido cirug&iacute;as?') ?>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="cirugias" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="cirugias_detalle" maxlength="255">
-                        </div>
-
-                        <div class="col-7">
-                            <label class="form-label">Nombre del m&eacute;dico</label>
-                            <input type="text" class="form-control form-control-sm"
-                                   name="medico_nombre" maxlength="120">
-                        </div>
-                        <div class="col-5">
-                            <label class="form-label">Tel&eacute;fono del m&eacute;dico</label>
-                            <input type="tel" class="form-control form-control-sm"
-                                   name="medico_telefono" maxlength="20">
                         </div>
                     </div>
                 </div>
@@ -366,7 +371,8 @@ function casillas(array $lista, string $titulo): string
                         <div class="col-5">
                             <?= siNo('otro_higiene', '&iquest;Usa otro elemento de higiene?') ?>
                         </div>
-                        <div class="col-7">
+                        <div class="col-7"
+                     data-depende="otro_higiene" data-cuando="1">
                             <label class="form-label">Especifique</label>
                             <input type="text" class="form-control form-control-sm"
                                    name="otro_higiene_detalle" maxlength="255"
@@ -396,67 +402,61 @@ function casillas(array $lista, string $titulo): string
         <div class="card-header"><i class="bi bi-search me-2"></i>Examen bucal</div>
         <div class="card-body">
 
-            <p class="form-label">Tejidos blandos</p>
-            <div class="row g-3 mb-3">
-                <div class="col-3">
-                    <?= opciones('labios', [1 => 'Competentes', 2 => 'Incompetentes'], 'Labios') ?>
-                </div>
-                <div class="col-3">
-                    <label class="form-label">Lesiones en labios</label>
-                    <input type="text" class="form-control form-control-sm"
-                           name="labios_lesiones" maxlength="255">
-                </div>
-                <div class="col-3">
-                    <?= opciones('frenillos', [1 => 'Normales', 2 => 'Anormales'], 'Frenillos') ?>
-                </div>
-                <div class="col-3">
-                    <?= opciones('lengua', [
-                        1 => 'Normal', 2 => 'Macroglosia', 3 => 'Geogr&aacute;fica', 4 => 'Escrotal',
-                    ], 'Lengua') ?>
-                </div>
+            <?php /* La doctora dejo tres hallazgos y los quiere en
+                     texto libre, no en opciones. En la practica lo que
+                     escribia era "FRENILLO LINGUAL CORTO" o "AFTA EN
+                     CARRILLO DERECHO": descripciones que no caben en
+                     una lista cerrada, y que forzadas a una opcion
+                     perdian justo el detalle que importaba.
 
-                <div class="col-4">
-                    <label class="form-label">Mucosa</label>
-                    <input type="text" class="form-control form-control-sm" name="mucosa" maxlength="255">
-                </div>
-                <div class="col-4">
-                    <label class="form-label">Lesiones en tejido gingival</label>
-                    <input type="text" class="form-control form-control-sm"
-                           name="lesiones_gingival" maxlength="255">
-                </div>
-                <div class="col-4">
-                    <label class="form-label">Observaciones</label>
-                    <input type="text" class="form-control form-control-sm"
-                           name="observaciones_blandos" maxlength="255">
-                </div>
-            </div>
+                     Tipo de denticion se queda aunque el resto de
+                     "tejidos duros" salio: el odontograma y la hoja
+                     impresa lo usan. */ ?>
 
-            <hr>
-
-            <p class="form-label">Tejidos duros</p>
             <div class="row g-3">
+                <?php /* Primero: ¿salio normal?
+
+                         Con solo los tres hallazgos escritos no se podia
+                         distinguir un examen NORMAL de uno que no se hizo:
+                         los dos dejaban los campos en blanco. En una hoja
+                         firmada son dos cosas muy distintas, y la que no se
+                         podia afirmar era justamente la buena.
+
+                         Viene en NORMAL porque es lo que pasa en la mayoria
+                         de los pacientes, y porque quien captura ya tiene
+                         doce preguntas que contestar: lo que se aparta de lo
+                         normal es lo que merece un clic. */ ?>
+                <div class="col-12">
+                    <?= opciones('examen_bucal_normal', [
+                        1 => 'Normal', 0 => 'Anormal',
+                    ], '&iquest;C&oacute;mo sali&oacute; el examen bucal?') ?>
+                    <div class="form-text">
+                        En <b>Normal</b> los tres campos de abajo pueden
+                        quedarse vac&iacute;os. En <b>Anormal</b>, describe lo
+                        que viste.
+                    </div>
+                </div>
+
                 <div class="col-4">
+                    <label class="form-label">Frenillo</label>
+                    <input type="text" class="form-control" name="frenillo_detalle"
+                           maxlength="255" placeholder="C&Oacute;MO SE VE">
+                </div>
+                <div class="col-4">
+                    <label class="form-label">Lesiones mucosas</label>
+                    <input type="text" class="form-control" name="mucosa"
+                           maxlength="255" placeholder="QU&Eacute; SE OBSERVA">
+                </div>
+                <div class="col-4">
+                    <label class="form-label">Lengua</label>
+                    <input type="text" class="form-control" name="lengua_detalle"
+                           maxlength="255" placeholder="C&Oacute;MO SE VE">
+                </div>
+
+                <div class="col-12">
                     <?= opciones('tipo_denticion', [
                         1 => 'Temporal', 2 => 'Mixta', 3 => 'Permanente',
                     ], 'Tipo de dentici&oacute;n') ?>
-                </div>
-                <div class="col-8">
-                    <label class="form-label">Observaciones</label>
-                    <input type="text" class="form-control form-control-sm"
-                           name="observaciones_duros" maxlength="255">
-                </div>
-
-                <div class="col-3">
-                    <?= casillas($porSeccion['ANOM_NUMERO'] ?? [], 'Anomal&iacute;as de n&uacute;mero') ?>
-                </div>
-                <div class="col-3">
-                    <?= casillas($porSeccion['ANOM_TAMANO'] ?? [], 'Anomal&iacute;as de tama&ntilde;o') ?>
-                </div>
-                <div class="col-3">
-                    <?= casillas($porSeccion['ANOM_ESTRUCTURA'] ?? [], 'Anomal&iacute;as de estructura') ?>
-                </div>
-                <div class="col-3">
-                    <?= casillas($porSeccion['ANOM_FORMA'] ?? [], 'Anomal&iacute;as de forma') ?>
                 </div>
             </div>
         </div>
@@ -466,3 +466,48 @@ function casillas(array $lista, string $titulo): string
 
   </div>
 </form>
+
+<?php /* =====================================================================
+         La pregunta que cuelga de una respuesta
+         =====================================================================
+         Doce preguntas de la historia abren otra: "¿alergico? -> ¿a que?".
+         Hasta ahora ese segundo campo aparecia en el hueco de al lado,
+         y la rejilla se descuadraba: el campo brotaba en medio de la
+         fila, empujaba a los vecinos y quien estaba capturando perdia de
+         vista donde iba. Con doce de estos, la pantalla se movia sola.
+
+         Ahora la pregunta sale en una ventanita, se contesta, y la
+         respuesta se queda escrita junto al selector. La rejilla no se
+         mueve nunca.
+
+         Un solo modal para las doce: el titulo, la etiqueta y el campo
+         se rellenan al abrirlo. Doce modales serian doce bloques de
+         HTML casi iguales, y el primero que alguien tocara dejaria a
+         los otros once distintos.
+         ===================================================================== */ ?>
+<div class="modal fade" id="modalPreguntaExtra" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="pxTitulo"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" id="pxEtiqueta" for="pxValor"></label>
+        <input type="text" class="form-control" id="pxValor" maxlength="255">
+        <div class="form-text" id="pxAyuda"></div>
+      </div>
+      <div class="modal-footer">
+        <?php /* "Cancelar" y no "Cerrar": cerrar sin contestar DESHACE la
+                 respuesta que abrio esta ventana, y el boton tiene que
+                 decir lo que hace. */ ?>
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">
+          Cancelar
+        </button>
+        <button type="button" class="btn btn-morado" id="pxGuardar">
+          <i class="bi bi-check-lg me-1"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

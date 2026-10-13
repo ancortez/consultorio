@@ -72,16 +72,14 @@ if ($idConsulta) {
 
 $paciente = $idExpediente
     ? Conexion::uno(
-        'SELECT vp.*,
-                (SELECT GROUP_CONCAT(a.nombre_antecedente SEPARATOR ", ")
-                   FROM expediente_antecedente ea
-                   JOIN antecedente a ON a.id_antecedente = ea.id_antecedente
-                  WHERE ea.id_registro_paciente = vp.id_registro_paciente
-                    AND ea.estatus = 1 AND a.requiere_alerta = 1) AS alertas
-           FROM v_paciente vp
+        'SELECT vp.* FROM v_paciente vp
           WHERE vp.id_registro_paciente = :r',
         [':r' => $idExpediente])
     : null;
+
+// Mismo origen que el plan de tratamiento: la historia clinica, no
+// expediente_antecedente. Ver el comentario en AlertasClinicas.
+$alertasClinicas = $idExpediente ? AlertasClinicas::de($idExpediente) : [];
 
 if ($paciente === null) {
     echo '<div class="alert alert-warning d-flex align-items-center gap-2">'
@@ -97,14 +95,49 @@ $dentistas = Conexion::todos(
       WHERE es_dentista = 1 AND estatus = 1 ORDER BY nombre_completo');
 
 // Planes vivos del paciente, para poder ligar o desligar la consulta.
+//
+// Viene con la cuenta de consultas que ya lleva cada plan: de ahi sale
+// el ordinal del motivo que se propone ("3RA CITA PLAN..."), y se pide
+// aqui en una sola consulta en vez de una por plan.
 $planes = Conexion::todos(
-    'SELECT pt.id_plan_tratamiento, pt.folio, pt.descripcion, ep.nombre_estado
+    'SELECT pt.id_plan_tratamiento, pt.folio, pt.descripcion,
+            pt.id_estado_plan, ep.nombre_estado,
+            (SELECT COUNT(*) FROM consulta cx
+              WHERE cx.id_plan_tratamiento = pt.id_plan_tratamiento
+                AND cx.estatus = 1) AS consultas
        FROM plan_tratamiento pt
        JOIN estado_plan ep ON ep.id_estado_plan = pt.id_estado_plan
       WHERE pt.id_registro_paciente = :r AND pt.id_estado_plan IN (1,2,3)
       ORDER BY pt.fecha DESC',
     [':r' => $idExpediente]
 );
+
+/*
+   Lo que se propone al elegir un plan.
+
+   El motivo y el padecimiento se escriben igual en todas las citas de
+   un mismo plan, y escribirlos a mano cada vez termina en expedientes
+   donde la misma cosa esta escrita de cinco formas. Se proponen ya
+   armados y quien captura los corrige si hace falta: es una propuesta,
+   no un campo calculado.
+
+   El ordinal NO se guarda en ninguna columna. Se deduce de las
+   consultas que el plan ya tiene, asi que no puede quedar
+   desincronizado si una consulta se borra o se cambia de plan.
+*/
+$propuestaPorPlan = [];
+foreach ($planes as $p) {
+    $propuestaPorPlan[(int) $p['id_plan_tratamiento']] = [
+        'motivo' => motivoDeCitaDePlan(
+            (string) $p['folio'], (int) $p['consultas']),
+        'padecimiento' => mayus(trim((string) ($p['descripcion'] ?? ''))) ?? '',
+    ];
+}
+
+// Una consulta nueva de un paciente con planes vivos pregunta de
+// entrada a cual pertenece. Si ya se decidio por la direccion (se
+// entro desde el plan) no hay nada que preguntar.
+$preguntarPlan = !$idConsulta && $planes && !$idPlan;
 ?>
 <div class="d-flex align-items-center justify-content-between mb-3">
     <div>
@@ -129,11 +162,34 @@ $planes = Conexion::todos(
 
     <div class="d-flex gap-2 align-items-center">
         <span class="chip-estado badge-suave d-none" id="cnEstadoChip"></span>
+        <?php /* El Guardar vive en dos sitios, y solo uno se ve.
+
+                 Mientras la consulta NO existe, esta abajo, pegado a
+                 "Tratamiento realizado": es el ultimo campo que se
+                 escribe y el unico sitio vivo de la pantalla, porque
+                 todo lo demas esta difuminado. Tenerlo arriba obligaba
+                 a subir la vista para guardar lo que se acababa de
+                 teclear abajo.
+
+                 Una vez creada, sube aqui. El trabajo deja de ser
+                 "llenar el motivo" y pasa a ser ir y venir entre
+                 hallazgos, recetas, cargos y notas; el Guardar ya no
+                 pertenece al pie de UNA tarjeta sino a la pantalla
+                 entera, y su sitio es junto a Cerrar.
+
+                 Son dos botones distintos y no uno que se mueve: mover
+                 un nodo entre dos contenedores con Bootstrap de por
+                 medio deja de funcionar en cuanto algo mas cambia. Lo
+                 que comparten es data-guardar, y el manejador esta
+                 delegado, asi que no hay dos escuchas ni dos ids
+                 iguales —que es como nacio el bug del boton que se
+                 disparaba doble—. */ ?>
         <?php if (Auth::puede('consultas.crear')): ?>
         <button type="button" class="btn btn-outline-morado" id="cnCerrar" disabled>
             <i class="bi bi-lock me-1"></i> Cerrar consulta
         </button>
-        <button type="button" class="btn btn-morado" id="cnGuardar">
+        <button type="button" class="btn btn-morado d-none"
+                id="cnGuardarArriba" data-guardar>
             <i class="bi bi-check-lg me-1"></i> Guardar
         </button>
         <?php endif; ?>
@@ -152,12 +208,21 @@ $planes = Conexion::todos(
 </div>
 <?php endif; ?>
 
-<?php if (!empty($paciente['alertas'])): ?>
+<?php if ($alertasClinicas): ?>
 <div class="aviso-almacen mb-3">
     <i class="bi bi-exclamation-triangle-fill"></i>
     <div>
         <b>Alertas cl&iacute;nicas del paciente</b>
-        <div class="mt-1"><?= e($paciente['alertas']) ?></div>
+        <div class="mt-1">
+            <?php foreach ($alertasClinicas as $al): ?>
+            <div>
+                <b><?= e($al['titulo']) ?>:</b>
+                <?= $al['detalle'] !== ''
+                    ? e($al['detalle'])
+                    : '<i>sin especificar en la historia</i>' ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -180,146 +245,226 @@ $planes = Conexion::todos(
             <input type="hidden" name="id_consulta" id="cnId" value="<?= $idConsulta ?: '' ?>">
             <input type="hidden" name="id_registro_paciente" value="<?= $idExpediente ?>">
             <input type="hidden" name="id_cita" value="<?= $idCita ?: '' ?>">
+            <?php /* Que la pantalla sepa si tiene que preguntar. Lo
+                     decide PHP, que es quien sabe si el paciente tiene
+                     planes vivos y si se entro desde uno. */ ?>
+            <input type="hidden" id="cnPreguntarPlan"
+                   value="<?= $preguntarPlan ? '1' : '' ?>">
 
-            <div class="card mb-3">
-                <div class="card-body">
-                    <div class="row g-3">
-                        <div class="col-4">
-                            <label class="form-label">Fecha y hora</label>
-                            <input type="datetime-local" class="form-control"
-                                   name="fecha_hora" id="cnFechaHora"
-                                   value="<?= $desdeCita
-                                       ? e(str_replace(' ', 'T',
-                                           substr((string) $desdeCita['fecha_inicio'], 0, 16)))
-                                       : date('Y-m-d\TH:i') ?>">
+            <?php /* Cabecera compacta.
+
+                     Estos tres campos se contestan una vez, al abrir la
+                     consulta, y despues nadie los vuelve a mirar. Antes
+                     ocupaban una tarjeta entera con etiquetas grandes,
+                     y empujaban hacia abajo lo que de verdad se usa
+                     durante la cita. Ahora van en una barra delgada
+                     arriba, con las etiquetas pegadas al campo. */ ?>
+            <?php /* Cada campo tiene dos caras: el texto y el control.
+
+                     En una consulta ya guardada se lee el texto; el
+                     lapiz descubre el control de ESE campo nada mas.
+                     Es a proposito: la fecha, el dentista y el plan son
+                     tres datos que se fijan al abrir la consulta y
+                     cambiar uno por descuido no se nota —un combo
+                     abierto y una rueda de raton bastan para mover la
+                     consulta a otro plan y arrastrar sus papeles con
+                     ella—. En una consulta nueva no hay nada que leer,
+                     asi que se entra directo en modo edicion. */ ?>
+            <div class="barra-consulta mb-3" id="cnBarra">
+                <label data-campo="fecha">
+                    <span>
+                        Fecha y hora
+                        <button type="button" class="lapiz-campo d-none"
+                                data-editar="fecha" title="Cambiar la fecha y hora">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </span>
+                    <div class="campo-texto d-none" data-texto="fecha">&mdash;</div>
+                    <input type="datetime-local" class="form-control form-control-sm"
+                           name="fecha_hora" id="cnFechaHora"
+                           value="<?= $desdeCita
+                               ? e(str_replace(' ', 'T',
+                                   substr((string) $desdeCita['fecha_inicio'], 0, 16)))
+                               : date('Y-m-d\TH:i') ?>">
+                </label>
+
+                <label data-campo="dentista">
+                    <span>
+                        Dentista <b class="req">*</b>
+                        <button type="button" class="lapiz-campo d-none"
+                                data-editar="dentista" title="Cambiar el dentista">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </span>
+                    <div class="campo-texto d-none" data-texto="dentista">&mdash;</div>
+                    <select class="form-select form-select-sm"
+                            name="id_usuario_dentista" required>
+                        <?php $dentistaPre = $desdeCita
+                            ? (int) $desdeCita['id_usuario_dentista']
+                            : (int) $usuarioSesion['id_usuario']; ?>
+                        <?php foreach ($dentistas as $d): ?>
+                        <option value="<?= (int) $d['id_usuario'] ?>"
+                            <?= (int) $d['id_usuario'] === $dentistaPre ? 'selected' : '' ?>>
+                            <?= e($d['nombre_completo']) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+
+                <label data-campo="plan">
+                    <span>
+                        Plan de tratamiento
+                        <button type="button" class="lapiz-campo d-none"
+                                data-editar="plan" title="Cambiar el plan de tratamiento">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </span>
+                    <div class="campo-texto d-none" data-texto="plan">&mdash;</div>
+                    <select class="form-select form-select-sm"
+                            name="id_plan_tratamiento" id="cnPlan"
+                            title="Decide en qué parte del expediente quedan los papeles de esta consulta.">
+                        <option value="">Consulta general (sin plan)</option>
+                        <?php foreach ($planes as $p): ?>
+                        <option value="<?= (int) $p['id_plan_tratamiento'] ?>"
+                            data-motivo="<?= e($propuestaPorPlan[(int) $p['id_plan_tratamiento']]['motivo']) ?>"
+                            data-padecimiento="<?= e($propuestaPorPlan[(int) $p['id_plan_tratamiento']]['padecimiento']) ?>"
+                            <?= (int) $p['id_plan_tratamiento'] === $idPlan ? 'selected' : '' ?>>
+                            <?= e($p['folio']) ?> &mdash; <?= e($p['descripcion'] ?? $p['nombre_estado']) ?>
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </div>
+
+            <?php /* Los tres textos en una sola tarjeta.
+
+                     Eran tres tarjetas de ancho medio: motivo arriba,
+                     padecimiento y tratamiento abajo. Cada una con su
+                     cabecera, su borde y su relleno, para contener un
+                     campo de texto.
+
+                     Juntos en una ocupan la mitad del alto, y ese alto
+                     se lo gana la exploracion y las notas de
+                     evolucion, que es lo que de verdad se consulta
+                     despues. */ ?>
+            <div class="row g-3 mb-3">
+                <div class="col-7">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <i class="bi bi-chat-left-quote me-2"></i>Motivo de la consulta
                         </div>
-                        <div class="col-4">
-                            <label class="form-label">Dentista <span class="req">*</span></label>
-                            <select class="form-select" name="id_usuario_dentista" required>
-                                <?php $dentistaPre = $desdeCita
-                                    ? (int) $desdeCita['id_usuario_dentista']
-                                    : (int) $usuarioSesion['id_usuario']; ?>
-                                <?php foreach ($dentistas as $d): ?>
-                                <option value="<?= (int) $d['id_usuario'] ?>"
-                                    <?= (int) $d['id_usuario'] === $dentistaPre ? 'selected' : '' ?>>
-                                    <?= e($d['nombre_completo']) ?>
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-4">
-                            <label class="form-label">Plan de tratamiento</label>
-                            <select class="form-select" name="id_plan_tratamiento" id="cnPlan">
-                                <option value="">Consulta general (sin plan)</option>
-                                <?php foreach ($planes as $p): ?>
-                                <option value="<?= (int) $p['id_plan_tratamiento'] ?>"
-                                    <?= (int) $p['id_plan_tratamiento'] === $idPlan ? 'selected' : '' ?>>
-                                    <?= e($p['folio']) ?> &mdash; <?= e($p['descripcion'] ?? $p['nombre_estado']) ?>
-                                </option>
-                                <?php endforeach; ?>
-                            </select>
+                        <div class="card-body py-2">
+                            <?php /* Prellenado cuando se entro desde un plan.
+
+                                     Lo pone PHP y no el JavaScript porque aqui
+                                     el plan ya se sabe al pintar la pantalla:
+                                     dejarlo para despues haria aparecer el
+                                     texto un instante despues de la vista, y
+                                     eso se lee como si el sistema lo hubiera
+                                     escrito solo a espaldas de quien captura.
+                                     Las propuestas que decide el usuario —al
+                                     contestar de que plan es— si las pone el
+                                     JavaScript, porque ahi todavia no se
+                                     sabia. */ ?>
+                            <?php $pre = $propuestaPorPlan[$idPlan] ?? null; ?>
+                            <label class="form-label">
+                                &iquest;A qu&eacute; vino? <span class="req">*</span>
+                            </label>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="motivo" maxlength="255" required
+                                   value="<?= $pre ? e($pre['motivo']) : '' ?>"
+                                   placeholder="LO QUE DICE EL TUTOR O EL PACIENTE">
+
+                            <label class="form-label mt-2">Padecimiento actual</label>
+                            <textarea class="form-control form-control-sm"
+                                      name="padecimiento_actual" rows="2"
+                                      placeholder="DESDE CU&Aacute;NDO, C&Oacute;MO EMPEZ&Oacute;"><?= $pre ? e($pre['padecimiento']) : '' ?></textarea>
+
+                            <label class="form-label mt-2">
+                                Tratamiento realizado e indicaciones
+                            </label>
+                            <textarea class="form-control form-control-sm"
+                                      name="plan_indicaciones" rows="3"
+                                      placeholder="QU&Eacute; SE HIZO HOY Y QU&Eacute; DEBE HACER EN CASA"></textarea>
                             <div class="form-text">
-                                Decide en qu&eacute; parte del expediente quedan
-                                los papeles de esta consulta.
+                                El tratamiento se pide para poder cerrar la consulta.
+                            </div>
+
+                            <?php /* El Guardar, aqui abajo.
+
+                                     Debajo del ultimo campo que se escribe y
+                                     dentro de la unica tarjeta que esta viva
+                                     antes del primer guardado. Mientras la
+                                     consulta no exista, lo demas de la
+                                     pantalla esta difuminado y este boton es
+                                     literalmente lo unico que se puede
+                                     picar. */ ?>
+                            <?php if (Auth::puede('consultas.crear')): ?>
+                            <div class="pie-guardar" id="cnPieGuardar">
+                                <span class="texto-guardar">
+                                    Guarda para poder agregar hallazgos,
+                                    recetas, cargos y notas.
+                                </span>
+                                <button type="button" class="btn btn-morado"
+                                        id="cnGuardar" data-guardar>
+                                    <i class="bi bi-check-lg me-1"></i> Guardar
+                                </button>
+                            </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <?php /* Exploracion: un hallazgo a la vez.
+
+                         Antes era una caja de texto donde terminaban
+                         tres observaciones pegadas en un parrafo:
+                         "CARIES OCLUSAL EN 46. GINGIVITIS LEVE. MANCHA
+                         BLANCA EN 11". Asi no se puede ligar una
+                         radiografia a UN hallazgo, ni saber en la
+                         siguiente cita cual de los tres se resolvio. */ ?>
+                <div class="col-5">
+                    <div class="card h-100 zona-sin-consulta">
+                        <div class="card-header d-flex align-items-center
+                                    justify-content-between">
+                            <span><i class="bi bi-search-heart me-2"></i>Exploraci&oacute;n</span>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-link p-0 d-none"
+                                        id="cnAlbumHallazgos"
+                                        title="Ver todas las imágenes de la consulta">
+                                    <i class="bi bi-images"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-rosa"
+                                        id="cnNuevoHallazgo">
+                                    <i class="bi bi-plus-lg"></i> Hallazgo
+                                </button>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-header">
-                    <i class="bi bi-chat-left-quote me-2"></i>Motivo de la consulta
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">
-                            &iquest;A qu&eacute; vino? <span class="req">*</span>
-                        </label>
-                        <input type="text" class="form-control" name="motivo"
-                               maxlength="255" required
-                               placeholder="LO QUE DICE EL TUTOR O EL PACIENTE">
-                    </div>
-                    <div>
-                        <label class="form-label">Padecimiento actual</label>
-                        <textarea class="form-control" name="padecimiento_actual"
-                                  rows="3"
-                                  placeholder="DESDE CU&Aacute;NDO, C&Oacute;MO EMPEZ&Oacute;, QU&Eacute; LO MEJORA O LO EMPEORA"></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-header">
-                    <i class="bi bi-search-heart me-2"></i>Exploraci&oacute;n
-                </div>
-                <div class="card-body">
-                    <div class="row g-3 mb-3">
-                        <div class="col-4">
-                            <label class="form-label">Presi&oacute;n arterial</label>
-                            <input type="text" class="form-control" name="presion_arterial"
-                                   maxlength="15" placeholder="110/70">
-                        </div>
-                        <div class="col-4">
-                            <label class="form-label">Frecuencia card&iacute;aca</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control"
-                                       name="frecuencia_cardiaca" min="20" max="250">
-                                <span class="input-group-text">lpm</span>
+                        <div class="card-body py-2" id="cnHallazgos">
+                            <div class="exp-vacio">
+                                Sin hallazgos. Agrega uno por cada cosa que
+                                observes, en boca o en placa.
                             </div>
                         </div>
-                        <div class="col-4">
-                            <label class="form-label">Temperatura</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" name="temperatura"
-                                       step="0.1" min="30" max="45">
-                                <span class="input-group-text">&deg;C</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="form-label">Hallazgos</label>
-                        <textarea class="form-control" name="exploracion" rows="4"
-                                  placeholder="LO QUE SE OBSERVA EN BOCA Y EN LA EXPLORACI&Oacute;N GENERAL"></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <i class="bi bi-clipboard2-pulse me-2"></i>Diagn&oacute;stico e indicaciones
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Diagn&oacute;stico</label>
-                        <textarea class="form-control" name="diagnostico" rows="2"></textarea>
-                        <div class="form-text">
-                            Se pide para poder cerrar la consulta.
-                        </div>
-                    </div>
-                    <div>
-                        <label class="form-label">
-                            Tratamiento realizado e indicaciones
-                        </label>
-                        <textarea class="form-control" name="plan_indicaciones" rows="4"
-                                  placeholder="QU&Eacute; SE HIZO HOY Y QU&Eacute; DEBE HACER EL PACIENTE EN CASA"></textarea>
                     </div>
                 </div>
             </div>
         </form>
+
     </div>
 
     <!-- ============ Columna de anexos ============ -->
     <div class="col-4">
         <?php /* Todo lo de esta columna necesita que la consulta ya
-                 exista: un documento tiene que colgar de algo. Mientras
-                 no se guarda, se ve pero avisa. */ ?>
-        <div class="alert alert-light border py-2 small d-flex gap-2" id="cnAvisoGuardar">
-            <i class="bi bi-info-circle" style="color:var(--morado-600)"></i>
-            <span>Guarda la consulta para poder agregarle recetas,
-                  documentos y notas.</span>
-        </div>
+                 exista: un documento tiene que colgar de algo.
 
+                 Antes se veia entera y con un aviso de texto arriba
+                 explicando que no servia todavia. El aviso se leia una
+                 vez y despues se volvia parte del decorado, asi que lo
+                 que pasaba era picar un boton, no ver nada, y volver a
+                 picarlo. Ahora la zona se difumina y no recibe clics:
+                 el estado se ve sin leer nada. */ ?>
+        <div class="zona-sin-consulta" id="cnAnexos">
         <?php if (Auth::puede('cajas.cargo')): ?>
         <?php /* Lo que salio en la consulta y hay que cobrar. Se
                  registra aqui, en caliente, porque si se deja para
@@ -350,21 +495,27 @@ $planes = Conexion::todos(
             </div>
         </div>
 
-        <!-- ---------- Documentos ---------- -->
-        <div class="card mb-3">
-            <div class="card-header">
-                <i class="bi bi-folder2-open me-2"></i>Documentos de la consulta
-            </div>
-            <div class="card-body py-2" id="cnDocumentos">
-                <div class="exp-vacio">Sin documentos.</div>
-            </div>
-        </div>
+        <?php /* Notas de evolucion.
 
-        <!-- ---------- Notas de evolucion ---------- -->
-        <div class="card">
+                 Vinieron a dar aqui, debajo de Recetas, en la columna
+                 de lo que se le AGREGA a la consulta: recetas, cargos,
+                 anexos y notas son todas cosas que se suman a lo
+                 clinico y cada una abre su propio dialogo. Una nota no
+                 es un campo del registro, es un anexo, y ponerla en la
+                 columna izquierda la hacia competir en ancho con el
+                 motivo y la exploracion para contener texto corto.
+
+                 Toma el ancho de esta columna, que es el que necesita:
+                 una nota es de dos renglones, no de diez. */ ?>
+        <?php /* Sin zona-sin-consulta propia: ya va dentro de cnAnexos,
+                 que es la zona. Anidar una dentro de otra difumina dos
+                 veces —el filtro y la opacidad se multiplican— y la
+                 tarjeta se veria mas apagada que sus vecinas sin que
+                 nada lo justifique. */ ?>
+        <div class="card borde-destacado mb-3">
             <div class="card-header d-flex align-items-center justify-content-between">
                 <span><i class="bi bi-journal-text me-2"></i>Notas de evoluci&oacute;n</span>
-                <button type="button" class="btn btn-sm btn-rosa" id="cnNuevaNota" disabled>
+                <button type="button" class="btn btn-sm btn-morado" id="cnNuevaNota" disabled>
                     <i class="bi bi-plus-lg"></i>
                 </button>
             </div>
@@ -372,12 +523,53 @@ $planes = Conexion::todos(
                 <div class="exp-vacio">
                     Sin notas. Sirven para dejar constancia de lo que se
                     observ&oacute; o se acord&oacute; y no cabe en los campos de
-                    arriba. No generan pendiente de digitalizaci&oacute;n.
+                    la izquierda. No generan pendiente de
+                    digitalizaci&oacute;n.
                 </div>
             </div>
         </div>
+
+        <?php /* Se fue la tarjeta "Documentos de la consulta".
+
+                 Era una lista de los cuatro tipos de papel que puede
+                 traer una consulta, cada uno con su cabecera y su
+                 "Sin archivos", y en la practica tres de los cuatro
+                 nunca se usaban desde aqui: las radiografias y las
+                 fotos entran por su hallazgo —que es lo que les da
+                 sentido clinico— y la receta trae su propio pendiente.
+                 Ocupaba media columna para decir "Sin archivos" cuatro
+                 veces.
+
+                 Pero hacia dos cosas de verdad, y las dos se
+                 conservan:
+
+                   1. Adjuntar el escaneo de la receta firmada. Eso
+                      bajo al renglon de su receta, que es donde se
+                      busca.
+                   2. Anexar un estudio externo o una interconsulta
+                      —papel que llega de fuera y no es hallazgo ni
+                      receta—. Eso es este enlace: un renglon en vez
+                      de una tarjeta, porque pasa pocas veces.
+
+                 Lo subido sigue viendose completo en el expediente del
+                 paciente, agrupado bajo su consulta. */ ?>
+        <div class="pie-anexo">
+            <button type="button" class="btn btn-sm btn-link p-0" id="cnOtroDocumento">
+                <i class="bi bi-paperclip"></i>
+                Anexar un estudio externo o interconsulta
+            </button>
+            <div class="cuenta-anexos d-none" id="cnCuentaDocumentos"></div>
+        </div>
+        </div><!-- /cnAnexos -->
     </div>
 </div>
+
+<?php /* Campo de archivo escondido.
+
+         Adjuntar el escaneo de un pendiente son dos clics: picar el
+         boton y elegir el archivo. Un modal para eso solo agregaria
+         pasos a algo que no tiene nada que decidir. */ ?>
+<input type="file" id="cnArchivoPendiente" class="d-none">
 
 <?php require __DIR__ . '/_modales_consulta.php'; ?>
 <?php require RUTA_VISTAS . '/consultas/_modal_procedimiento.php'; ?>

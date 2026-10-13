@@ -11,7 +11,7 @@ require_once __DIR__ . '/../_endpoint.php';
 endpoint('consultas.crear');
 
 $idConsulta = paramInt('id_consulta');
-$texto      = limpiarEspacios(paramMayus('texto'));
+$texto      = paramTexto('texto');
 
 if (!$idConsulta) {
     Respuesta::error('Falta la consulta.');

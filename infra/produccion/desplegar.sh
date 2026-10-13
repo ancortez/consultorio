@@ -75,18 +75,42 @@ VERSION_AHORA="$(grep -oP "APP_VERSION', '\K[^']+" config/config.php 2>/dev/null
 # 3. Cambios de base de datos
 # ---------------------------------------------------------------------
 # Los .sql de db/ solo corren cuando la base nace vacia. En un servidor
-# con datos reales nunca se disparan, asi que un cambio de esquema hay
-# que aplicarlo a mano. Se avisa en vez de intentar adivinar: aplicar
-# un ALTER equivocado sobre datos de pacientes es peor que no aplicarlo.
-if [[ -d .git ]] && git diff --name-only HEAD@{1} HEAD 2>/dev/null | grep -q '^db/'; then
-    echo
-    aviso "${NEGRITA}Cambiaron archivos de db/.${FIN}"
-    aviso "Los .sql NO se aplican solos sobre una base con datos."
-    aviso "Revisa que cambio y aplicalo a mano por phpMyAdmin:"
-    git diff --name-only HEAD@{1} HEAD | grep '^db/' | sed 's/^/        /'
-    echo
-    read -rp "    ¿Continuar con el despliegue? [s/N] " r
-    [[ ${r,,} == s ]] || exit 1
+# con datos reales nunca se disparan, asi que todo cambio de estructura
+# posterior entra por db/migraciones/ y lo aplica migrar.sh.
+#
+# Antes esto solo avisaba y mandaba a aplicar el cambio a mano por
+# phpMyAdmin. Eso funciona exactamente hasta la primera vez que alguien
+# se salta el aviso, y entonces el sistema corre contra una base que no
+# tiene las columnas que el codigo nuevo espera.
+paso "Poniendo la base al dia"
+if [[ -x "$AQUI/migrar.sh" ]]; then
+    "$AQUI/migrar.sh" --ver
+
+    if ! "$AQUI/migrar.sh"; then
+        echo
+        aviso "Las migraciones no terminaron."
+        aviso "El codigo nuevo puede esperar columnas que la base no tiene."
+        echo
+        read -rp "    ¿Continuar de todas formas? [s/N] " r
+        [[ ${r,,} == s ]] || exit 1
+    fi
+else
+    aviso "No encontre migrar.sh. Revisa los cambios de db/ a mano."
+fi
+
+# Un cambio en 01_schema.sql sin migracion que lo acompanie es un
+# descuido tipico: funciona en una base nueva y no en la del servidor.
+if [[ -d .git ]] \
+   && git diff --name-only HEAD@{1} HEAD 2>/dev/null | grep -q '^db/0[123]_'; then
+    if ! git diff --name-only HEAD@{1} HEAD | grep -q '^db/migraciones/'; then
+        echo
+        aviso "${NEGRITA}Cambio el esquema pero no llego ninguna migracion.${FIN}"
+        aviso "Una base nueva tendria el cambio; esta no. Revisa:"
+        git diff --name-only HEAD@{1} HEAD | grep '^db/' | sed 's/^/        /'
+        echo
+        read -rp "    ¿Continuar? [s/N] " r
+        [[ ${r,,} == s ]] || exit 1
+    fi
 fi
 
 # ---------------------------------------------------------------------
@@ -116,6 +140,35 @@ done
 
 if [[ $CODIGO == 200 ]]; then
     ok "https://$DOMINIO responde bien"
+
+    # ----------------------------------------------------------------
+    # Las fotos de iPhone
+    # ----------------------------------------------------------------
+    # Esto existe por el 13 de octubre de 2026. Las .heic se dejaban
+    # subir, la conversion fallaba y el archivo se guardaba tal cual: el
+    # expediente quedo con fotos de hallazgos que no se ven en ningun
+    # lado. La causa de fondo resulto ser que la imagen de PHP no se
+    # habia reconstruido, y nada lo decia: la pantalla abria bien y el
+    # fallo aparecia dias despues, en otro sitio.
+    #
+    # Levantar el sistema y preguntar si responde no basta. Si una pieza
+    # del contenedor falta, el momento de enterarse es ahora —con el
+    # despliegue recien hecho y alguien mirando— y no la semana que
+    # viene con un paciente enfrente.
+    HEIC="$(docker exec consultorio_app php -r '
+        require "/var/www/html/includes/core/bootstrap.php";
+        $como = null;
+        $p = Imagen::porQueNoConvierteHeic($como);
+        echo $p === null ? "ok|" . $como : "mal|" . $p;
+    ' 2>/dev/null || echo 'mal|no se pudo preguntar')"
+
+    if [[ ${HEIC%%|*} == ok ]]; then
+        ok "fotos de iPhone: se convierten (${HEIC#*|})"
+    else
+        aviso "las fotos .heic NO se pueden convertir: ${HEIC#*|}"
+        aviso "se van a RECHAZAR al subirlas, a proposito: guardarlas sin"
+        aviso "convertir deja fotos que nadie puede ver despues."
+    fi
 else
     echo
     morir "El sistema responde $CODIGO. Revisa con:

@@ -81,9 +81,25 @@ $idExpediente = paramInt('paciente');
                     <div class="card-header d-flex align-items-center justify-content-between">
                         <span><i class="bi bi-person-vcard me-2"></i>
                               <b id="cbPacienteNombre"></b></span>
-                        <a class="btn btn-sm btn-light" id="cbVerEstado" href="#">
-                            <i class="bi bi-file-earmark-text me-1"></i> Estado de cuenta
-                        </a>
+                        <span class="d-flex gap-2">
+                            <?php /* Las fichas ya cobradas, a mano.
+
+                                     Es la respuesta a "ya le pague eso" en el
+                                     mostrador. Antes habia que imprimir el
+                                     estado de cuenta completo o ir a buscar el
+                                     cobro en el corte del dia en que se hizo,
+                                     con el tutor esperando. */ ?>
+                            <button type="button" class="btn btn-sm btn-light"
+                                    id="cbVerFichas">
+                                <i class="bi bi-receipt me-1"></i>
+                                Fichas pagadas
+                                <span class="badge rounded-pill text-bg-light d-none"
+                                      id="cbCuantasFichas"></span>
+                            </button>
+                            <a class="btn btn-sm btn-light" id="cbVerEstado" href="#">
+                                <i class="bi bi-file-earmark-text me-1"></i> Estado de cuenta
+                            </a>
+                        </span>
                     </div>
 
                     <div class="card-body pb-2">

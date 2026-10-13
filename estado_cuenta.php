@@ -32,6 +32,38 @@ if ($paciente === null) {
 }
 
 $cuenta  = Cargos::estadoDeCuenta($idExpediente);
+
+/*
+   El avance de cada plan que todavia esta en marcha.
+
+   Aqui es donde se revisa a fondo cuando hay dudas, asi que van los
+   cuatro numeros completos y no solo el anticipo. Los planes
+   cancelados y los terminados se quedan fuera: lo que se mira en este
+   papel es lo que esta pendiente, y una lista con los tratamientos de
+   hace tres anios entierra lo que importa.
+*/
+$planesEnMarcha = Conexion::todos(
+    'SELECT pt.id_plan_tratamiento, pt.folio, pt.descripcion,
+            ep.nombre_estado
+       FROM plan_tratamiento pt
+       JOIN estado_plan ep ON ep.id_estado_plan = pt.id_estado_plan
+      WHERE pt.id_registro_paciente = :r
+        AND pt.id_estado_plan IN (1, 2, 3)
+      ORDER BY pt.fecha DESC',
+    [':r' => $idExpediente]
+);
+
+$avances = [];
+foreach ($planesEnMarcha as $pl) {
+    $a = Cargos::avancePlan((int) $pl['id_plan_tratamiento']);
+    // Solo los que tienen algo que contar: un plan recien propuesto,
+    // sin dinero ni trabajo, no aporta nada a este papel.
+    if ($a && ($a['anticipado'] > 0.009 || $a['realizado'] > 0.009)) {
+        $avances[] = $a + ['folio' => $pl['folio'],
+                           'descripcion' => $pl['descripcion'],
+                           'nombre_estado' => $pl['nombre_estado']];
+    }
+}
 $resumen = $cuenta['resumen'];
 
 $tutor = Conexion::uno(
@@ -133,6 +165,18 @@ Bitacora::registrar('cajas', 'IMPRIME', 'estado_cuenta', (string) $idExpediente)
                vertical-align: top; }
     table tbody tr:nth-child(even) { background: #faf6fb; }
     table .der { text-align: right; }
+
+    /* El renglon secundario de una celda: la descripcion del plan, su
+       estatus, el aviso de que se excedio. Gris y chico para que no
+       compita con las cifras, que es lo que se viene a leer. */
+    table .chico {
+        font-size: 7.5pt; color: #8a7a90; margin-top: 1px;
+    }
+
+    /* El avance lleva un filete arriba: separa visualmente "como va
+       cada tratamiento" de la lista de cargos sueltos que viene
+       despues, que son dos lecturas distintas. */
+    .avance-planes { margin-bottom: 14px; }
     table tfoot td { font-weight: 700; border-top: 2px solid var(--morado);
                      border-bottom: 0; padding-top: .18cm; }
 
@@ -181,10 +225,9 @@ Bitacora::registrar('cajas', 'IMPRIME', 'estado_cuenta', (string) $idExpediente)
 
 <div class="barra">
     <button class="principal" onclick="window.print()">Imprimir o guardar como PDF</button>
-    <a class="secundario"
-       href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= $idExpediente ?>">
-        Volver al expediente
-    </a>
+    <?php $volverA = URL_BASE . '/index.php?modulo=paciente&vista=detalle_paciente&id='
+                     . $idExpediente; ?>
+    <?php require __DIR__ . '/includes/_boton_cerrar.php'; ?>
 </div>
 
 <div class="hoja">
@@ -239,7 +282,72 @@ Bitacora::registrar('cajas', 'IMPRIME', 'estado_cuenta', (string) $idExpediente)
                 <?= e(money($resumen['saldo'] ?? 0)) ?>
             </span>
         </div>
+
+        <?php /* El saldo a favor solo sale cuando lo hay.
+
+                 Antes no salia nunca: v_paciente_saldo suma cargos, y
+                 el dinero que entro sin encontrar cargo donde caer no
+                 aparece en ninguna de sus columnas. Un paciente con
+                 anticipo veia su estado de cuenta en ceros, que es
+                 exactamente el saldo que nadie debe poder perder de
+                 vista. */ ?>
+        <?php if ((float) ($resumen['a_favor'] ?? 0) > 0.009): ?>
+        <div class="caja" style="border-color:#2e9e6b">
+            <span class="et">A favor</span>
+            <span class="va" style="color:#2e9e6b">
+                <?= e(money($resumen['a_favor'])) ?>
+            </span>
+        </div>
+        <?php endif; ?>
     </div>
+
+    <?php /* ============ Avance de los tratamientos ============ */ ?>
+    <?php /* Es la respuesta a "¿cuanto llevo pagado de mi ortodoncia?".
+
+             Sin esto, el estado de cuenta solo sabia decir el saldo
+             global del paciente, que mezcla el tratamiento largo con la
+             limpieza de la semana pasada. Y lo que se discute en el
+             mostrador casi siempre es un plan concreto. */ ?>
+    <?php if ($avances): ?>
+    <h2>Avance de los tratamientos</h2>
+    <table class="avance-planes">
+        <thead><tr>
+            <th>Plan</th>
+            <th class="der">Total</th>
+            <th class="der">Anticipado</th>
+            <th class="der">Ya realizado</th>
+            <th class="der">Por cobrar</th>
+            <th class="der">Falta por hacer</th>
+        </tr></thead>
+        <tbody>
+        <?php foreach ($avances as $a): ?>
+            <tr>
+                <td>
+                    <b><?= e($a['folio']) ?></b>
+                    <?php if ($a['descripcion']): ?>
+                        <div class="chico"><?= e($a['descripcion']) ?></div>
+                    <?php endif; ?>
+                    <div class="chico"><?= e($a['nombre_estado']) ?></div>
+                </td>
+                <td class="der"><?= e(money($a['total'])) ?></td>
+                <td class="der"><?= $a['anticipado'] > 0.009
+                    ? e(money($a['anticipado'])) : '—' ?></td>
+                <td class="der"><?= e(money($a['realizado'])) ?></td>
+                <td class="der"><b><?= e(money($a['por_cobrar'])) ?></b></td>
+                <td class="der">
+                    <?= e(money($a['resta'])) ?>
+                    <?php /* Si se hizo mas de lo pactado se dice, en vez
+                             de esconderlo detras de un cero que parece
+                             un tratamiento terminado al centavo. */ ?>
+                    <?php if ($a['excedido']): ?>
+                        <div class="chico">se excedio lo pactado</div>
+                    <?php endif; ?>
+                </td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+    <?php endif; ?>
 
     <h2>Cargos</h2>
     <table>

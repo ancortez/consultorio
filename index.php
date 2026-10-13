@@ -41,6 +41,19 @@ $rutas = [
         'permiso' => 'paciente.ver',
         'titulo'  => 'Detalle del paciente',
     ],
+    // La historia y el expediente salieron de las pestanias del detalle:
+    // las dos necesitan el ancho completo y no caben en un tercio de
+    // pantalla.
+    'paciente/historia_clinica' => [
+        'archivo' => 'paciente/historia_clinica.php',
+        'permiso' => 'paciente.ver',
+        'titulo'  => 'Historia clinica',
+    ],
+    'paciente/expediente' => [
+        'archivo' => 'paciente/expediente.php',
+        'permiso' => 'paciente.ver',
+        'titulo'  => 'Expediente electronico',
+    ],
     'consultas/agenda' => [
         'archivo' => 'consultas/agenda.php',
         'permiso' => 'consultas.ver',
@@ -122,7 +135,7 @@ $rutas = [
         'titulo'  => 'Apariencia',
     ],
     'configuracion/tarifas' => [
-        'archivo' => 'en_construccion.php',
+        'archivo' => 'configuracion/tarifas.php',
         'permiso' => 'config.tarifas',
         'titulo'  => 'Tarifario',
     ],
@@ -185,10 +198,50 @@ echo Tema::estilos();
 
 <main class="container-fluid px-4 py-4">
     <?php
-    if (is_file($archivoVista)) {
-        require $archivoVista;
-    } else {
+    /*
+       La vista va envuelta por una razon concreta.
+
+       Cuando el codigo de una version nueva llega sin su migracion, la
+       primera pantalla que lo usa revienta con un PDOException crudo:
+       un "Unknown column 'motivo_cancelacion'", la ruta de
+       conexion.php y un rastro de pila. Eso no dice que hacer, y
+       aparece dentro del modulo de planes, asi que se lee como "se
+       rompio el modulo de planes" y no como "falta migrar".
+
+       Aqui solo se TRADUCE ese caso. Cualquier otro error se vuelve a
+       lanzar tal cual: disfrazar un fallo de verdad de migracion
+       pendiente haria correr migrar.sh, no pasaria nada, y el rastro se
+       enfriaria.
+    */
+    if (!is_file($archivoVista)) {
         echo '<div class="alert alert-danger">La vista solicitada no existe.</div>';
+    } else {
+        try {
+            require $archivoVista;
+        } catch (PDOException $e) {
+            $aviso = Esquema::avisoDeFaltaMigrar($e);
+            if ($aviso === null) {
+                throw $e;
+            }
+
+            error_log('[ESQUEMA] ' . $e->getMessage());
+            ?>
+            <div class="alert alert-warning">
+                <h5 class="mb-2">
+                    <i class="bi bi-database-exclamation me-2"></i>
+                    La base de datos no est&aacute; al d&iacute;a
+                </h5>
+                <p class="mb-2"><?= $aviso ?></p>
+                <p class="mb-1">Desde la carpeta del proyecto:</p>
+                <pre class="mb-2 p-2 bg-white border rounded"><?= e(Esquema::comoArreglarlo()) ?></pre>
+                <p class="mb-0" style="font-size:12.5px">
+                    O corre el <b>actualizar-local.command</b>, que hace
+                    eso y lo dem&aacute;s. Las otras pantallas siguen
+                    funcionando mientras tanto.
+                </p>
+            </div>
+            <?php
+        }
     }
     ?>
 </main>
@@ -213,8 +266,15 @@ if (is_file($jsModulo)):
 ?>
 <script src="<?= URL_BASE ?>/assets/js/<?= e($modulo) ?>.js?v=<?= e(APP_VERSION) ?>"></script>
 <?php endif; ?>
-<?php if ($modulo === 'paciente' && $vista === 'detalle_paciente'): ?>
+<?php /* Cada pantalla carga solo lo suyo. El detalle necesita
+         expediente.js por la foto del paciente y por los pendientes de
+         la tarjeta; la historia y el expediente, lo propio. */ ?>
+<?php if ($modulo === 'paciente'
+          && in_array($vista, ['detalle_paciente', 'expediente'], true)): ?>
 <script src="<?= URL_BASE ?>/assets/js/expediente.js?v=<?= e(APP_VERSION) ?>"></script>
+<?php endif; ?>
+<?php if ($modulo === 'paciente'
+          && in_array($vista, ['detalle_paciente', 'historia_clinica'], true)): ?>
 <script src="<?= URL_BASE ?>/assets/js/historia.js?v=<?= e(APP_VERSION) ?>"></script>
 <?php endif; ?>
 </body>

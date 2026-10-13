@@ -307,6 +307,132 @@ final class Cargos
         ) ?? ['cargos' => 0, 'cargado' => 0, 'pagado' => 0, 'saldo' => 0,
               'cargos_abiertos' => 0, 'adeudo_mas_antiguo' => null];
 
+        /*
+           El saldo A FAVOR se calcula aqui, porque la vista no lo tiene.
+
+           v_paciente_saldo suma CARGOS: lo cargado, lo que de eso se
+           aplico, y lo que falta. El dinero que entro y todavia no
+           encontro cargo donde caer —un anticipo, un cobro de mas— no
+           aparece en ninguna de esas tres columnas.
+           
+           El resultado era que un paciente con dinero a favor veia su
+           estado de cuenta en ceros: ni debe ni le deben, segun el
+           papel. Y a favor del paciente es justo el saldo que nadie
+           debe poder "perder de vista".
+
+           Sale de restar lo aplicado a lo cobrado. Los pagos
+           cancelados no cuentan: su dinero se devolvio.
+        */
+        $cobrado = 0.0;
+        foreach ($pagos as $pg) {
+            if ((int) $pg['estatus'] === 1) {
+                $cobrado += (float) $pg['monto'];
+            }
+        }
+
+        $resumen['cobrado']  = round($cobrado, 2);
+        $resumen['a_favor']  = round(
+            max(0, $cobrado - (float) ($resumen['pagado'] ?? 0)), 2);
+
         return ['cargos' => $cargos, 'pagos' => $pagos, 'resumen' => $resumen];
+    }
+
+    /**
+     * Como va un plan de tratamiento: lo pactado, lo hecho y lo pagado.
+     *
+     * Lo pidio la doctora con un caso concreto: el paciente adelanta un
+     * porcentaje al aceptar el plan, vuelve tres semanas despues, y en
+     * el mostrador nadie se acuerda de cuanto dejo. Se discute, se
+     * revisa a mano, y a veces se le cobra de mas.
+     *
+     * Son CUATRO numeros y cada uno contesta una pregunta distinta. Que
+     * parezcan parecidos es justo lo que hace que se confundan:
+     *
+     *   total       lo que se pacto por todo el tratamiento
+     *   anticipado  dinero de este plan que todavia no se aplico a nada
+     *   realizado   lo que ya se hizo, en dinero (la suma de sus cargos)
+     *   cubierto    de lo realizado, cuanto ya quedo pagado
+     *
+     * Y de ahi salen los dos que se usan en el mostrador:
+     *
+     *   por_cobrar  lo que hay que cobrar HOY, ya descontando el
+     *               anticipo disponible
+     *   resta       lo que falta por hacer del tratamiento, que se
+     *               cobrara mas adelante
+     *
+     * Por que el anticipo no es simplemente "saldo a favor": el saldo a
+     * favor es del PACIENTE y puede venir de cualquier lado —un cobro
+     * de mas, una cita cancelada—. El anticipo esta ligado a un plan
+     * concreto, y eso cambia la conversacion: "dejo dos mil a cuenta de
+     * su ortodoncia" no es lo mismo que "le sobran dos mil".
+     */
+    public static function avancePlan(int $idPlan): array
+    {
+        $plan = Conexion::uno(
+            'SELECT id_plan_tratamiento, total, id_registro_paciente
+               FROM plan_tratamiento
+              WHERE id_plan_tratamiento = :p',
+            [':p' => $idPlan]
+        );
+
+        if ($plan === null) {
+            return [];
+        }
+
+        // Lo que ya se hizo y lo que de eso se cubrio. Sale de la vista
+        // de saldos, que es la misma que usa el estado de cuenta: dos
+        // cuentas separadas del mismo numero acaban diciendo cosas
+        // distintas.
+        $cargos = Conexion::uno(
+            'SELECT COALESCE(SUM(importe), 0)  AS realizado,
+                    COALESCE(SUM(aplicado), 0) AS cubierto
+               FROM v_cargo_saldo
+              WHERE id_plan_tratamiento = :p',
+            [':p' => $idPlan]
+        ) ?? ['realizado' => 0, 'cubierto' => 0];
+
+        // Todo el dinero que entro a cuenta de ESTE plan.
+        $cobrado = (float) Conexion::valor(
+            'SELECT COALESCE(SUM(monto), 0) FROM pago
+              WHERE id_plan_tratamiento = :p AND estatus = 1',
+            [':p' => $idPlan]
+        );
+
+        $realizado = (float) $cargos['realizado'];
+        $cubierto  = (float) $cargos['cubierto'];
+        $total     = (float) $plan['total'];
+
+        /*
+           El anticipo es lo cobrado del plan que todavia no se aplico.
+
+           No se guarda en ninguna columna a proposito: se deduce. Una
+           columna "anticipo" habria que mantenerla al cobrar, al
+           cancelar un pago y al aplicar dinero a un cargo, y a la
+           tercera se desincroniza con los pagos de verdad. Deducirlo no
+           se puede desincronizar.
+        */
+        $anticipo = round(max(0, $cobrado - $cubierto), 2);
+
+        // Lo que falta cobrar de lo YA HECHO, despues de echarle mano
+        // al anticipo. Es el numero del mostrador.
+        $pendienteDeLoHecho = max(0, $realizado - $cubierto);
+        $porCobrar = round(max(0, $pendienteDeLoHecho - $anticipo), 2);
+
+        return [
+            'id_plan_tratamiento' => (int) $plan['id_plan_tratamiento'],
+            'total'      => round($total, 2),
+            'anticipado' => $anticipo,
+            'realizado'  => round($realizado, 2),
+            'cubierto'   => round($cubierto, 2),
+            'por_cobrar' => $porCobrar,
+            // Lo que falta por HACER del tratamiento. Puede salir
+            // negativo si se agregaron procedimientos despues de
+            // firmar: en ese caso no hay nada "por hacer" pendiente del
+            // pacto original, y decir -500 confundiria.
+            'resta'      => round(max(0, $total - $realizado), 2),
+            // Un plan donde ya se hizo mas de lo pactado merece decirlo
+            // en vez de esconderlo detras de un cero.
+            'excedido'   => $realizado > $total + 0.009,
+        ];
     }
 }

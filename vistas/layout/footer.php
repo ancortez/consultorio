@@ -33,6 +33,23 @@ $negocio = Conexion::uno(
     </div>
 
     <div class="d-flex align-items-center gap-2">
+        <?php /* La firma de quien lo hizo.
+
+                 El logotipo es la version para fondos oscuros, que es
+                 lo que es esta franja. Va antes del nombre del sistema
+                 y no al final del todo: al final queda pegado a la
+                 version y a la etiqueta de entorno, que es ruido
+                 tecnico, y la firma no es ruido tecnico.
+
+                 Enlaza al sitio en una pestania aparte: quien lo pica
+                 esta curioseando, no trabajando, y no hay por que
+                 sacarlo del expediente que tiene abierto. */ ?>
+        <a class="firma-desarrollador" target="_blank" rel="noopener"
+           href="https://nierika.dev" title="Desarrollado por Nierika Development">
+            <img src="<?= URL_BASE ?>/assets/img/logo_horizontal_blanco.svg"
+                 alt="Nierika Development">
+        </a>
+        <span class="separador">|</span>
         <span><?= e(parametro('nombre_sistema', APP_NOMBRE)) ?></span>
         <span class="separador">|</span>
         <?php /* La version sale del codigo, nunca de la base: si se
