@@ -368,70 +368,41 @@ print('  ok   el instalador anuncia su version')
 # quien es el archivo sino de que nadie mas puede leerlo.
 subir = (raiz / 'subir-al-servidor.command').read_text(encoding='utf-8')
 
-if '--chmod=' not in subir:
-    fallos.append('subir-al-servidor no normaliza permisos: el codigo llegaria '
-                  'en 600 y Apache no podria leerlo')
-else:
-    # No basta con que exista --chmod: hay que leer los numeros. Un
-    # "--chmod=D700,F600" normaliza, pero normaliza a lo mismo que
-    # causaba el problema. Lo que importa son los dos ultimos digitos
-    # (grupo y otros): si alguno es 0, Apache sigue sin poder leer.
-    # Se lee el argumento --chmod en si, no el archivo entero: el
-    # comentario que lo explica arriba tambien menciona D755 y F644, y
-    # daria por bueno un --chmod que no los trae.
-    argumento = re.search(r'--chmod=(\S+)', sin_comentarios(subir))
-    modos = dict(re.findall(r'([DF])(\d{3})', argumento.group(1) if argumento else ''))
-    for letra, quien in (('D', 'carpetas'), ('F', 'archivos')):
-        modo = modos.get(letra)
-        if modo is None:
-            fallos.append(f'--chmod no dice el modo de las {quien}')
-            continue
-        # Bit de lectura = 4. Carpetas necesitan ademas entrar (1).
-        falta = 5 if letra == 'D' else 4
-        for i, etiqueta in ((1, 'grupo'), (2, 'otros')):
-            if int(modo[i]) & falta != falta:
-                fallos.append(f'--chmod deja las {quien} en {modo}: '
-                              f'"{etiqueta}" no puede leerlas y Apache '
-                              'corre como otro usuario')
-
-# --chmod deja los guiones sin permiso de ejecucion: hay que
-# devolverselo. Puede hacerlo el guion mismo o —mejor— delegarlo en
-# permisos.sh del lado del servidor, que es donde vive esa receta.
-# Antes esto se hacia aqui a medias: devolvia el +x y se olvidaba de
-# dejar storage/ escribible.
-if '--chmod=' in subir and 'chmod +x' not in subir and 'permisos.sh' not in subir:
-    fallos.append('subir-al-servidor normaliza permisos pero no devuelve '
-                  'el +x a los guiones')
-
-# La segunda red: arreglar lo que ya este mal en el servidor, sin
-# importar como llego.
+# Quien normaliza es permisos.sh, del lado del servidor.
 #
-# La receta vivia copiada dentro de instalar-servidor.sh y ahora esta
-# en permisos.sh, porque hay DOS caminos que la necesitan: la
-# instalacion desde cero y el enlace con git de una carpeta que se
-# subio a mano. Dos copias de la misma receta es una receta que un dia
-# dice dos cosas distintas, asi que lo que se comprueba es el guion
-# unico... y que los dos caminos lo llamen. Sin lo segundo, el guion
-# podria estar perfecto y no correrlo nadie.
+# Lo intente con --chmod=D755,F644 en el rsync y fallo en la Mac:
+# openrsync tiene --chmod pero no entiende los prefijos D y F, que son
+# de rsync 3. Detectar el formato con fiabilidad pedia una prueba en
+# seco, y no valia la pena una pieza fragil para ahorrar unos segundos
+# de archivos a medio llegar.
+#
+# Lo que SI tiene que pasar es que, despues de subir, alguien deje los
+# permisos bien. Sin eso el codigo llega en 600 y Apache —que corre
+# como www-data y no es el dueno— no puede abrir ni index.php.
+if 'permisos.sh' not in sin_comentarios(subir):
+    fallos.append('subir-al-servidor no normaliza permisos despues de subir: '
+                  'el codigo llegaria en 600 y Apache no podria leerlo')
+
+# Y los modos de esa receta son los que de verdad importan. Un 700/600
+# normaliza... a lo mismo que causaba el problema.
 permisos = raiz/'infra/produccion/permisos.sh'
 if not permisos.exists():
     fallos.append('falta infra/produccion/permisos.sh')
-    perm = ''
-else:
-    perm = permisos.read_text(encoding='utf-8')
+perm = permisos.read_text(encoding='utf-8') if permisos.exists() else ''
+for patron, quien, falta in (
+        (r'-type d .*-exec chmod (\d{3})', 'las carpetas', 5),  # leer + entrar
+        (r'-type f .*-exec chmod (\d{3})', 'los archivos', 4)):  # leer
+    m = re.search(patron, perm)
+    if m is None:
+        fallos.append(f'permisos.sh no fija el modo de {quien}')
+        continue
+    modo = m.group(1)
+    for i, etiqueta in ((1, 'grupo'), (2, 'otros')):
+        if int(modo[i]) & falta != falta:
+            fallos.append(f'permisos.sh deja {quien} en {modo}: '
+                          f'"{etiqueta}" no puede leerlos y Apache corre '
+                          'como otro usuario')
 
-if not re.search(r'-type f .*-exec chmod 6\d\d', perm):
-    fallos.append('permisos.sh no normaliza los permisos de los archivos')
-if not re.search(r'-type d .*-exec chmod 7\d\d', perm):
-    fallos.append('permisos.sh no normaliza los permisos de las carpetas')
-
-for guion, comoSeLlama in [('instalar-servidor.sh', instala),
-                           ('enlazar-git.sh',
-                            (raiz/'infra/produccion/enlazar-git.sh').read_text(encoding='utf-8')
-                            if (raiz/'infra/produccion/enlazar-git.sh').exists() else '')]:
-    if 'permisos.sh' not in comoSeLlama:
-        fallos.append(f'{guion} no llama a permisos.sh: deja el servidor '
-                      'con permisos distintos segun por donde se entre')
 print('  ok   el codigo queda legible para Apache (al subir y al instalar)')
 
 # ---------- El guion de enlace tiene que LLEGAR al servidor ----------

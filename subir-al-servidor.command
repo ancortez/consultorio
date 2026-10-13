@@ -118,13 +118,20 @@ else
     OPCIONES+=(--progress)
 fi
 
-# --chmod normaliza los permisos AL SUBIR. Si esta version no lo
-# entiende no pasa nada: permisos.sh lo arregla del otro lado, y de
-# hecho es quien manda. Esto solo ahorra un momento con los archivos
-# a medio llegar.
-if grep -q -- '--chmod' <<<"$AYUDA"; then
-    OPCIONES+=(--chmod=D755,F644)
-fi
+# Aqui NO se normalizan los permisos. Los deja permisos.sh, del otro
+# lado, justo despues de subir.
+#
+# Lo intente con --chmod=D755,F644 y fallo en la Mac de Angel:
+# openrsync SI tiene --chmod —sale en su ayuda— pero no entiende los
+# prefijos D y F, que son sintaxis de rsync 3. Mi deteccion preguntaba
+# si la OPCION existia; lo que habia que preguntar es si entiende el
+# FORMATO. Es el mismo error del resto del dia: comprobar que algo
+# esta en vez de comprobar que sirve.
+#
+# Se podria afinar la deteccion con una prueba en seco, pero no vale
+# la pena: permisos.sh corre siempre despues y es quien manda. Esto
+# solo habria ahorrado unos segundos de archivos a medio llegar, y a
+# cambio dejaba una pieza fragil que ya fallo una vez.
 
 rsync "${OPCIONES[@]}" $PROBAR "${EXCLUIR[@]}" \
       ./ "$SERVIDOR:$DESTINO/" \
