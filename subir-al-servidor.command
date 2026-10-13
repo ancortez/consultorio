@@ -85,8 +85,7 @@ EXCLUIR=(
 
 paso "Subiendo"
 
-# --chmod normaliza los permisos AL SUBIR, y es la linea que evita el
-# error mas desconcertante de todos.
+# Sobre los permisos, que es el error mas desconcertante de todos.
 #
 # En macOS los archivos del proyecto suelen quedar en 600 (solo el
 # dueno lee). "rsync -a" los sube tal cual, porque -a incluye -p, que
@@ -99,33 +98,73 @@ paso "Subiendo"
 #
 # --delete queda FUERA a proposito: borraria en el servidor cosas que
 # no estan aqui, y ahi viven los respaldos y los .env.
-rsync -az --info=progress2 --chmod=D755,F644 $PROBAR "${EXCLUIR[@]}" \
+# El rsync de macOS no es el mismo rsync de todo el mundo.
+#
+# Desde macOS 15, Apple reemplazo rsync por openrsync, y antes de eso
+# traia un rsync 2.6.9 de 2006. Ninguno de los dos entiende
+# --info=progress2, que es de rsync 3. El guion moria con un volcado de
+# la ayuda de rsync y un mensaje mio que decia "¿la direccion del
+# servidor es correcta?": la pista apuntaba al sitio equivocado.
+#
+# Asi que en vez de dar por hecho lo que soporta, se le pregunta. Las
+# dos opciones son comodidades —ver el avance, ajustar permisos— y
+# ninguna vale romper la subida.
+AYUDA="$(rsync --help 2>&1 || true)"
+OPCIONES=(-az)
+
+if grep -q -- '--info=' <<<"$AYUDA"; then
+    OPCIONES+=(--info=progress2)
+else
+    OPCIONES+=(--progress)
+fi
+
+# --chmod normaliza los permisos AL SUBIR. Si esta version no lo
+# entiende no pasa nada: permisos.sh lo arregla del otro lado, y de
+# hecho es quien manda. Esto solo ahorra un momento con los archivos
+# a medio llegar.
+if grep -q -- '--chmod' <<<"$AYUDA"; then
+    OPCIONES+=(--chmod=D755,F644)
+fi
+
+rsync "${OPCIONES[@]}" $PROBAR "${EXCLUIR[@]}" \
       ./ "$SERVIDOR:$DESTINO/" \
-    || morir "No se pudo subir. ¿La direccion del servidor es correcta?
-         Si cambiaste de servidor, borra el archivo .servidor y vuelve a correr esto."
+    || morir "No se pudo subir.
+         Si el error de arriba habla de una opcion que rsync no conoce,
+         avisame con el texto: es cosa del guion, no tuya.
+         Si habla de conexion, revisa la direccion del servidor; si
+         cambiaste de servidor, borra el archivo .servidor."
 
 [[ -n $PROBAR ]] && { echo; ok "Eso es lo que se subiria."; exit 0; }
 
 ok "archivos subidos"
 
-# --chmod dejo todo en 644, incluidos los guiones. Se les devuelve el
-# permiso de ejecucion.
-ssh "$SERVIDOR" "chmod +x $DESTINO/infra/produccion/*.sh \
-                          $DESTINO/*.command 2>/dev/null; \
-                 chmod 600 $DESTINO/infra/produccion/.env \
-                           $DESTINO/infra/minio/.env 2>/dev/null; true"
-ok "guiones ejecutables, .env protegidos"
+# Los permisos los deja permisos.sh, del lado del servidor.
+#
+# Antes esto repetia aqui media receta —el +x de los guiones y el 600
+# de los .env— y se olvidaba de la otra mitad. Peor: dependia de que el
+# --chmod del rsync hubiera funcionado, y acabamos de ver que ese
+# --chmod puede no existir siquiera. permisos.sh hace las dos mitades y
+# es el mismo que corren el instalador y el enlace con git.
+ssh "$SERVIDOR" "bash $DESTINO/infra/produccion/permisos.sh $DESTINO" \
+    2>/dev/null | sed 's/^/    /' \
+    || aviso "no se pudieron acomodar los permisos; correlos alla:
+         bash $DESTINO/infra/produccion/permisos.sh"
 
 # ---------------------------------------------------------------------
 # Comprobar que llego lo que tenia que llegar
 # ---------------------------------------------------------------------
 paso "Comprobando"
 
-VERSION_LOCAL="$(grep -oP 'VERSION_INSTALADOR="\K[^"]+' \
-    infra/produccion/instalar-servidor.sh 2>/dev/null || echo '?')"
+# sed y no "grep -oP": el grep de macOS es el de BSD y no tiene -P.
+# Esta linea corre en la Mac, asi que siempre daba '?' y el guion no
+# podia comparar versiones, que es justo para lo que existe.
+VERSION_LOCAL="$(sed -n 's/.*VERSION_INSTALADOR="\([^"]*\)".*/\1/p' \
+    infra/produccion/instalar-servidor.sh 2>/dev/null | head -1)"
+VERSION_LOCAL="${VERSION_LOCAL:-?}"
 
 VERSION_SERVIDOR="$(ssh "$SERVIDOR" \
-    "grep -oP 'VERSION_INSTALADOR=\"\K[^\"]+' $DESTINO/infra/produccion/instalar-servidor.sh 2>/dev/null || echo '?'")"
+    "sed -n 's/.*VERSION_INSTALADOR=\"\\([^\"]*\\)\".*/\\1/p' $DESTINO/infra/produccion/instalar-servidor.sh 2>/dev/null | head -1")"
+VERSION_SERVIDOR="${VERSION_SERVIDOR:-?}"
 
 if [[ $VERSION_LOCAL == "$VERSION_SERVIDOR" && $VERSION_LOCAL != '?' ]]; then
     ok "el instalador del servidor es la v$VERSION_SERVIDOR (la misma de aqui)"

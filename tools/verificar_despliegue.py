@@ -394,8 +394,12 @@ else:
                               f'"{etiqueta}" no puede leerlas y Apache '
                               'corre como otro usuario')
 
-# --chmod deja los guiones sin permiso de ejecucion: hay que devolverselo.
-if '--chmod=' in subir and 'chmod +x' not in subir:
+# --chmod deja los guiones sin permiso de ejecucion: hay que
+# devolverselo. Puede hacerlo el guion mismo o —mejor— delegarlo en
+# permisos.sh del lado del servidor, que es donde vive esa receta.
+# Antes esto se hacia aqui a medias: devolvia el +x y se olvidaba de
+# dejar storage/ escribible.
+if '--chmod=' in subir and 'chmod +x' not in subir and 'permisos.sh' not in subir:
     fallos.append('subir-al-servidor normaliza permisos pero no devuelve '
                   'el +x a los guiones')
 
@@ -452,6 +456,51 @@ for ruta, porque in [
         fallos.append(f'subir-al-servidor no comprueba que llegue {ruta}: '
                       + porque)
 print('  ok   los guiones del enlace viajan en la subida manual')
+
+# ---------- Los guiones que corren en la Mac hablan BSD ----------
+#
+# Los .command se ejecutan en la computadora de Angel, que es un macOS.
+# Ahi las herramientas son las de BSD y NO las de GNU, y la diferencia
+# no avisa: el guion muere con un volcado de la ayuda del programa y el
+# mensaje de error que se ve es el mio, que apunta a otra cosa.
+#
+# Paso con "rsync --info=progress2" —opcion de rsync 3, y macOS trae
+# openrsync—: el guion dijo "¿la direccion del servidor es correcta?"
+# cuando la direccion estaba perfecta. Y con "grep -oP", que en BSD no
+# existe, asi que la comparacion de versiones siempre daba '?' en
+# silencio.
+#
+# Los .sh de infra/produccion corren en el VPS (Linux, GNU) y ahi estas
+# opciones si valen: por eso la regla se aplica solo a los .command.
+TRAMPAS_BSD = [
+    (r'grep\s+-[a-zA-Z]*P\b', 'grep -P (no existe en BSD; usa sed)'),
+    (r'sed\s+-i\s+(?![\'"])', "sed -i sin sufijo (BSD pide sed -i '')"),
+    (r'\bdate\s+-d\b', 'date -d (BSD usa date -j -f)'),
+    (r'\bstat\s+-c\b', 'stat -c (BSD usa stat -f)'),
+    (r'\breadlink\s+-f\b', 'readlink -f (no existe en BSD)'),
+]
+
+for archivo in sorted(raiz.glob('*.command')):
+    texto = archivo.read_text(encoding='utf-8')
+    # Sin comentarios: las explicaciones de POR QUE no se usa algo
+    # nombran justamente eso, y si no se quitan la comprobacion se
+    # dispara contra el texto que documenta el arreglo.
+    codigo = re.sub(r'^\s*#.*$', '', texto, flags=re.M)
+    # Y sin lo que va dentro de un ssh: eso corre en el VPS, no aqui.
+    codigo = re.sub(r'ssh\s+"\$SERVIDOR"[^\n]*(\n[^\n]*\\)*[^\n]*', '', codigo)
+
+    for patron, queEs in TRAMPAS_BSD:
+        if re.search(patron, codigo):
+            fallos.append(f'{archivo.name} usa {queEs}: ese guion corre en '
+                          'la Mac y ahi las herramientas son las de BSD')
+
+# rsync 3 tiene opciones que el de macOS no. Si se usan, tiene que ser
+# despues de preguntarle a rsync si las entiende.
+subirCodigo = re.sub(r'^\s*#.*$', '', subir, flags=re.M)
+if '--info=' in subirCodigo and 'rsync --help' not in subirCodigo:
+    fallos.append('subir-al-servidor usa --info= sin comprobar antes si este '
+                  'rsync lo entiende: el de macOS no, y muere sin decir por que')
+print('  ok   los guiones de la Mac no usan herramientas de GNU')
 
 # storage/ es la unica carpeta donde la aplicacion escribe, y quien
 # escribe ahi es Apache: el dueno tiene que ser www-data (uid 33
