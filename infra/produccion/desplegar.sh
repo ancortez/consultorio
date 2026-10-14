@@ -31,12 +31,16 @@ morir() { echo "    ${ROJO}!!${FIN}   $*" >&2; exit 1; }
 
 cd "$RAIZ"
 
+# Antes de nada: que esto no sea la Mac de alguien.
+source "$AQUI/solo-en-el-servidor.sh"
+solo_en_el_servidor "$AQUI"
+
 # ---------------------------------------------------------------------
 # 1. Respaldo
 # ---------------------------------------------------------------------
 if [[ ${1:-} != --sin-respaldo ]]; then
     paso "Respaldando antes de tocar nada"
-    "$AQUI/respaldar.sh" | sed 's/^/    /'
+    bash "$AQUI/respaldar.sh" | sed 's/^/    /'
     ok "respaldo hecho"
 else
     aviso "Sin respaldo previo, por peticion."
@@ -83,10 +87,10 @@ VERSION_AHORA="$(grep -oP "APP_VERSION', '\K[^']+" config/config.php 2>/dev/null
 # se salta el aviso, y entonces el sistema corre contra una base que no
 # tiene las columnas que el codigo nuevo espera.
 paso "Poniendo la base al dia"
-if [[ -x "$AQUI/migrar.sh" ]]; then
-    "$AQUI/migrar.sh" --ver
+if [[ -f "$AQUI/migrar.sh" ]]; then
+    bash "$AQUI/migrar.sh" --ver
 
-    if ! "$AQUI/migrar.sh"; then
+    if ! bash "$AQUI/migrar.sh"; then
         echo
         aviso "Las migraciones no terminaron."
         aviso "El codigo nuevo puede esperar columnas que la base no tiene."

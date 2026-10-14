@@ -45,6 +45,10 @@ morir() { echo "    ${ROJO}!!${FIN}   $*" >&2; exit 1; }
 
 cd "$RAIZ"
 
+# Antes de nada: que esto no sea la Mac de alguien.
+source "$AQUI/solo-en-el-servidor.sh"
+solo_en_el_servidor "$AQUI"
+
 echo
 echo "${NEGRITA}  Enlazar $RAIZ con git${FIN}"
 echo "  ------------------------------------------"
@@ -69,8 +73,8 @@ fi
 # 1. Respaldo
 # ---------------------------------------------------------------------
 paso "Respaldando antes de tocar nada"
-if [[ -x "$AQUI/respaldar.sh" ]]; then
-    "$AQUI/respaldar.sh" | sed 's/^/    /' || aviso "el respaldo fallo"
+if [[ -f "$AQUI/respaldar.sh" ]]; then
+    bash "$AQUI/respaldar.sh" | sed 's/^/    /' || aviso "el respaldo fallo"
 else
     aviso "no encontre respaldar.sh"
 fi

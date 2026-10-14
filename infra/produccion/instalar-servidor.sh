@@ -514,13 +514,21 @@ ok "base armada: $TABLAS tablas y vistas"
 # Los archivos de db/ solo corren con la carpeta de datos vacia. Todo
 # cambio de estructura posterior vive en db/migraciones/ y se aplica
 # aqui, en cada instalacion y en cada actualizacion.
-if [[ -x "$DESTINO/infra/produccion/migrar.sh" ]]; then
+# -f y no -x, y "bash migrar.sh" y no "./migrar.sh".
+#
+# El bit de ejecutable no sobrevive a como llegan estos archivos
+# —rsync desde una Mac, un git clone con otro umask—, asi que el -x
+# daba falso y el paso se SALTABA en silencio: instalacion aparentemente
+# correcta, base sin migrar, y el fallo apareciendo dias despues en otra
+# pantalla. Y si hubiera entrado, el ./ habria muerto con "Permission
+# denied".
+if [[ -f "$DESTINO/infra/produccion/migrar.sh" ]]; then
     paso "Poniendo la base al dia"
-    if sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/produccion' && ./migrar.sh"; then
+    if sudo -u "$USUARIO" bash -c "cd '$DESTINO/infra/produccion' && bash migrar.sh"; then
         ok "migraciones aplicadas"
     else
         aviso "las migraciones no terminaron. El sistema puede quedar a medias."
-        aviso "Revisa con: cd $DESTINO/infra/produccion && ./migrar.sh --ver"
+        aviso "Revisa con: cd $DESTINO/infra/produccion && bash migrar.sh --ver"
     fi
 fi
 

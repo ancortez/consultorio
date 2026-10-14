@@ -473,6 +473,63 @@ if '--info=' in subirCodigo and 'rsync --help' not in subirCodigo:
                   'rsync lo entiende: el de macOS no, y muere sin decir por que')
 print('  ok   los guiones de la Mac no usan herramientas de GNU')
 
+# ---------- Los guiones de produccion no se corren en la Mac ----------
+#
+# desplegar.sh y enlazar-git.sh viven en la MISMA carpeta aqui y en el
+# servidor: el proyecto es el mismo, y nada en su nombre dice donde van.
+# Angel abrio la Terminal en su Mac, entro a infra/produccion y corrio
+# ./desplegar.sh — exactamente lo que dicen las instrucciones, pero sin
+# el ssh de antes.
+#
+# Lo que habria hecho: un git pull sobre su copia de trabajo y un
+# "docker compose -f docker-compose.produccion.yml up -d --build" en su
+# propia maquina. No toca los expedientes del servidor, pero levanta un
+# segundo sistema que se parece al bueno, y eso confunde durante horas.
+guardia = raiz/'infra/produccion/solo-en-el-servidor.sh'
+if not guardia.exists():
+    fallos.append('falta el guardia solo-en-el-servidor.sh')
+else:
+    g = guardia.read_text(encoding='utf-8')
+    # Se distingue por el .env de produccion: esta en .gitignore, nunca
+    # viaja, y por lo tanto solo existe alla.
+    # Sobre el CODIGO, no sobre el archivo entero: el comentario que
+    # explica por que se mira el .env tambien dice ".env", asi que la
+    # comprobacion pasaba con un guardia que ya no lo miraba. Cuarta vez
+    # hoy con esta misma trampa; por eso aqui se exige la condicion
+    # concreta y no la palabra suelta.
+    if not re.search(r'-f\s+"\$aqui/\.env"', sin_comentarios(g)):
+        fallos.append('el guardia no mira el .env de produccion, que es lo '
+                      'unico que de verdad distingue el servidor de la Mac')
+    if 'exit 1' not in g:
+        fallos.append('el guardia avisa pero no detiene')
+
+for nombre in ('desplegar.sh', 'enlazar-git.sh'):
+    texto = (raiz/'infra/produccion'/nombre).read_text(encoding='utf-8')
+    if 'solo_en_el_servidor' not in texto:
+        fallos.append(f'{nombre} se puede correr por error en la Mac')
+print('  ok   los guiones de produccion se niegan a correr en la Mac')
+
+# ---------- Un guion llama a otro con bash, no con ./ ----------
+#
+# El bit de ejecutable no sobrevive a como se sincronizan estos
+# archivos. Invocar un guion hermano por su ruta a secas da "Permission
+# denied", que es un fallo sin ninguna relacion con lo que el guion
+# hace: a Angel le salio en el paso del respaldo y parecia un problema
+# de permisos del servidor.
+#
+# permisos.sh devuelve el +x, pero eso pasa DESPUES: en el primer
+# arranque, o si alguien copio los archivos a mano, todavia no ha
+# corrido. Con bash delante siempre funcionan.
+for nombre in ('desplegar.sh', 'enlazar-git.sh', 'instalar-servidor.sh'):
+    texto = sin_comentarios((raiz/'infra/produccion'/nombre).read_text(encoding='utf-8'))
+    for hermano in ('respaldar.sh', 'migrar.sh', 'permisos.sh', 'restaurar.sh'):
+        # Invocado por su ruta sin "bash" delante: "$AQUI/x.sh" o ./x.sh
+        if re.search(r'(?<!bash )(?<!-f )(?<!-x )(?<!cd )"\$A(QUI|HORA)/' + hermano + '"', texto) \
+           or re.search(r'(?<!bash )\./' + hermano + r'(?!\s*--ver\b)(?=[\s"\']|$)', texto):
+            fallos.append(f'{nombre} invoca {hermano} sin bash delante: si el '
+                          'bit de ejecutable no llego, muere con "Permission denied"')
+print('  ok   los guiones se llaman entre si con bash')
+
 # storage/ es la unica carpeta donde la aplicacion escribe, y quien
 # escribe ahi es Apache: el dueno tiene que ser www-data (uid 33
 # dentro del contenedor), no el usuario del servidor.
