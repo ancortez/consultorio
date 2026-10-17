@@ -139,6 +139,11 @@ $rutas = [
         'permiso' => 'config.tarifas',
         'titulo'  => 'Tarifario',
     ],
+    'configuracion/respaldos' => [
+        'archivo' => 'configuracion/respaldos.php',
+        'permiso' => 'config.respaldos',
+        'titulo'  => 'Respaldos',
+    ],
     'facturacion/emitir' => [
         'archivo' => 'en_construccion.php',
         'permiso' => 'factura.emitir',

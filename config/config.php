@@ -17,7 +17,7 @@ define('APP_NOMBRE', 'Nanai');
 // El logotipo. Es blanco con fondo transparente, asi que solo se ve
 // sobre un fondo de color: la barra morada y el cuadro del login.
 define('APP_LOGO', '/assets/img/logo-nanai-blanco-512.png');
-define('APP_VERSION', '2.19.0');
+define('APP_VERSION', '2.19.1');
 define('APP_TZ',     getenv('APP_TZ') ?: 'America/Mazatlan');
 
 date_default_timezone_set(APP_TZ);

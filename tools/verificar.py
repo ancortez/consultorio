@@ -761,6 +761,63 @@ print('  ok   ningun id se repite dentro de una pantalla')
 
 
 # ---------------------------------------------------------------------
+#  Las rutas: toda pantalla que existe tiene que ser alcanzable
+# ---------------------------------------------------------------------
+# index.php tiene una lista blanca de modulo/vista. Una pantalla que no
+# este ahi NO da error: el router no la encuentra, se cae de regreso a
+# Inicio y listo. Asi que el sintoma de olvidarse de registrarla es
+# "pico el menu y me manda al tablero", que no se parece en nada a la
+# causa.
+#
+# Esto paso de verdad con Configuracion > Respaldos: la vista existia,
+# el menu la ofrecia, el permiso estaba, y el router la mandaba a
+# Inicio. Angel lo encontro picando.
+#
+# Se comprueban las dos direcciones:
+#
+#   1. toda vista que existe esta registrada —si no, es codigo muerto
+#      que alguien escribio para nada;
+#   2. todo lo que ofrece un menu lateral existe como ruta —si no, es
+#      un enlace que lleva al tablero.
+_idx = (_raiz / 'index.php').read_text(encoding='utf-8')
+_registradas = set(re.findall(r"'archivo' => '([^']+)'", _idx))
+_claves = set(re.findall(r"'([a-z_]+/[a-z_]+)' => \[", _idx))
+
+_sinRuta = []
+for _f in sorted((_raiz / 'vistas').rglob('*.php')):
+    _rel = str(_f.relative_to(_raiz / 'vistas'))
+
+    # Los parciales (_algo.php) se incluyen desde otra vista, y el
+    # layout no es una pantalla.
+    if _f.name.startswith('_') or _rel.split('/')[0] == 'layout':
+        continue
+    if _rel not in _registradas:
+        _sinRuta.append(_rel)
+
+if _sinRuta:
+    fallos.append('pantallas que existen y no estan en el router de '
+                  f'index.php (picarlas manda a Inicio): {_sinRuta}')
+
+# Y al reves: lo que ofrecen los menus laterales.
+_menusRotos = []
+for _menu in sorted((_raiz / 'vistas').rglob('_menu_lateral.php')):
+    _modulo = _menu.parent.name
+    _texto  = _menu.read_text(encoding='utf-8')
+
+    for _v in re.findall(r"'vista' => '(\w+)'", _texto):
+        if f'{_modulo}/{_v}' not in _claves:
+            _menusRotos.append(f'{_modulo}/{_v}')
+
+if _menusRotos:
+    fallos.append('el menu lateral ofrece pantallas que el router no '
+                  f'conoce: {_menusRotos}')
+
+if not _sinRuta and not _menusRotos:
+    print(f'  ok   las {len(_registradas)} pantallas estan registradas y los '
+          'menus apuntan a rutas que existen')
+
+
+# ---------------------------------------------------------------------
 #  La sesion: los dos numeros tienen que moverse juntos
 # ---------------------------------------------------------------------
 # MINUTOS_SESION (config.php) dice cuanto aguanta la sesion sin

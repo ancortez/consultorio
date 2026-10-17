@@ -1,3 +1,11 @@
+RESPALDOS
+A mi me interesa que tengamos opcion de crear, descargar y restaurar un respaldo.
+Para este caso quiero una funcion en el sistema solo para usuario administrador. Una función que permita revisar esos respaldos y bajar las copias de vez en cuando.
+¿Como resovemos el caso de que si se va el servidor se va toda la infomacion? ¿Hay alguna forma de hacer un respaldo en automático en la computadora al final del día?
+
+
+
+--------------
 * CORRECCIONES 17/10/2026 (2)
 
 DASHBOARD
