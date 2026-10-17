@@ -9,8 +9,14 @@ services:
     volumes:
       - ./:/var/www/html
       - ./storage:/var/www/storage
+      # Los respaldos, para probar Configuracion > Respaldos en local.
+      # Aqui van dentro del propio proyecto —storage/respaldos— porque
+      # una carpeta en /var de la Mac pediria permisos y no haria falta
+      # para nada: en local son respaldos de pruebas.
+      - ./storage/respaldos:/var/respaldos
     environment:
       DB_HOST: db
+      CARPETA_RESPALDOS: /var/respaldos
       DB_PORT: 3306
       DB_NAME: ${DB_NAME:-consultorio_dental}
       DB_USER: ${DB_USER:-consultorio}

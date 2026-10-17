@@ -973,14 +973,34 @@ CREATE TABLE nota_evolucion (
   id_nota_evolucion INT UNSIGNED NOT NULL AUTO_INCREMENT,
   id_consulta       INT UNSIGNED NOT NULL,
   texto             TEXT NOT NULL,
+  -- DOS fechas, y la separacion es el punto.
+  --
+  -- fecha_nota es A QUE DIA se refiere la nota, y se puede corregir:
+  -- una nota escrita el martes puede hablar de lo que paso el viernes
+  -- anterior. Es el dato clinico.
+  --
+  -- fecha_registro es CUANDO se teclo, y no se toca nunca. Es el rastro
+  -- de cuando entro al sistema. Si la fecha editable fuera esta,
+  -- corregir una nota borraria la unica prueba de cuando se escribio de
+  -- verdad, y en un expediente la diferencia entre "lo anoto ese dia" y
+  -- "lo anoto tres meses despues" es la diferencia entre un registro y
+  -- una reconstruccion.
+  fecha_nota        DATETIME NULL,
   id_usuario        INT UNSIGNED NOT NULL,
   fecha_registro    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- NULL = nunca se corrigio. La pantalla lo dice cuando no lo es: una
+  -- nota corregida en silencio es peor que una nota con un dedazo.
+  fecha_modificacion  DATETIME NULL,
+  id_usuario_modifica INT UNSIGNED NULL,
   estatus           TINYINT UNSIGNED NOT NULL DEFAULT 1,
   PRIMARY KEY (id_nota_evolucion),
   KEY ix_nota_consulta (id_consulta, fecha_registro),
+  KEY ix_nota_consulta_fecha (id_consulta, fecha_nota),
   CONSTRAINT fk_nota_consulta FOREIGN KEY (id_consulta)
     REFERENCES consulta (id_consulta) ON DELETE CASCADE,
   CONSTRAINT fk_nota_usuario FOREIGN KEY (id_usuario)
+    REFERENCES usuario (id_usuario),
+  CONSTRAINT fk_nota_modifica FOREIGN KEY (id_usuario_modifica)
     REFERENCES usuario (id_usuario)
 ) ENGINE=InnoDB;
 

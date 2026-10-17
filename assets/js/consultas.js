@@ -1318,7 +1318,10 @@ function moduloPlan() {
       ? panel.notas.map((n, i) => `
           <button type="button" class="pp-nota" data-nota="${i}">
             <div class="pp-fecha">
-              ${App.esc(App.fechaHora(n.fecha_registro))} · ${App.esc(n.consulta_folio)}
+              ${App.esc(App.fechaHora(n.fecha_nota))} · ${App.esc(n.consulta_folio)}
+              ${n.fecha_modificacion
+                ? '<span class="marca-corregida">'
+                  + '<i class="bi bi-pencil-fill"></i> corregida</span>' : ''}
             </div>
             <div class="pp-nota-texto">${App.esc(n.texto)}</div>
           </button>`).join('')
@@ -1345,7 +1348,15 @@ function moduloPlan() {
 
     const n = panel.notas[Number(b.dataset.nota)];
     document.getElementById('notaVerConsulta').textContent = n.consulta_folio;
-    document.getElementById('notaVerFecha').textContent = App.fechaHora(n.fecha_registro);
+    // La fecha de la NOTA, que es la que dice a que dia se refiere.
+    // Con la de captura, una nota del viernes escrita el martes se
+    // leeria como del martes.
+    document.getElementById('notaVerFecha').textContent =
+      App.fechaHora(n.fecha_nota)
+      + (n.fecha_modificacion
+          ? ` · corregida el ${App.fechaHora(n.fecha_modificacion)}`
+            + (n.corrigio ? ` por ${n.corrigio}` : '')
+          : '');
     document.getElementById('notaVerAutor').textContent = n.autor;
     document.getElementById('notaVerTexto').textContent = n.texto;
     document.getElementById('notaVerIrConsulta').href =
@@ -2466,32 +2477,100 @@ function detalleConsulta() {
     const caja = document.getElementById('cnNotas');
 
     caja.innerHTML = datos.notas.length
-      ? datos.notas.map((n) => `
+      ? datos.notas.map((n, i) => `
           <div class="anexo">
             <div style="min-width:0">
               <div class="text-secondary" style="font-size:11px">
-                ${App.esc(App.fechaHora(n.fecha_registro))} · ${App.esc(n.autor)}
+                ${App.esc(App.fechaHora(n.fecha_nota))} · ${App.esc(n.autor)}
+                ${/*
+                     Si se corrigio, se dice. Una nota cambiada en
+                     silencio es peor que una nota con un dedazo: el
+                     expediente diria algo distinto de lo que se firmo y
+                     nada lo indicaria. Lo que NO se ensenia es el texto
+                     viejo —no se guarda— y eso se nota aqui a
+                     proposito: lo que queda es quien y cuando.
+                  */''}
+                ${n.fecha_modificacion ? `
+                  <span class="marca-corregida"
+                        title="Corregida el ${App.esc(App.fechaHora(n.fecha_modificacion))}${
+                          n.corrigio ? ' por ' + App.esc(n.corrigio) : ''}">
+                    <i class="bi bi-pencil-fill"></i> corregida
+                  </span>` : ''}
               </div>
               <div class="anexo-texto">${App.esc(n.texto)}</div>
             </div>
+            <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none"
+                    data-editar-nota="${i}" title="Corregir esta nota">
+              <i class="bi bi-pencil"></i>
+            </button>
           </div>`).join('')
       : `<div class="exp-vacio">
            Sin notas. No generan pendiente de digitalización.
          </div>`;
   }
 
-  document.getElementById('cnNuevaNota')?.addEventListener('click', () => {
+  /**
+   * Deja el modal listo. Sin nota = alta; con nota = correccion.
+   *
+   * El mismo modal para las dos cosas, como en los hallazgos: son los
+   * mismos dos campos y un segundo modal seria una copia que se separa
+   * en cuanto alguien toque uno.
+   */
+  function abrirNota(n = null) {
+    document.getElementById('notaId').value = n ? n.id_nota_evolucion : '';
     document.getElementById('notaConsulta').value = idConsulta();
-    document.getElementById('notaTexto').value = '';
+    document.getElementById('notaTexto').value = n ? (n.texto ?? '') : '';
+
+    document.getElementById('notaTitulo').textContent =
+      n ? 'Corregir la nota' : 'Nota de evolución';
+    document.getElementById('notaGuardar').textContent =
+      n ? 'Guardar la corrección' : 'Agregar nota';
+
+    /*
+       El campo datetime-local quiere "2026-10-17T14:30", sin segundos
+       y con T en medio. Lo que llega de MySQL es "2026-10-17 14:30:00":
+       asignado tal cual, el navegador lo rechaza en silencio y el campo
+       aparece VACIO —con lo que corregir el texto de una nota le
+       cambiaria la fecha sin que nadie lo pida—.
+    */
+    document.getElementById('notaFecha').value = n
+      ? String(n.fecha_nota ?? '').replace(' ', 'T').substring(0, 16)
+      : ahoraParaCampo();
+  }
+
+  /** La fecha y hora de ahora, en el formato del campo. */
+  function ahoraParaCampo() {
+    const d = new Date();
+    // A mano y no con toISOString(): ese convierte a UTC, y en Nayarit
+    // eso son seis horas menos. Una nota escrita a las 9 de la mañana
+    // saldria fechada a las 3 de la madrugada.
+    const dos = (x) => String(x).padStart(2, '0');
+    return `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`
+         + `T${dos(d.getHours())}:${dos(d.getMinutes())}`;
+  }
+
+  document.getElementById('cnNuevaNota')?.addEventListener('click', () => {
+    abrirNota();
+    modalNota.show();
+  });
+
+  document.getElementById('cnNotas')?.addEventListener('click', (ev) => {
+    const boton = ev.target.closest('[data-editar-nota]');
+    if (!boton) return;
+
+    abrirNota(datos.notas[Number(boton.dataset.editarNota)]);
     modalNota.show();
   });
 
   document.getElementById('formNota')?.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
-      await App.api('consultas/nota_guardar.php', App.formADatos(ev.target));
+      const r = await App.api('consultas/nota_guardar.php',
+        App.formADatos(ev.target));
       modalNota.hide();
-      App.alerta.toast('Nota agregada');
+      // El texto lo manda el servidor: "agregada" y "corregida" no son
+      // lo mismo, y aqui habia uno fijo que decia siempre "agregada".
+      App.alerta.toast(r.mensaje ?? 'Nota guardada');
       cargar();
     } catch (e) {
       App.marcarErrores(ev.target, e.errores);

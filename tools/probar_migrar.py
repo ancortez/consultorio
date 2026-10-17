@@ -86,13 +86,19 @@ def agregar(pieza):
     if os.environ.get('ROMPER') == '1':
         return
     t = re.search(r'ALTER TABLE\s+(\w+)', pieza)
-    c = re.search(r'ADD COLUMN\s+(\w+)', pieza)
-    if not (t and c):
+    # TODAS las columnas del ALTER, no solo la primera. Un ALTER con dos
+    # ADD COLUMN es valido en MySQL, y agregando solo una el simulador
+    # decia "sin efecto" por una migracion correcta: la prueba fallaba
+    # por el teatro, no por el codigo.
+    cols = re.findall(r'ADD COLUMN\s+(\w+)', pieza)
+    if not (t and cols):
         return
-    try:
-        cur.execute('ALTER TABLE %s ADD COLUMN %s INTEGER' % (t.group(1), c.group(1)))
-    except Exception:
-        pass
+    for col in cols:
+        try:
+            cur.execute('ALTER TABLE %s ADD COLUMN %s INTEGER'
+                        % (t.group(1), col))
+        except Exception:
+            pass
 
 for pieza in [p.strip() for p in sql.split(';') if p.strip()]:
     U = pieza.upper()

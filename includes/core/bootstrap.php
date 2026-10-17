@@ -28,5 +28,6 @@ require_once __DIR__ . '/planes.php';
 require_once __DIR__ . '/esquema.php';
 require_once __DIR__ . '/historia_clinica.php';
 require_once __DIR__ . '/odontograma.php';
+require_once __DIR__ . '/respaldos.php';
 
 Sesion::iniciar();

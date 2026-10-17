@@ -838,6 +838,14 @@ INSERT INTO permiso (id_modulo, clave, nombre) VALUES
 (6,'config.ocupaciones','Administrar ocupaciones'),
 (6,'config.consultorio','Datos del consultorio'),
 (6,'config.procedimientos','Administrar procedimientos dentales'),
+-- Respaldos: crear, descargar y restaurar desde el sistema.
+--
+-- Solo lo tiene el administrador, y a proposito. Un respaldo de la base
+-- trae el expediente clinico completo de todos los pacientes en un solo
+-- archivo, y restaurar reemplaza TODOS los expedientes por los de otra
+-- fecha: picado por error, el trabajo de semanas desaparece de la
+-- pantalla sin que nada se vea roto.
+(6,'config.respaldos','Respaldos del sistema'),
 (2,'paciente.historia','Capturar historia clinica'),
 (7,'factura.ver','Ver facturas'),
 (7,'factura.emitir','Emitir factura'),

@@ -473,6 +473,96 @@ console.log('Consulta guardada');
   comprobar('nada revento al pintar la consulta', window.__rotos, []);
 
   /* -----------------------------------------------------------------
+     4b. Las notas de evolucion se pueden corregir
+     -----------------------------------------------------------------
+     La doctora lo pidio el 17 de octubre de 2026: el texto y la fecha.
+     Lo que esta prueba cuida es la trampa del campo de fecha.
+
+     datetime-local quiere "2026-10-17T14:30". Lo que manda MySQL es
+     "2026-10-17 14:30:00", y asignado tal cual el navegador lo RECHAZA
+     EN SILENCIO: el campo queda vacio. Con eso, abrir una nota para
+     corregarle una letra y guardar le cambiaria la fecha —o la haria
+     fallar la validacion— sin que nadie lo pida.
+     ----------------------------------------------------------------- */
+  const t15 = montar({ idConsulta: '55' });
+  t15.window.__respuesta = consultaGuardada({
+    notas: [
+      { id_nota_evolucion: 7, texto: 'TOLERO BIEN LA ANESTESIA',
+        fecha_nota: '2026-10-10 09:15:00', autor: 'ADRIANA LOPEZ RUELAS',
+        fecha_modificacion: null, corrigio: null },
+      { id_nota_evolucion: 8, texto: 'EL TUTOR PIDIO CAMBIAR LA CITA',
+        fecha_nota: '2026-10-09 17:00:00', autor: 'ADRIANA LOPEZ RUELAS',
+        fecha_modificacion: '2026-10-11 08:00:00', corrigio: 'ANGEL' },
+    ],
+  });
+  t15.arrancar();
+  await new Promise((r) => setTimeout(r, 0));
+
+  const notas = [...t15.doc.querySelectorAll('#cnNotas .anexo')];
+  comprobar('se pintan las dos notas', notas.length, 2);
+
+  // La fecha que se ve es la de la NOTA, no la de captura.
+  comprobar('la nota se fecha con su propia fecha',
+    /10\/10\/2026/.test(notas[0].textContent), true);
+
+  // Una correccion en silencio seria peor que un dedazo.
+  comprobar('la nota sin corregir no lleva marca',
+    !!notas[0].querySelector('.marca-corregida'), false);
+  comprobar('la corregida si',
+    !!notas[1].querySelector('.marca-corregida'), true);
+  comprobar('y el globo dice quien y cuando',
+    /ANGEL/.test(notas[1].querySelector('.marca-corregida').title), true);
+
+  // Picar el lapiz abre el modal con los datos de ESA nota.
+  t15.clic(notas[0].querySelector('[data-editar-nota]'), 'el lapiz de la nota');
+
+  comprobar('el modal se abre', t15.abierto('modalNota'), true);
+  comprobar('con el id de la nota',
+    t15.doc.getElementById('notaId').value, '7');
+  comprobar('con su texto',
+    t15.doc.getElementById('notaTexto').value, 'TOLERO BIEN LA ANESTESIA');
+
+  /* Esta es la comprobacion que importa: el campo NO puede quedar
+     vacio. Si queda vacio, la traduccion del formato esta mal. */
+  comprobar('y con su fecha, en el formato del campo',
+    t15.doc.getElementById('notaFecha').value, '2026-10-10T09:15');
+
+  comprobar('el titulo dice que se esta corrigiendo',
+    t15.doc.getElementById('notaTitulo').textContent, 'Corregir la nota');
+  comprobar('y el boton tambien',
+    t15.doc.getElementById('notaGuardar').textContent.trim(),
+    'Guardar la corrección');
+
+  // Agregar una nota nueva: el mismo modal, sin id y con la fecha de
+  // ahora. Sin limpiar el id, "agregar" corregiria la ultima que se
+  // abrio.
+  t15.clic(t15.doc.getElementById('cnNuevaNota'), 'el boton de nueva nota');
+  comprobar('agregar limpia el id de la nota',
+    t15.doc.getElementById('notaId').value, '');
+  comprobar('el texto arranca vacio',
+    t15.doc.getElementById('notaTexto').value, '');
+  comprobar('el titulo vuelve a ser el de agregar',
+    t15.doc.getElementById('notaTitulo').textContent, 'Nota de evolución');
+
+  /* La fecha de ahora, en hora LOCAL.
+
+     Con toISOString() el campo saldria en UTC, y en Nayarit eso son
+     seis horas menos: una nota escrita a las 9 de la maniana se
+     fecharia a las 3 de la madrugada. Se comprueba contra la hora del
+     propio proceso. */
+  const puesta = t15.doc.getElementById('notaFecha').value;
+  const d = new Date();
+  const dos = (x) => String(x).padStart(2, '0');
+  comprobar('la fecha de ahora va en hora local',
+    puesta.substring(0, 13),
+    `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`
+    + `T${dos(d.getHours())}`);
+  comprobar('y con el formato que el campo acepta',
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(puesta), true);
+
+  comprobar('nada revento con las notas', t15.window.__rotos, []);
+
+  /* -----------------------------------------------------------------
      5. La receta firmada se sube desde su propio renglon
      ----------------------------------------------------------------- */
   console.log();

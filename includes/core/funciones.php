@@ -128,6 +128,28 @@ function codigoHallazgo(string $prefijo, array $descripciones): string
     return $prefijo . '_' . str_pad((string) ($maximo + 1), 2, '0', STR_PAD_LEFT);
 }
 
+/**
+ * Un tamanio de archivo legible: 1536 -> "1.5 KB".
+ *
+ * El mismo criterio que App.tamanoLegible del JavaScript, y por la
+ * misma razon que las dos fechas de las notas: el sistema no puede
+ * decir "2.1 MB" en una pantalla y "2,097,152 bytes" en otra para el
+ * mismo archivo.
+ */
+function tamanoLegible(int $bytes): string
+{
+    if ($bytes < 1024) {
+        return $bytes . ' B';
+    }
+    if ($bytes < 1024 * 1024) {
+        return number_format($bytes / 1024, 1) . ' KB';
+    }
+    if ($bytes < 1024 * 1024 * 1024) {
+        return number_format($bytes / 1024 / 1024, 1) . ' MB';
+    }
+    return number_format($bytes / 1024 / 1024 / 1024, 2) . ' GB';
+}
+
 /** Edad en anios a partir de la fecha de nacimiento. */
 function edad(?string $fechaNacim): ?int
 {

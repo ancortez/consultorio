@@ -1,3 +1,41 @@
+* CORRECCIONES 17/10/2026 (2)
+
+DASHBOARD
+    -> En el dashboard, hay que quitar el card de estado de cuenta. Ese no es necesario. En su lugar vamos a recorrer hacia arriba el card de "Pendientes de Pago" y "Pacientes con saldo a favor"
+
+CONSULTAS>LISTA DE CONSULTAS>
+    >NOTAS DE EVOLUCION
+        * Permitir editar las notas, tanto el comentario como la fecha.
+
+GENERAL
+    -> Las sesiones de usuario no deben caducar.
+
+RESPALDOS
+    -> ¿Como me doy cuenta si se estan haciendo los respaldos automáticos tanto de la base de datos como de documentos en minio dentro del VPS?
+
+--------------------------
+* CORRECCIONES 17/10/2026
+
+AGENDA
+    -> Citas sin hora tambien debe aparecer un recordatorio de whatsapp.
+
+PACIENTES>BUSCAR PACIENTE
+    >HISTORIA CLÍNICA
+        * En las preguntas ocipnales, el modal no debe aparecer, hasta que se le pique el campo de "No especifica".
+    >ODONTOGRAMA (nueva pestaña)
+        * Ahora, vamos a tener una nueva pestaña con el mismo odontograma interactivo que manejamos en los procedimientos de los planes de tratamiento.
+        * Podremos colocarle el estatus de cada diente seleccionando de uno o de muchos para colocarle su estatus actual (sano, amalgama, faltante, etc...) con código de colores.
+        * Cuando mandemos llamar al odontograma de los procedimientos de planes de tratamiento, mostrará ese mismo estatus de los órganos dentarios con código de colores.
+
+CONSULTAS>LISTA DE CONSULTAS>DETALLE DE CONSULTA
+    >HALLAZGOS
+        * Campo "Descripción" se llena segun el tipo. "CLINICO-01" O "RADIOGRAFICO-01". Quitar texto de que es opcional.
+
+CONSULTAS>PLAN DE TRATAMIENTO>
+    >NUEVO PLAN DE TRATAMIENTO
+        * Al momento de guardar los procedimientos de un plan de tratamiento, ya debe considerarse como pagos pendientes del paciente independientemente del estatus del plan. Actualmente no me los pone pendientes hasta que escaneo, me meto al plan y guardo otra vez.
+
+-------------------------
 * CORRECCIONES 16/10/2026 
 
 CONSULTAS>PLAN DE TRATAMIENTO

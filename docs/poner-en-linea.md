@@ -428,6 +428,114 @@ espacio libre y se detiene si queda poco.
 ./restaurar.sh --probar     # PROBAR el último sin tocar nada
 ```
 
+### ¿Se están haciendo?
+
+Esa es la pregunta importante y la respuesta no debería requerir
+mirar seis sitios. Un comando la contesta:
+
+```bash
+bash revisar-respaldos.sh
+```
+
+Dice, en una pantalla: si la tarea automática está puesta y a qué hora,
+cuándo fue el último respaldo de la base y cuánto pesa, cuándo el de los
+archivos del expediente, si van cifrados, si queda espacio para el
+siguiente, qué dijo el último intento, y si existe una copia fuera del
+servidor. Devuelve 0 si todo está bien y 1 si hay algo que atender, así
+que también sirve para encadenarlo.
+
+**Córrelo la primera vez en cuanto el servidor esté en pie.** El caso
+que de verdad pasa no es que los respaldos fallen: es que la tarea
+automática nunca se instaló —porque el servidor se montó a mano, o
+porque `instalar-servidor.sh` se cortó a la mitad— y nadie se enteró,
+porque el sistema funciona exactamente igual de bien sin respaldar.
+
+Si falta la tarea, el propio guion la pone:
+
+```bash
+sudo bash revisar-respaldos.sh --instalar-cron
+```
+
+Después, con correrlo una vez al mes basta. `desplegar.sh` también avisa
+si no encuentra la tarea.
+
+### Desde el sistema: Configuración > Respaldos
+
+Hay una pantalla para esto, y solo la ve el **administrador**. Desde ahí
+se puede:
+
+- **ver** lo que hay, con su fecha, su tamaño y si ya lo bajaste;
+- **crear** un respaldo de la base en el momento;
+- **descargar** cualquiera con un clic;
+- **restaurar** uno de la base.
+
+Dos cosas que esa pantalla *no* hace, y no son olvidos. No borra
+respaldos: la rotación la sigue haciendo `respaldar.sh`, que sabe
+cuántos conservar de cada tipo, y un botón de borrar al lado de uno de
+restaurar es la clase de vecindad que acaba en un clic equivocado sobre
+lo único que quedaba. Y no respalda los **archivos del expediente**:
+pesan gigabytes y viven en el volumen de MinIO, al que el contenedor de
+la aplicación no tiene acceso ni debe tenerlo. Esos se ven y se
+descargan desde ahí, pero para hacer uno nuevo hay que correr
+`./respaldar.sh --completo` en el servidor.
+
+**Restaurar reemplaza TODOS los expedientes** por los de la fecha de ese
+respaldo. Lo que se capturó después se pierde. Por eso pide escribir
+`RESTAURAR` a mano —una confirmación de "¿seguro?" se contesta que sí
+sin leer— y antes de tocar nada guarda un respaldo de lo que hay, cuyo
+nombre te dice al terminar.
+
+---
+
+## Si se pierde el servidor
+
+Es la pregunta importante y los respaldos de arriba no la contestan:
+viven en el **mismo disco** que el sistema. Si el proveedor tiene un
+problema serio, si una factura se queda sin pagar, si el disco muere, se
+van los dos juntos. Un respaldo al lado de lo que respalda no es un
+respaldo, es una copia.
+
+Lo que lo arregla es tener las copias en otro sitio físico, y que no
+dependa de acordarse. Para eso hay un guion que corre en **tu
+computadora**:
+
+```bash
+./bajar-respaldos.command              # baja lo que falte, ahora
+./bajar-respaldos.command --instalar   # que corra solo cada día a las 20:30
+./bajar-respaldos.command --ver        # ¿está puesto? ¿qué hay bajado?
+./bajar-respaldos.command --quitar     # dejar de correr solo
+```
+
+Las copias quedan en `~/Respaldos-Nanai`, fuera de la carpeta del
+proyecto: el proyecto está en git y un respaldo con el expediente
+clínico completo no puede acabar en un repositorio por un `git add -A`
+distraído.
+
+### Por qué la computadora JALA y el servidor no EMPUJA
+
+Es la decisión de fondo de todo esto. Si el servidor empujara las copias
+hacia tu Mac, necesitaría una llave para entrar en ella. Entonces quien
+tome el control del servidor —y es la máquina expuesta a internet— entra
+también en tu computadora, y lo primero que hace cualquier programa de
+secuestro de datos es buscar los respaldos y cifrarlos. Las copias de
+fuera dejarían de ser copias de fuera.
+
+Jalando, la llave vive en tu Mac y apunta hacia el servidor. El servidor
+no sabe que tu computadora existe y no puede tocar nada de este lado. Lo
+peor que puede pasar es que un día no haya nada que bajar.
+
+Para que corra sin pedir contraseña hace falta una llave ssh. Si nunca
+la has puesto:
+
+```bash
+ssh-keygen -t ed25519        # Enter a todo
+ssh-copy-id root@TU_IP
+```
+
+**Y un paso más que ningún guion puede hacer por ti:** dos copias en la
+misma casa son una sola copia frente a un robo o un incendio. Arrastra
+`~/Respaldos-Nanai` a un disco externo o a tu nube de vez en cuando.
+
 ### Prueba el respaldo hoy, no el día que lo necesites
 
 `--probar` abre el respaldo en una base temporal, cuenta los pacientes,

@@ -13,6 +13,11 @@
 
 storage/logs/*
 !storage/logs/.gitkeep
+
+# Los respaldos de prueba de la copia local. Traen el expediente
+# clinico completo igual que los de produccion.
+storage/respaldos/*
+!storage/respaldos/.gitkeep
 storage/uploads/*
 !storage/uploads/.gitkeep
 

@@ -3,9 +3,20 @@ FROM php:8.2-apache
 # libheif-examples trae heif-convert, que es como se leen las fotos de
 # iPhone. GD no sabe abrir HEIC y no hay extension de PHP para ello en
 # esta imagen; el ejecutable pesa poco y hace exactamente una cosa.
+# default-mysql-client trae mysqldump y mysql, que es como el sistema
+# crea y restaura un respaldo de la base desde Configuracion >
+# Respaldos.
+#
+# Por que no usar docker desde PHP: habria que darle al contenedor el
+# socket de Docker, y un contenedor con ese socket puede arrancar otro
+# contenedor con el disco del servidor montado. O sea: una falla en la
+# aplicacion web dejaria de ser "alguien ve expedientes" y pasaria a ser
+# "alguien es dueño del servidor". El cliente de MySQL le habla a la
+# base por la red interna, que es exactamente el permiso que ya tiene.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip-dev libpng-dev libjpeg-dev libfreetype6-dev libicu-dev \
         libheif-examples \
+        default-mysql-client \
         unzip git \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo_mysql mysqli gd zip intl opcache exif \

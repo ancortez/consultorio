@@ -760,6 +760,62 @@ for _vista in sorted(glob.glob(f'{BASE}/vistas/**/*.php', recursive=True)):
 print('  ok   ningun id se repite dentro de una pantalla')
 
 
+# ---------------------------------------------------------------------
+#  La sesion: los dos numeros tienen que moverse juntos
+# ---------------------------------------------------------------------
+# MINUTOS_SESION (config.php) dice cuanto aguanta la sesion sin
+# actividad, y session.gc_maxlifetime (php.ini) dice cuando PHP BORRA
+# los datos de la sesion. El segundo manda: la aplicacion puede
+# considerar la sesion valida y encontrarse con que los datos ya no
+# estan.
+#
+# Esto ya paso una vez. Subir MINUTOS_SESION de 60 a 240 no sirvio de
+# nada porque gc_maxlifetime seguia en 3600, y el sintoma fue "el cambio
+# no funciono": la sesion seguia cayendose a la hora, sin ninguna pista
+# de donde mirar. Lo caro del fallo es que los dos valores estan en
+# archivos distintos, de lenguajes distintos, y nada los une.
+_cfg = (_raiz / "config/config.php").read_text(encoding='utf-8')
+_ini = (_raiz / "docker/php/php.ini").read_text(encoding='utf-8')
+
+_m = re.search(r"define\('MINUTOS_SESION',\s*(\d+)\)", _cfg)
+_g = re.search(r'(?m)^\s*session\.gc_maxlifetime\s*=\s*(\d+)', _ini)
+
+if _m is None:
+    fallos.append('no encuentro MINUTOS_SESION en config.php')
+elif _g is None:
+    fallos.append('no encuentro session.gc_maxlifetime en docker/php/php.ini')
+else:
+    _minutos = int(_m.group(1))
+    _gc = int(_g.group(1))
+
+    if _minutos == 0:
+        # Sin caducidad en la aplicacion, el recolector no puede estar
+        # borrando sesiones a la hora: la doctora se quedaria fuera sin
+        # que nada lo explique. Un mes es el piso de lo razonable.
+        if _gc < 2592000:
+            fallos.append(
+                f'MINUTOS_SESION = 0 (la sesion no caduca) pero '
+                f'session.gc_maxlifetime = {_gc}s: PHP borraria los datos '
+                f'de la sesion a las {_gc // 3600} horas y la sesion se '
+                'caeria igual.')
+        else:
+            print('  ok   la sesion no caduca, y el php.ini lo respalda '
+                  f'({_gc // 86400} dias)')
+    else:
+        # Con caducidad, el recolector tiene que aguantar MAS que la
+        # aplicacion: corre cuando le toca, no al segundo, y no conviene
+        # que la sesion muera justo en el limite.
+        if _gc <= _minutos * 60:
+            fallos.append(
+                f'MINUTOS_SESION = {_minutos} min ({_minutos * 60}s) pero '
+                f'session.gc_maxlifetime = {_gc}s: PHP borra la sesion '
+                'antes de que la aplicacion la considere vencida, y el '
+                'sintoma es "el cambio no funciono".')
+        else:
+            print(f'  ok   la sesion dura {_minutos} min y el php.ini '
+                  f'aguanta {_gc}s')
+
+
 if avisos:
     print(f"{len(avisos)} aviso(s):")
     for a in avisos[:15]:

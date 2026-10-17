@@ -238,24 +238,52 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">
-          <i class="bi bi-journal-text me-2"></i>Nota de evoluci&oacute;n
+          <i class="bi bi-journal-text me-2"></i>
+          <span id="notaTitulo">Nota de evoluci&oacute;n</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
 
       <form id="formNota">
         <input type="hidden" name="id_consulta" id="notaConsulta">
+        <?php /* El id de la nota: vacio al agregar, puesto al corregir.
+                 Es lo unico que distingue las dos operaciones, aqui y en
+                 el servidor. */ ?>
+        <input type="hidden" name="id_nota_evolucion" id="notaId">
+
         <div class="modal-body">
+          <?php /* La FECHA de la nota, editable.
+
+                   No es la de captura. Una nota escrita el martes puede
+                   referirse a lo que paso el viernes anterior —la
+                   doctora anota cuando tiene un momento, no cuando pasa
+                   la cosa— y hasta ahora no habia forma de decirlo: la
+                   nota quedaba fechada el martes y el expediente contaba
+                   otra historia.
+
+                   Cuando se teclo sigue guardandose aparte y no se
+                   puede cambiar. */ ?>
+          <label class="form-label" for="notaFecha">
+            Fecha de la nota <span class="req">*</span>
+          </label>
+          <input type="datetime-local" class="form-control mb-3"
+                 name="fecha" id="notaFecha" required>
+
+          <label class="form-label" for="notaTexto">Nota</label>
           <textarea class="form-control" name="texto" id="notaTexto" rows="6"
                     placeholder="LO QUE SE OBSERV&Oacute;, LO QUE SE ACORD&Oacute; CON EL TUTOR, C&Oacute;MO RESPONDI&Oacute; EL PACIENTE"></textarea>
           <div class="form-text">
-            La nota queda firmada con tu nombre y la hora. No se puede
-            editar despu&eacute;s: si hay que aclarar algo, se agrega otra nota.
+            La nota queda firmada con tu nombre. Se puede corregir
+            despu&eacute;s, y cuando se corrige queda dicho qui&eacute;n
+            lo hizo y cu&aacute;ndo: la fecha en que se escribi&oacute;
+            por primera vez no se pierde.
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-morado">Agregar nota</button>
+          <button type="submit" class="btn btn-morado" id="notaGuardar">
+            Agregar nota
+          </button>
         </div>
       </form>
     </div>

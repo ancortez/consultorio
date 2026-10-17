@@ -93,11 +93,20 @@ $consulta['recetas'] = Conexion::todos(
 
 $consulta['notas'] = Conexion::todos(
     'SELECT ne.id_nota_evolucion, ne.texto, ne.fecha_registro,
+            -- La fecha de la nota, no la de captura: es la que se
+            -- ensenia y por la que se ordenan. Las de antes de la
+            -- migracion 0018 no la tienen, y ahi vale la de captura,
+            -- que es lo que eran cuando habia una sola fecha.
+            COALESCE(ne.fecha_nota, ne.fecha_registro) AS fecha_nota,
+            ne.fecha_modificacion,
+            um.nombre_completo AS corrigio,
             u.nombre_completo AS autor
        FROM nota_evolucion ne
        JOIN usuario u ON u.id_usuario = ne.id_usuario
+       LEFT JOIN usuario um ON um.id_usuario = ne.id_usuario_modifica
       WHERE ne.id_consulta = :c AND ne.estatus = 1
-      ORDER BY ne.fecha_registro DESC',
+      ORDER BY COALESCE(ne.fecha_nota, ne.fecha_registro) DESC,
+               ne.id_nota_evolucion DESC',
     [':c' => $idConsulta]
 );
 

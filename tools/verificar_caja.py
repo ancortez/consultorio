@@ -124,6 +124,40 @@ if 'Se cancelo el plan de tratamiento.' not in carg:
     fallos.append('cancelar el plan no retira sus cargos sin pagos')
 print('  ok   el plan genera cargos al guardarse, y el cancelado los retira')
 
+# ---------- El tablero: fuera "Estado de caja" ----------
+#
+# La doctora la quito el 17 de octubre de 2026. Ensaniaba si hay una
+# caja abierta, a que hora y con cuanto fondo, y en el uso diario no
+# contestaba ninguna pregunta: quien abre la caja ya sabe que la abrio.
+# Ocupaba el primer sitio de la columna —el que se lee— y empujaba hacia
+# abajo las dos que si se usan.
+#
+# Se mira el codigo SIN los comentarios de PHP: el parrafo que explica
+# el cambio nombra la tarjeta, y buscandola en el archivo completo esta
+# comprobacion encontraba su propia explicacion.
+_inicio = (raiz/'vistas/inicio.php').read_text(encoding='utf-8')
+_inicioCodigo = re.sub(r'<\?php\s*/\*[\s\S]*?\*/\s*\?>', '', _inicio)
+_inicioCodigo = re.sub(r'/\*[\s\S]*?\*/', '', _inicioCodigo)
+
+if 'Estado de caja' in _inicioCodigo:
+    fallos.append('volvio la tarjeta "Estado de caja" al tablero')
+# Y su consulta: una que se sigue haciendo en cada carga para un dato
+# que nadie ensenia es trabajo invisible.
+if '$cajaAbierta' in _inicioCodigo:
+    fallos.append('el tablero sigue pidiendo la caja abierta para nada')
+
+# Las dos que SI se quedan, y en su CABECERA de tarjeta.
+#
+# Buscando el texto suelto no servia: "Pendientes de pago" aparece
+# tambien en el titulo del modal de "ver todos", asi que quitando la
+# tarjeta la comprobacion seguia encontrandolo y pasaba en verde. Lo que
+# dice que la tarjeta existe es su card-header.
+for _tarjeta in ('Pendientes de pago', 'Con saldo a favor'):
+    if not re.search(r'card-header[\s\S]{0,300}?' + re.escape(_tarjeta),
+                     _inicioCodigo):
+        fallos.append(f'se perdio la tarjeta "{_tarjeta}" del tablero')
+print('  ok   el tablero sin Estado de caja, con pendientes y saldo a favor')
+
 # ---------- 4. Permisos nuevos, en el catalogo y en algun rol ----------
 nuevos = ['cajas.descuento', 'cajas.cargo', 'cajas.estado_cuenta', 'consultas.todas']
 for p in nuevos:

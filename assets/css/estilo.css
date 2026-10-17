@@ -3575,3 +3575,35 @@ table.semana td.celda-sin-hora { padding: 3px; }
     display: flex; flex-wrap: wrap; gap: .35rem; align-items: center;
     font-size: .76rem;
 }
+
+/* La marca de una nota de evolucion corregida.
+   Discreta y siempre visible: una nota cambiada en silencio diria algo
+   distinto de lo que se firmo y nada lo indicaria. Lo que no se ensenia
+   es el texto viejo —no se guarda—; lo que queda es quien y cuando, en
+   el globo de ayuda. */
+.marca-corregida {
+    display: inline-flex; align-items: center; gap: .2rem;
+    margin-left: .3rem;
+    padding: 0 .3rem;
+    border-radius: 999px;
+    background: #fff4e0;
+    color: #8a5a00;
+    font-size: 9.5px; font-weight: 600;
+    text-transform: lowercase;
+    white-space: nowrap;
+}
+.marca-corregida i { font-size: .7rem; }
+
+/* El aviso de lo que no se deshace: restaurar un respaldo.
+   Rojo lleno y no un borde discreto. Es la unica pantalla del sistema
+   donde un clic reemplaza todos los expedientes, y el aviso tiene que
+   leerse antes de llegar al boton. */
+.aviso-peligro {
+    background: #fdecea;
+    border: 1px solid #f5c2bd;
+    border-left: 4px solid var(--peligro, #c0392b);
+    border-radius: 8px;
+    padding: .6rem .7rem;
+    font-size: .82rem; line-height: 1.4;
+    color: #8c261a;
+}

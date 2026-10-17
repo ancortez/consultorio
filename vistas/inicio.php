@@ -224,13 +224,14 @@ $nombreConsultorio = (string) (Conexion::valor(
     'SELECT nombre_comercial FROM consultorio WHERE id_consultorio = 1'
 ) ?? 'el consultorio');
 
-$cajaAbierta = Conexion::uno(
-    'SELECT cc.*, u.nombre_completo AS abrio
-       FROM corte_caja cc
-       JOIN usuario u ON u.id_usuario = cc.id_usuario_apertura
-      WHERE cc.abierto = 1
-      ORDER BY cc.fecha_apertura DESC LIMIT 1'
-);
+/*
+   Aqui se pedia la caja abierta, para la tarjeta "Estado de caja".
+
+   Se fue con ella. Una consulta que se sigue haciendo en cada carga del
+   tablero para un dato que ya nadie ensenia es trabajo invisible: no se
+   nota, no molesta, y el siguiente que lea esto va a buscar donde se
+   usa $cajaAbierta hasta convencerse de que no se usa en ningun lado.
+*/
 
 $tarjetas = [
     ['titulo' => 'Pacientes activos',  'valor' => number_format($kpi['pacientes']),
@@ -718,34 +719,20 @@ $entrada = static function () use (&$escalon, $esperaCortinilla): string {
         </div>
 
         <div class="col-6">
-        <?php if (Auth::puede('cajas.ver')): ?>
-        <div class="card mb-3 entra" <?= $entrada() ?>>
-            <div class="card-header"><i class="bi bi-cash-coin me-2"></i>Estado de caja</div>
-            <div class="card-body">
-                <?php if ($cajaAbierta): ?>
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <span class="chip-estado" style="background:#e6f5ee;color:var(--exito)">ABIERTA</span>
-                        <span class="text-secondary small">
-                            desde <?= e(fecha($cajaAbierta['fecha_apertura'], 'H:i')) ?>
-                        </span>
-                    </div>
-                    <div class="dato-identidad">
-                        <i class="bi bi-person"></i>
-                        <div><div class="etiqueta">Abri&oacute;</div>
-                             <div class="valor"><?= e($cajaAbierta['abrio']) ?></div></div>
-                    </div>
-                    <div class="dato-identidad">
-                        <i class="bi bi-wallet2"></i>
-                        <div><div class="etiqueta">Fondo inicial</div>
-                             <div class="valor"><?= e(money($cajaAbierta['monto_inicial'])) ?></div></div>
-                    </div>
-                <?php else: ?>
-                    <p class="text-secondary small mb-2">No hay una caja abierta.</p>
-                    <button class="btn btn-sm btn-morado w-100">Abrir caja</button>
-                <?php endif; ?>
-            </div>
-        </div>
-        <?php endif; ?>
+        <?php /* Aqui estaba la tarjeta "Estado de caja".
+
+                 La quito la doctora el 17 de octubre de 2026. Ensaniaba
+                 si hay una caja abierta, a que hora y con cuanto fondo,
+                 y en el uso diario no contestaba ninguna pregunta: quien
+                 abre la caja ya sabe que la abrio, y el dato se mira en
+                 Cajas cuando se va a cortar. Ocupaba el primer sitio de
+                 la columna, que es el que se lee, y empujaba hacia abajo
+                 las dos que si se usan —lo que falta cobrar y quien tiene
+                 saldo a favor—.
+
+                 Su boton "Abrir caja" tampoco hacia nada: nunca tuvo
+                 escucha ni enlace. Abrir la caja se hace desde su propio
+                 modulo, que es donde esta el formulario de verdad. */ ?>
 
         <?php if (Auth::puede('cajas.ver')): ?>
         <div class="card mb-3 entra" <?= $entrada() ?>>

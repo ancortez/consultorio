@@ -1379,3 +1379,268 @@ document.addEventListener('DOMContentLoaded', () => {
   elegirMensaje('con');
   pintar();
 });
+
+/* =====================================================================
+   Configuracion > Respaldos
+   =====================================================================
+   Crear, descargar y restaurar.
+
+   La pantalla ya llega dibujada desde PHP; esto la rehace despues de
+   crear o restaurar, sin recargar. Recargar perderia el aviso de lo que
+   acaba de pasar, que en esta pantalla es justo lo que hay que leer.
+   ===================================================================== */
+document.addEventListener('DOMContentLoaded', () => {
+  const pantalla = document.getElementById('respaldosPantalla');
+  if (!pantalla) return;
+
+  const tabla = document.getElementById('rsTabla');
+
+  const modalRestaurar = bootstrap.Modal.getOrCreateInstance(
+    document.getElementById('modalRestaurar'));
+
+  let respaldos = [];
+
+  /**
+   * La fecha de un respaldo, desde su sello de tiempo.
+   *
+   * No se pasa por App.fechaHora: esa espera el texto que manda MySQL y
+   * aqui lo que llega es un sello de tiempo de Unix. Convertirlo con
+   * toISOString para darsela lo pasaria a UTC, y en Nayarit eso son
+   * seis horas menos: el respaldo de las 2:30 de la madrugada se
+   * leeria como de las 8:30 de la noche del dia anterior.
+   */
+  function cuando(marca) {
+    return new Date(Number(marca) * 1000).toLocaleString('es-MX', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  /** Hace cuanto, en palabras. El mismo criterio que usa PHP al pintar. */
+  function hace(marca) {
+    const horas = Math.floor((Date.now() / 1000 - Number(marca)) / 3600);
+    if (horas < 1) return 'hace un momento';
+    if (horas < 24) return `hace ${horas} h`;
+    const dias = Math.floor(horas / 24);
+    return dias === 1 ? 'ayer' : `hace ${dias} días`;
+  }
+
+  function pintar(lista) {
+    respaldos = lista ?? [];
+
+    if (!respaldos.length) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="6">
+          <i class="bi bi-shield-exclamation fs-3 d-block mb-2"
+             style="color:var(--alerta)"></i>
+          No hay ningún respaldo todavía.
+          <div class="text-secondary small mt-1">
+            Pica "Crear respaldo ahora" para hacer el primero.
+          </div></td></tr>`;
+      return;
+    }
+
+    tabla.innerHTML = respaldos.map((r, i) => `
+      <tr>
+        <td>
+          <div class="fw-semibold" style="font-size:12.5px">
+            ${App.esc(r.nombre)}
+          </div>
+        </td>
+        <td>
+          ${r.tipo === 'base'
+            ? '<span class="chip-estado" style="background:#f0e9f7;color:var(--morado-700)">'
+              + '<i class="bi bi-database me-1"></i>Base</span>'
+            : '<span class="chip-estado" style="background:#e8f4f1;color:#13795f">'
+              + '<i class="bi bi-images me-1"></i>Archivos</span>'}
+        </td>
+        <td class="text-secondary" style="font-size:12.5px">
+          ${App.esc(cuando(r.fecha))}
+          <div style="font-size:11px">${App.esc(hace(r.fecha))}</div>
+        </td>
+        <td class="text-secondary" style="font-size:12.5px">
+          ${App.esc(App.tamanoLegible(r.bytes))}
+        </td>
+        <td style="font-size:11.5px">
+          ${r.bajado
+            ? '<span class="doc-estado escaneado">'
+              + '<i class="bi bi-check-circle-fill"></i> Ya lo bajaste</span>'
+            : '<span class="chip-sin-hora">'
+              + '<i class="bi bi-cloud-arrow-down"></i> Sin bajar</span>'}
+          ${r.cifrado
+            ? '<div class="text-secondary mt-1">'
+              + '<i class="bi bi-lock-fill"></i> cifrado</div>' : ''}
+        </td>
+        <td class="col-acciones">
+          <div class="dropdown">
+            <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
+                    aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item"
+                     href="${App.URL_BASE}/respaldo_bajar.php?nombre=${encodeURIComponent(r.nombre)}">
+                <i class="bi bi-download me-2"></i>Descargar</a></li>
+              ${r.restaurable ? `
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item text-danger" href="#"
+                     data-restaurar="${i}">
+                <i class="bi bi-arrow-counterclockwise me-2"></i>Restaurar</a></li>`
+              : `
+              <li><hr class="dropdown-divider"></li>
+              <li><span class="dropdown-item-text text-secondary"
+                        style="font-size:11.5px">
+                ${r.tipo === 'base'
+                  ? 'Cifrado: se restaura en el servidor'
+                  : 'Los archivos se restauran en el servidor'}
+              </span></li>`}
+            </ul>
+          </div>
+        </td>
+      </tr>`).join('');
+  }
+
+  /** Pone al dia las tres tarjetas de arriba. */
+  function pintarResumen(resumen) {
+    if (!resumen) return;
+
+    const poner = (id, texto) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = texto;
+    };
+
+    poner('rsUltimaBase',
+      resumen.ultima_base ? hace(resumen.ultima_base) : 'nunca');
+    poner('rsUltimoArchivo',
+      resumen.ultimo_archivo ? hace(resumen.ultimo_archivo) : 'nunca');
+    poner('rsOcupan', App.tamanoLegible(resumen.bytes));
+    poner('rsCuantos', `${resumen.cuantos} respaldo(s)`);
+  }
+
+  async function cargar() {
+    try {
+      const r = await App.api('configuracion/respaldos_listar.php', {});
+      pintar(r.datos.respaldos);
+      pintarResumen(r.datos.resumen);
+    } catch (e) {
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="6">
+          No se pudo leer la carpeta de respaldos.</td></tr>`;
+    }
+  }
+
+  /* -------------------------------------------------------------------
+     Crear
+     ------------------------------------------------------------------- */
+  document.getElementById('rsCrear')?.addEventListener('click', async (ev) => {
+    const boton = ev.currentTarget;
+
+    /*
+       El boton se apaga y lo dice.
+
+       Un volcado de la base tarda segundos y no da ninguna señal: sin
+       esto, lo que se hace es picar otra vez. Dos volcados a la vez no
+       corrompen nada —el segundo falla porque ya hay uno de ese
+       minuto— pero el aviso de error sobre algo que si funciono
+       confunde mas que la espera.
+    */
+    const textoAntes = boton.innerHTML;
+    boton.disabled = true;
+    boton.innerHTML = '<span class="spinner-border spinner-border-sm me-1">'
+                    + '</span> Creando...';
+
+    try {
+      const r = await App.api('configuracion/respaldo_crear.php', {});
+      pintar(r.datos.respaldos);
+      pintarResumen(r.datos.resumen);
+      App.alerta.exito('Respaldo creado', r.mensaje ?? '');
+    } catch (e) {
+      /* ya se mostro */
+    } finally {
+      boton.disabled = false;
+      boton.innerHTML = textoAntes;
+    }
+  });
+
+  /* -------------------------------------------------------------------
+     Restaurar
+     ------------------------------------------------------------------- */
+  tabla.addEventListener('click', (ev) => {
+    const opcion = ev.target.closest('[data-restaurar]');
+    if (!opcion) return;
+    ev.preventDefault();
+
+    const r = respaldos[Number(opcion.dataset.restaurar)];
+    if (!r) return;
+
+    document.getElementById('rtNombre').value = r.nombre;
+    document.getElementById('rtArchivo').textContent = r.nombre;
+    document.getElementById('rtCuando').textContent =
+      `${hace(r.fecha)} · ${App.tamanoLegible(r.bytes)}`;
+
+    // El campo se limpia cada vez: dejandolo escrito de la vez
+    // anterior, restaurar seria un clic sin leer nada.
+    const campo = document.getElementById('rtConfirmacion');
+    campo.value = '';
+    campo.classList.remove('is-invalid');
+
+    modalRestaurar.show();
+    setTimeout(() => campo.focus(), 250);
+  });
+
+  document.getElementById('formRestaurar')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+
+    const boton = document.getElementById('rtAceptar');
+    const campo = document.getElementById('rtConfirmacion');
+    campo.classList.remove('is-invalid');
+
+    const textoAntes = boton.innerHTML;
+    boton.disabled = true;
+    boton.innerHTML = '<span class="spinner-border spinner-border-sm me-1">'
+                    + '</span> Restaurando...';
+
+    try {
+      const r = await App.api('configuracion/respaldo_restaurar.php',
+        App.formADatos(ev.target));
+
+      modalRestaurar.hide();
+      pintar(r.datos.respaldos);
+      pintarResumen(r.datos.resumen);
+
+      /*
+         Esto NO se avisa con un toast.
+
+         Lo que acaba de pasar es que todos los expedientes son otros.
+         Un aviso que se va solo a los tres segundos no alcanza para
+         eso, y ademas hay algo que hay que leer: el nombre del respaldo
+         de seguridad, que es la unica forma de volver atras.
+      */
+      await Swal.fire({
+        icon: 'success',
+        title: 'Base restaurada',
+        html: `<div style="text-align:left;font-size:14px">
+                 <p>Se restauró <b>${App.esc(r.datos.restaurado)}</b>.</p>
+                 <p>Antes se guardó
+                    <b>${App.esc(r.datos.seguridad)}</b>
+                    con lo que había hasta hace un momento. Si éste no era
+                    el respaldo correcto, restaura ése.</p>
+                 <p class="text-secondary" style="font-size:12.5px">
+                   Cierra sesión y vuelve a entrar: lo que tengas abierto
+                   en otra pestaña es de la base anterior.
+                 </p>
+               </div>`,
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: '#7b2d8e',
+        allowOutsideClick: false,
+      });
+    } catch (e) {
+      if (e.errores?.confirmacion) {
+        campo.classList.add('is-invalid');
+        document.getElementById('rtError').textContent = e.errores.confirmacion;
+        campo.focus();
+      }
+    } finally {
+      boton.disabled = false;
+      boton.innerHTML = textoAntes;
+    }
+  });
+
+  cargar();
+});

@@ -17,6 +17,12 @@ $opciones = [
      'vista' => 'recordatorios', 'permiso' => 'config.consultorio'],
     ['texto' => 'Apariencia', 'icono' => 'bi-palette',
      'vista' => 'apariencia', 'permiso' => 'config.consultorio'],
+    // Al final y con su propio permiso: solo lo ve el administrador.
+    // Un respaldo trae el expediente completo de todos los pacientes y
+    // restaurar reemplaza todo, asi que no cuelga de config.consultorio
+    // como las de arriba.
+    ['texto' => 'Respaldos', 'icono' => 'bi-shield-check',
+     'vista' => 'respaldos', 'permiso' => 'config.respaldos'],
 ];
 ?>
 <aside class="menu-lateral">

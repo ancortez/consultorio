@@ -85,6 +85,10 @@ correr tools/probar_buscar_navegador.js
 correr tools/probar_codigo_hallazgo.py
 correr tools/probar_odontograma_estado.py
 correr tools/probar_odontograma_navegador.js
+correr tools/probar_revisar_respaldos.py
+correr tools/probar_nota_editable.py
+correr tools/probar_respaldos_sistema.py
+correr tools/probar_bajar_respaldos.py
 
 # Si manianaa alguien agrega un archivo a tools/ y no lo mete en la lista
 # de arriba, esto lo avisa en vez de dejarlo sin correr para siempre.
