@@ -193,6 +193,33 @@ else
     aviso "ni mostrar documentos. Revisa: cd ../minio && docker compose ps"
 fi
 
+# ---------------------------------------------------------------------
+# 6. Los respaldos
+# ---------------------------------------------------------------------
+# Un recordatorio corto, no una comprobacion completa: para eso esta
+# revisar-respaldos.sh. Aqui se mira lo unico que no admite espera —que
+# la tarea automatica exista— porque este servidor se monto a mano y
+# ese guion pudo no correr nunca. Sin tarea, lo unico que respalda es
+# este despliegue, y solo cuando lo corres.
+paso "Respaldos"
+
+if [[ -f /etc/cron.d/consultorio-respaldo ]]; then
+    ULTIMO="$(ls -t "${CARPETA_RESPALDOS:-/var/respaldos/consultorio}"/base-* \
+        2>/dev/null | head -1)"
+    if [[ -n $ULTIMO ]]; then
+        HORAS=$(( ( $(date +%s) - $(stat -c %Y "$ULTIMO") ) / 3600 ))
+        ok "tarea automatica puesta; ultimo respaldo hace ${HORAS}h"
+    else
+        aviso "la tarea esta puesta pero no hay ningun respaldo todavia"
+    fi
+else
+    aviso "${NEGRITA}NO hay tarea automatica de respaldo.${FIN}"
+    aviso "Lo unico que respalda hoy es este guion, cuando lo corres."
+    aviso "Para arreglarlo:  sudo bash revisar-respaldos.sh --instalar-cron"
+fi
+
+aviso "Para revisarlos a fondo:  bash revisar-respaldos.sh"
+
 echo
 echo "${VERDE}${NEGRITA}  Desplegado. Version $VERSION_AHORA en https://$DOMINIO${FIN}"
 echo

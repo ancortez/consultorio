@@ -67,12 +67,28 @@ services:
       - ../../:/var/www/html:ro
       # Storage si necesita escribir (logs, temporales).
       - ../../storage:/var/www/storage
+      # Los respaldos, para poder listarlos, descargarlos y crearlos
+      # desde Configuracion > Respaldos.
+      #
+      # CON escritura, y eso hay que decirlo: es la misma carpeta donde
+      # el cron deja los respaldos de cada noche. Lo que la protege no
+      # es el montaje sino el permiso de la aplicacion —solo el
+      # administrador entra a esa pantalla— y que la aplicacion no borra
+      # nunca: crea, lee y restaura. La rotacion la sigue haciendo
+      # respaldar.sh, en el servidor.
+      - ${CARPETA_RESPALDOS:-/var/respaldos/consultorio}:/var/respaldos
     environment:
       DB_HOST: db
       DB_PORT: 3306
       DB_NAME: ${DB_NAME:?Falta DB_NAME}
       DB_USER: ${DB_USER:?Falta DB_USER}
       DB_PASS: ${DB_PASS:?Falta DB_PASS}
+
+      # Donde ve la app los respaldos DENTRO del contenedor. No es la
+      # ruta del servidor: la de alla puede cambiar con
+      # CARPETA_RESPALDOS y aqui siempre se monta en el mismo sitio.
+      # Teniendolo en una variable, PHP no adivina.
+      CARPETA_RESPALDOS: /var/respaldos
 
       # En produccion los errores se registran, nunca se muestran. Un
       # mensaje de error de PHP en pantalla le regala a cualquiera la
