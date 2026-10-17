@@ -102,10 +102,27 @@ if "if ((float) $cargo['aplicado'] > 0) { $intocables++; continue; }" not in car
     fallos.append('la sincronizacion del plan pisa cargos ya abonados')
 print('  ok   lo ya abonado no se toca')
 
-# Los cargos nacen cuando el plan se acepta, no antes
-if 'ESTADOS_COBRABLES = [2, 3, 4]' not in carg:
-    fallos.append('los cargos del plan no esperan a que se acepte')
-print('  ok   un plan propuesto no genera cargos')
+# Los cargos nacen al GUARDAR el plan, en cualquier estado menos el
+# cancelado.
+#
+# Esto decia lo contrario hasta el 17 de octubre de 2026: exigia
+# ESTADOS_COBRABLES = [2, 3, 4], o sea que un plan propuesto no
+# generara cargos. Era el comportamiento que Angel reporto como fallo:
+# la doctora captura el plan, lo explica y el tratamiento arranca, pero
+# el pendiente de pago no aparecia hasta escanear la hoja firmada y
+# volver a guardar, asi que en el mostrador el paciente no debia nada
+# por un trabajo que ya se le estaba haciendo.
+if 'ESTADOS_COBRABLES = [1, 2, 3, 4]' not in carg:
+    fallos.append('los cargos del plan vuelven a esperar a que se acepte: '
+                  'el pendiente de pago no apareceria al guardar')
+# El cancelado tiene que seguir FUERA, y su rama tiene que retirar los
+# cargos sin pagos: es la contrapartida de generarlos desde el principio.
+if '5' in carg[carg.index('ESTADOS_COBRABLES'):
+              carg.index('ESTADOS_COBRABLES') + 60]:
+    fallos.append('un plan cancelado seguiria generando cargos')
+if 'Se cancelo el plan de tratamiento.' not in carg:
+    fallos.append('cancelar el plan no retira sus cargos sin pagos')
+print('  ok   el plan genera cargos al guardarse, y el cancelado los retira')
 
 # ---------- 4. Permisos nuevos, en el catalogo y en algun rol ----------
 nuevos = ['cajas.descuento', 'cajas.cargo', 'cajas.estado_cuenta', 'consultas.todas']

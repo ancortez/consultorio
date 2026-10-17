@@ -182,6 +182,7 @@ final class Agenda
                   JOIN v_paciente vp ON vp.id_registro_paciente = c.id_registro_paciente
                  WHERE c.id_usuario_dentista = :d
                    AND c.id_estado_cita IN (' . implode(',', self::ESTADOS_OCUPAN) . ')
+                   AND c.sin_hora = 0
                    AND c.fecha_inicio < :fin
                    AND c.fecha_fin    > :ini';
         $params = [':d' => $idDentista, ':fin' => $fin, ':ini' => $inicio];

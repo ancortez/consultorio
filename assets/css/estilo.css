@@ -3205,34 +3205,50 @@ button.renglon-ficha { width: 100%; text-align: left; }
 .ficha-cancelada .fw-semibold { text-decoration: line-through; }
 
 /* =====================================================================
-   Historia clinica: la respuesta que esta a medias
+   Historia clinica: el detalle que no se especifico
    =====================================================================
-   Una pregunta contestada "si" a la que le falta su detalle es el peor
-   estado posible, porque PARECE capturada. Pasa casi siempre con el
-   prellenado, que contesta varias de golpe sin poder saber el detalle.
+   Aqui vivia .falta-complemento, el amarillo de "falta el detalle": una
+   pregunta contestada "si" sin su complemento se marcaba y el boton de
+   siguiente no avanzaba.
 
-   Hasta ahora la unica senial era que el boton de siguiente no
-   avanzaba, sin decir por cual de las doce preguntas. El amarillo va
-   sobre el bloque de la pregunta —no sobre el campo escondido— porque
-   lo que hay que mirar para arreglarlo es la pregunta.
+   Se quito el 16 de octubre de 2026. Los doce complementos pasaron a
+   ser opcionales porque el tutor muchas veces no sabe el detalle en ese
+   momento, y la traba lo dejaba elegir entre inventarlo o cambiar el
+   "si" por un "no" —que borra un antecedente clinico para poder
+   avanzar—. Sin la regla, el amarillo estaria regazniando por algo que
+   es perfectamente valido.
+
+   Lo que queda es la capsula con su texto por omision. Mas apagada que
+   una respuesta de verdad, porque no lo es: es el hueco donde cabe una,
+   y se pica para escribirla cuando se sepa.
    ------------------------------------------------------------------- */
-.falta-complemento {
-    background: #fff8e1;
-    border-left: 3px solid #e0a800;
+.respuesta-extra.sin-especificar {
+    border-style: dashed;
+    background: #fff;
+    color: var(--gris-600, #6b6577);
+    font-style: italic;
+}
+.respuesta-extra.sin-especificar:hover {
+    background: var(--morado-050, #f6f2fc);
+    border-style: solid;
+    font-style: normal;
+}
+
+/* El aviso de la ventanita: que el detalle se puede dejar vacio.
+
+   Sin el, el cuadro en blanco parece un error —la ventana se abrio sola
+   al contestar "si"— y no hay nada que diga que se puede cerrar sin
+   escribir. */
+.aviso-opcional {
+    display: flex; gap: .4rem; align-items: flex-start;
+    background: var(--morado-050, #f6f2fc);
+    border: 1px solid var(--morado-200, #d9c9ee);
     border-radius: 8px;
-    padding: .4rem .55rem;
-    margin-left: -.55rem;
+    padding: .45rem .55rem;
+    font-size: .74rem; line-height: 1.35;
+    color: var(--morado-800, #5a2470);
 }
-.falta-complemento::after {
-    content: "Falta el detalle";
-    display: block;
-    margin-top: .25rem;
-    font-size: .72rem; font-weight: 600;
-    color: #8a6100;
-}
-/* Con la respuesta ya puesta no hace falta el aviso: el chip la
-   muestra. Dejarlo seria contradecirse en el mismo bloque. */
-.falta-complemento:has(.respuesta-extra)::after { content: none; }
+.aviso-opcional i { color: var(--morado-600, #9333a8); margin-top: .1rem; }
 
 /* =====================================================================
    Ficha: los pendientes de digitalizar, dentro de la tarjeta de datos
@@ -3353,3 +3369,209 @@ button.renglon-ficha { width: 100%; text-align: left; }
     color: #1d6b48;
 }
 .doc-estado.escaneado i { font-size: .95rem; }
+
+/* Un hallazgo que es solo imagen: la descripcion es opcional desde
+   octubre de 2026, porque muchas veces la foto ES el hallazgo. El
+   renglon dice que no hay texto en vez de dejar un hueco mudo. */
+.hz-texto.sin-texto { color: var(--gris-500, #9a95a3); font-style: italic; }
+
+/* =====================================================================
+   Citas apartadas para el dia, sin hora todavia
+   =====================================================================
+   El paciente de seguimiento se cita a seis semanas y ese dia la agenda
+   todavia no existe. La cita se guarda con el dia y sin hora, y en
+   pantalla tiene que verse distinta de una cita normal: si se pintara
+   igual, con su 00:00, se leeria como un horario —y como el peor
+   horario posible—.
+
+   El codigo de color es el de aviso, no el de error: no esta mal, esta
+   a medias. Es trabajo que falta repartir, no un problema que arreglar.
+   ------------------------------------------------------------------- */
+.chip-sin-hora {
+    display: inline-flex; align-items: center; gap: .25rem;
+    background: #fff4e0;
+    color: #8a5a00;
+    border: 1px solid #f0d9a8;
+    border-radius: 999px;
+    padding: .1rem .45rem;
+    font-size: 10.5px; font-weight: 600;
+    white-space: nowrap;
+}
+.chip-sin-hora i { font-size: .9rem; }
+
+/* El renglon completo con un tinte muy leve: en una agenda con doce
+   citas, el chip solo no alcanza a separar las que faltan de las que ya
+   tienen hora. */
+tr.fila-sin-hora > td { background: #fffaf2; }
+
+/* --- La banda de la vista de semana --- */
+/* Va arriba de todas las horas porque es lo que hay que repartir antes
+   de ponerse a mirar huecos. */
+table.semana tr.renglon-sin-hora > td {
+    background: #fffaf2;
+    border-bottom: 2px solid #f0d9a8;
+    vertical-align: top;
+}
+table.semana tr.renglon-sin-hora td.hora {
+    font-size: 9.5px; line-height: 1.15;
+    color: #8a5a00; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .03em;
+}
+table.semana td.celda-sin-hora { padding: 3px; }
+
+.pildora-sin-hora {
+    display: flex; align-items: center; gap: .25rem;
+    border-left: 3px solid var(--color, var(--morado-600));
+    background: #fff;
+    border-radius: 5px;
+    padding: .15rem .3rem;
+    margin-bottom: 3px;
+    font-size: 10.5px; font-weight: 600;
+    color: var(--morado-900);
+    cursor: pointer;
+    transition: box-shadow .12s;
+}
+.pildora-sin-hora:last-child { margin-bottom: 0; }
+.pildora-sin-hora:hover { box-shadow: var(--sombra); }
+.pildora-sin-hora i { color: #8a5a00; font-size: .85rem; flex-shrink: 0; }
+.pildora-sin-hora span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Las dos columnas de fecha del buscador de pacientes.
+   Mas chicas que el resto y sin partirse: son para comparar de un
+   vistazo "¿es nuevo?" contra "¿hace cuanto que no viene?", y una fecha
+   en dos renglones no se compara con la de arriba. */
+.celda-fecha {
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--gris-700, #4f4a5a);
+}
+
+/* =====================================================================
+   Las dos plantillas del recordatorio
+   =====================================================================
+   Una cita con hora y un dia apartado sin hora no se anuncian igual, asi
+   que son dos textos. Se editan en el mismo cuadro —dos cajas grandes
+   con dos vistas previas no caben en la tarjeta— y este selector dice
+   cual se esta editando.
+
+   Botones y no un combo: son dos opciones y las dos tienen que estar a
+   la vista, porque la pregunta que contesta este selector es "¿ya
+   revise el otro?".
+   ------------------------------------------------------------------- */
+.pestanias-mensaje {
+    display: flex; gap: .35rem; flex-wrap: wrap;
+}
+.chip-mensaje {
+    border: 1px solid var(--gris-300, #ddd9e3);
+    background: #fff;
+    color: var(--gris-700, #4f4a5a);
+    border-radius: 999px;
+    padding: .2rem .7rem;
+    font-size: .76rem; font-weight: 500;
+    white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.chip-mensaje:hover {
+    border-color: var(--morado-400, #a98fd6);
+    color: var(--morado-800, #5a2470);
+}
+/* El elegido en morado lleno: con solo el borde, a dos pasos de la
+   pantalla no se distingue cual de los dos esta activo. */
+.chip-mensaje.activo {
+    background: var(--morado-600, #9333a8);
+    border-color: var(--morado-600, #9333a8);
+    color: #fff;
+}
+
+/* =====================================================================
+   Odontograma: el estado de cada diente
+   =====================================================================
+   El relleno dice QUE TIENE el diente; el contorno, si esta ELEGIDO.
+   Son dos preguntas distintas y las dos hacen falta a la vez: en el
+   selector del plan se escoge donde va el procedimiento mirando como
+   esta la boca.
+
+   Si el estado se pintara con el mismo relleno que la seleccion, un
+   diente elegido dejaria de verse elegido en cuanto tuviera estado —o
+   al contrario—, y justo entonces es cuando importa distinguirlos.
+   ------------------------------------------------------------------- */
+.diente.con-estado .cr {
+    fill: var(--estado, var(--gris-400));
+    stroke: color-mix(in srgb, var(--estado, #999) 70%, #000);
+}
+.diente.con-estado .rz {
+    fill: color-mix(in srgb, var(--estado, #999) 35%, #fff);
+    stroke: color-mix(in srgb, var(--estado, #999) 60%, #000);
+}
+.diente.con-estado span { color: var(--gris-800, #332f3a); font-weight: 700; }
+
+/* Elegido Y con estado: el relleno se queda —es el dato clinico— y la
+   seleccion se marca con un aro morado alrededor. Un borde grueso en el
+   SVG se perderia entre los contornos del propio diente. */
+.diente.elegido.con-estado .cr {
+    fill: var(--estado, var(--gris-400));
+    stroke: var(--morado-800);
+    stroke-width: 2.6;
+}
+.diente.elegido.con-estado .rz { stroke: var(--morado-700); }
+.diente.elegido {
+    outline: 2px solid var(--morado-600, #9333a8);
+    outline-offset: 1px;
+    border-radius: 6px;
+}
+
+/* ---- La paleta de condiciones ---- */
+.paleta-odontograma {
+    border: 1px solid var(--gris-200, #e9e6ee);
+    border-radius: 10px;
+    padding: .6rem .7rem;
+    background: var(--morado-050, #f6f2fc);
+}
+.paleta-odontograma .po-aviso {
+    font-size: .78rem; color: var(--gris-600, #6b6577);
+    margin-bottom: .5rem;
+}
+/* Con dientes elegidos el aviso se pone en morado y en negrita: es el
+   momento en que hay que mirar la paleta, y un texto gris no lo dice. */
+.paleta-odontograma .po-aviso.listo {
+    color: var(--morado-800, #5a2470); font-weight: 600;
+}
+.paleta-odontograma .po-botones {
+    display: flex; flex-wrap: wrap; gap: .35rem;
+}
+
+.chip-condicion {
+    display: inline-flex; align-items: center; gap: .3rem;
+    border: 1px solid var(--gris-300, #ddd9e3);
+    background: #fff;
+    border-radius: 999px;
+    padding: .18rem .55rem;
+    font-size: .76rem; font-weight: 500;
+    color: var(--gris-700, #4f4a5a);
+    white-space: nowrap;
+}
+.chip-condicion i {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, .18);
+    flex-shrink: 0;
+}
+/* "Quitar la marca" no tiene color porque no pinta nada: su circulo va
+   vacio y con el borde cortado, que es como se dibuja "ninguno". */
+.chip-condicion i.vacio {
+    background: #fff;
+    border-style: dashed;
+}
+.chip-condicion.elegible { cursor: pointer; transition: border-color .12s, background .12s; }
+.chip-condicion.elegible:hover {
+    border-color: var(--morado-500, #b36fd0);
+    background: var(--morado-050, #f6f2fc);
+}
+.chip-condicion.elegible:disabled { opacity: .5; cursor: default; }
+.chip-condicion.quitar { color: var(--peligro, #c0392b); }
+
+.leyenda-odontograma {
+    display: flex; flex-wrap: wrap; gap: .35rem; align-items: center;
+    font-size: .76rem;
+}

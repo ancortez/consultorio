@@ -53,7 +53,42 @@ $limite = (int) parametro('pacientes_lista_inicio', (string) PACIENTES_INICIO);
                             <option value="">Todos</option>
                         </select>
                     </div>
-                    <div class="col-3 text-end">
+                    <?php /* El orden lo decide el servidor, no la pantalla.
+
+                             Ordenar aqui ordenaria solo los 25 que se
+                             trajeron, y la lista viene recortada: pedir
+                             "por apellido" acomodaria alfabeticamente a
+                             los 25 mas recientes, que no son los 25
+                             primeros por apellido. Eso se ve bien y
+                             contesta otra pregunta.
+
+                             Nombres y apellidos van separados porque son
+                             dos busquedas distintas y las dos se hacen:
+                             "a ver los Guzman" y "¿como se llamaba el
+                             Mateo?". El nombre completo empieza por los
+                             nombres, asi que una sola opcion solo sirve
+                             para una de las dos. */ ?>
+                    <div class="col-3">
+                        <label class="form-label" for="filtroOrden">Ordenar por</label>
+                        <div class="input-group">
+                            <select class="form-select" id="filtroOrden">
+                                <option value="ultima_consulta">&Uacute;ltima consulta</option>
+                                <option value="alta">Fecha de alta</option>
+                                <option value="nombres">Nombres</option>
+                                <option value="apellidos">Apellidos</option>
+                            </select>
+                            <?php /* El sentido como boton y no como un
+                                     segundo combo: son dos opciones y la
+                                     flecha dice en que sentido esta
+                                     ahora mismo. */ ?>
+                            <button class="btn btn-outline-secondary" type="button"
+                                    id="filtroSentido" data-baja="1"
+                                    title="Cambiar el sentido del orden">
+                                <i class="bi bi-sort-down"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-12 text-end">
                         <span class="text-secondary small" id="contadorResultados"></span>
                     </div>
                 </div>
@@ -65,16 +100,24 @@ $limite = (int) parametro('pacientes_lista_inicio', (string) PACIENTES_INICIO);
                 <table class="table tabla-sistema align-middle">
                     <thead>
                         <tr>
-                            <th style="width:24%">Nombre completo</th>
+                            <th style="width:22%">Nombre completo</th>
                             <th>Domicilio</th>
-                            <th style="width:130px">Tel&eacute;fono</th>
-                            <th style="width:200px">Correo electr&oacute;nico</th>
+                            <th style="width:120px">Tel&eacute;fono</th>
+                            <th style="width:170px">Correo electr&oacute;nico</th>
+                            <?php /* Las dos fechas juntas y al final.
+
+                                     Contestan "¿es paciente nuevo?" y
+                                     "¿hace cuanto que no viene?", que
+                                     son la misma mirada: se leen una al
+                                     lado de la otra o no se leen. */ ?>
+                            <th style="width:100px">Alta</th>
+                            <th style="width:110px">&Uacute;lt. consulta</th>
                             <th class="col-acciones"></th>
                         </tr>
                     </thead>
                     <tbody id="tablaPacientes">
                         <tr class="fila-vacia">
-                            <td colspan="5">
+                            <td colspan="7">
                                 <div class="spinner-border spinner-border-sm me-2"
                                      style="color:var(--morado-600)"></div>
                                 Cargando pacientes...

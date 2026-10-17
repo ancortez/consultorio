@@ -158,11 +158,15 @@ function listadoPacientes() {
 
   const filtro   = document.getElementById('filtroBusqueda');
   const estatus  = document.getElementById('filtroEstatus');
+  const orden    = document.getElementById('filtroOrden');
+  const sentido  = document.getElementById('filtroSentido');
   const limpiar  = document.getElementById('limpiarFiltro');
   const contador = document.getElementById('contadorResultados');
 
+  const COLUMNAS = 7;
+
   async function cargar() {
-    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="5">
+    tabla.innerHTML = `<tr class="fila-vacia"><td colspan="${COLUMNAS}">
         <div class="spinner-border spinner-border-sm me-2" style="color:var(--morado-600)"></div>
         Buscando...</td></tr>`;
 
@@ -170,12 +174,28 @@ function listadoPacientes() {
       const r = await App.api('paciente/listar.php', {
         q: filtro.value.trim(),
         estatus: estatus.value,
+        orden: orden.value,
+        baja: sentido.dataset.baja,
       });
       pintar(r.datos);
     } catch (e) {
-      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="5">
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="${COLUMNAS}">
           No se pudo cargar la lista.</td></tr>`;
     }
+  }
+
+  /**
+   * Una fecha corta, o un guion cuando no hay.
+   *
+   * El guion y no una celda vacia: una columna de fechas con huecos se
+   * lee como si el renglon estuviera cortado. "Sin consultas" en todas
+   * las celdas vacias llenaria la columna de texto y taparia las
+   * fechas, que es lo que se viene a comparar.
+   */
+  function fechaCorta(valor) {
+    return valor
+      ? App.esc(App.fecha(valor))
+      : '<span class="text-secondary opacity-50">-</span>';
   }
 
   function pintar(lista) {
@@ -184,7 +204,7 @@ function listadoPacientes() {
       : '';
 
     if (!lista.length) {
-      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="5">
+      tabla.innerHTML = `<tr class="fila-vacia"><td colspan="${COLUMNAS}">
           <i class="bi bi-search fs-3 d-block mb-2 opacity-50"></i>
           No se encontraron pacientes con ese criterio.</td></tr>`;
       return;
@@ -223,6 +243,8 @@ function listadoPacientes() {
         </td>
         <td>${p.telefono ? App.esc(p.telefono) : '<span class="text-secondary opacity-50">-</span>'}</td>
         <td class="text-secondary sin-mayusculas">${p.correo ? App.esc(p.correo) : '-'}</td>
+        <td class="celda-fecha">${fechaCorta(p.fecha_alta)}</td>
+        <td class="celda-fecha">${fechaCorta(p.ultima_consulta)}</td>
         <td class="col-acciones">
           <div class="dropdown">
             <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
@@ -246,6 +268,40 @@ function listadoPacientes() {
   filtro.addEventListener('input', App.debounce(cargar, 350));
   estatus.addEventListener('change', cargar);
   limpiar.addEventListener('click', () => { filtro.value = ''; cargar(); filtro.focus(); });
+
+  /*
+     Cambiar de criterio reinicia el sentido.
+
+     Una fecha se mira de lo mas nuevo a lo mas viejo y un nombre de la A
+     a la Z: es lo que uno espera de cada cosa. Conservando el sentido
+     anterior, pasar de "ultima consulta" a "apellidos" dejaria la lista
+     empezando por la Z, que nadie pidio y que parece un error de la
+     pantalla.
+
+     El valor por omision lo decide el servidor con la misma regla; aqui
+     se repite para que la flecha del boton coincida con lo que va a
+     llegar. Si solo lo supiera el servidor, el boton diria una cosa y la
+     lista vendria de la otra.
+  */
+  orden.addEventListener('change', () => {
+    const esFecha = ['ultima_consulta', 'alta'].includes(orden.value);
+    ponerSentido(esFecha);
+    cargar();
+  });
+
+  sentido.addEventListener('click', () => {
+    ponerSentido(sentido.dataset.baja !== '1');
+    cargar();
+  });
+
+  function ponerSentido(baja) {
+    sentido.dataset.baja = baja ? '1' : '0';
+    sentido.querySelector('i').className = baja
+      ? 'bi bi-sort-down' : 'bi bi-sort-up';
+    sentido.title = baja
+      ? 'Ahora: de mayor a menor. Picalo para invertirlo.'
+      : 'Ahora: de menor a mayor. Picalo para invertirlo.';
+  }
 
   cargar();
 

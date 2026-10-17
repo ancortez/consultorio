@@ -22,6 +22,7 @@ $idProc       = paramInt('id_procedimiento') ?: null;
 $duracion     = paramInt('duracion_min') ?? Agenda::BLOQUE;
 $motivo       = limpiarEspacios(paramMayus('motivo'));
 $notas        = paramTexto('notas');
+$sinHora      = param('sin_hora') === '1';
 
 // La duracion sale del procedimiento previsto. Apartar media hora
 // para todo es lo que hace que una agenda se retrase desde la tercera
@@ -55,8 +56,13 @@ $errores = [];
 if (!$idExpediente) { $errores['id_registro_paciente'] = 'Selecciona el paciente.'; }
 if (!$idDentista)   { $errores['id_usuario_dentista']  = 'Selecciona el dentista.'; }
 if ($fecha === '')  { $errores['fecha'] = 'Selecciona la fecha.'; }
-if ($hora === '')   { $errores['hora']  = 'Selecciona la hora.'; }
-if ($duracion < 15 || $duracion > 480) {
+
+// La hora solo se exige cuando la cita la lleva. Apartar el dia y
+// repartir las horas despues es como trabaja el consultorio con las
+// citas a seis semanas.
+if (!$sinHora && $hora === '') { $errores['hora'] = 'Selecciona la hora.'; }
+
+if (!$sinHora && ($duracion < 15 || $duracion > 480)) {
     $errores['duracion_min'] = 'La duracion debe estar entre 15 y 480 minutos.';
 }
 if ($errores) { Respuesta::validacion($errores); }
@@ -66,15 +72,38 @@ if (!Agenda::puedeAgendarPara($idDentista)) {
     Respuesta::error('Solo puedes agendar citas contigo mismo.', 403);
 }
 
-$inicio = "$fecha $hora:00";
-$fin    = date('Y-m-d H:i:s', strtotime($inicio) + $duracion * 60);
+if ($sinHora) {
+    /*
+       Sin hora: las dos fechas a las 00:00 de ese dia.
 
-// La validacion se repite aqui aunque la pantalla ya la hizo: entre que
-// se cargaron los espacios y se dio guardar, alguien mas pudo apartar
-// ese horario. Es el unico punto donde la comprobacion es confiable.
-$choque = Agenda::validarEspacio($inicio, $fin, $idDentista, $idCita ?: null);
-if ($choque !== null) {
-    Respuesta::error($choque);
+       No es un apanio para que quepa en las columnas: es lo que
+       corresponde. La cita no ocupa ningun rango de tiempo, y con
+       inicio igual a fin la comprobacion de empalmes no la encuentra
+       —ni ella choca con nadie ni nadie choca con ella— sin tener que
+       meterle excepciones.
+
+       Tampoco se valida el horario de atencion: no hay horario que
+       validar. Lo unico que importa es que el dia exista, y de eso se
+       encarga el campo de fecha.
+    */
+    $inicio = "$fecha 00:00:00";
+    $fin    = $inicio;
+
+    if (strtotime($inicio) === false) {
+        Respuesta::validacion(['fecha' => 'La fecha no es valida.']);
+    }
+} else {
+    $inicio = "$fecha $hora:00";
+    $fin    = date('Y-m-d H:i:s', strtotime($inicio) + $duracion * 60);
+
+    // La validacion se repite aqui aunque la pantalla ya la hizo: entre
+    // que se cargaron los espacios y se dio guardar, alguien mas pudo
+    // apartar ese horario. Es el unico punto donde la comprobacion es
+    // confiable.
+    $choque = Agenda::validarEspacio($inicio, $fin, $idDentista, $idCita ?: null);
+    if ($choque !== null) {
+        Respuesta::error($choque);
+    }
 }
 
 $pdo = bd();
@@ -88,13 +117,14 @@ try {
             'UPDATE cita
                 SET id_registro_paciente = :r, id_usuario_dentista = :d,
                     id_sala = :s, id_procedimiento = :proc,
-                    fecha_inicio = :ini, fecha_fin = :fin,
+                    fecha_inicio = :ini, fecha_fin = :fin, sin_hora = :sh,
                     motivo = :m, notas = :n, id_estado_cita = :e,
                     recordatorio_enviado = 0
               WHERE id_cita = :id',
             [':r' => $idExpediente, ':d' => $idDentista, ':s' => $idSala ?: null,
              ':proc' => $idProc,
-             ':ini' => $inicio, ':fin' => $fin, ':m' => $motivo, ':n' => $notas,
+             ':ini' => $inicio, ':fin' => $fin, ':sh' => $sinHora ? 1 : 0,
+             ':m' => $motivo, ':n' => $notas,
              ':e' => ESTADO_PENDIENTE, ':id' => $idCita]
         );
         // Los recordatorios ya hechos dejan de valer: el horario que se
@@ -108,11 +138,12 @@ try {
             'INSERT INTO cita
                 (id_registro_paciente, id_usuario_dentista, id_sala,
                  id_procedimiento, id_estado_cita, fecha_inicio, fecha_fin,
-                 motivo, notas, id_usuario_registro)
-             VALUES (:r, :d, :s, :proc, :e, :ini, :fin, :m, :n, :u)',
+                 sin_hora, motivo, notas, id_usuario_registro)
+             VALUES (:r, :d, :s, :proc, :e, :ini, :fin, :sh, :m, :n, :u)',
             [':r' => $idExpediente, ':d' => $idDentista, ':s' => $idSala ?: null,
              ':proc' => $idProc,
              ':e' => ESTADO_PENDIENTE, ':ini' => $inicio, ':fin' => $fin,
+             ':sh' => $sinHora ? 1 : 0,
              ':m' => $motivo, ':n' => $notas, ':u' => Auth::id()]
         );
         $idCita = Conexion::ultimoId();
@@ -133,6 +164,8 @@ Bitacora::registrar('consultas', $accion, 'cita', (string) $idCita, [
 ]);
 
 Respuesta::ok(
-    ['id_cita' => $idCita, 'fecha_inicio' => $inicio],
-    'Cita agendada. Queda pendiente de confirmar con el paciente.'
+    ['id_cita' => $idCita, 'fecha_inicio' => $inicio, 'sin_hora' => $sinHora],
+    $sinHora
+        ? 'Dia apartado. Falta ponerle hora antes de confirmarsela al paciente.'
+        : 'Cita agendada. Queda pendiente de confirmar con el paciente.'
 );

@@ -148,6 +148,28 @@ function montar() {
 
   // El app.js DE VERDAD. Ver el comentario de arriba sobre por que no
   // un doble.
+  /*
+     El arranque se dispara UNA vez.
+
+     Los modulos se enganchan en el DOMContentLoaded, y jsdom dispara
+     ese evento por su cuenta un instante despues de construir el
+     documento —cuando los escuchas ya estan puestos—. Despachandolo
+     tambien a mano, cada modulo se engancharia DOS veces: los escuchas
+     quedarian duplicados y cualquier cosa que alterne se invertiria y
+     se volveria a invertir, dejando la pantalla igual. El fallo
+     parecería del codigo que se esta probando, que estaria bien.
+
+     Asi que los escuchas se interceptan: se guardan y se corren una
+     vez. El evento que dispara jsdom despues no encuentra a nadie.
+  */
+  const alArrancar = [];
+  const registrarDeVerdad = window.document.addEventListener
+    .bind(window.document);
+  window.document.addEventListener = (tipo, fn, opciones) => {
+    if (tipo === 'DOMContentLoaded') { alArrancar.push(fn); return undefined; }
+    return registrarDeVerdad(tipo, fn, opciones);
+  };
+
   window.eval(fs.readFileSync(path.join(RAIZ, 'assets/js/app.js'), 'utf8')
             + '\n;window.App = App;');
 
@@ -161,7 +183,7 @@ function montar() {
   window.eval(fs.readFileSync(path.join(RAIZ, 'assets/js/historia.js'), 'utf8')
             + '\n;window.Historia = Historia;');
 
-  window.document.dispatchEvent(new window.Event('DOMContentLoaded'));
+  alArrancar.forEach((fn) => fn());
 
   // cargar() pide datos al servidor: se deja colgada.
   window.App.api = () => new Promise(() => {});
@@ -206,10 +228,35 @@ if (t === null) {
 const { $, clic, abierta, window } = t;
 
 /* =====================================================================
-   1. Contestar por primera vez
+   1. Contestar que SI no abre ninguna ventana
+   =====================================================================
+   Abria la ventanita del complemento hasta el 17 de octubre de 2026. La
+   doctora pidio que no: las doce preguntas de si/no se contestan de
+   corrido, y una ventana que salta en medio obliga a leerla, cerrarla y
+   volver a encontrar donde se iba. Mas todavia siendo el complemento
+   opcional: interrumpia para pedir algo que se puede no contestar.
+
+   Lo que sale es la capsula, que es el dato a la vista y el camino para
+   llenarlo cuando se quiera.
    ===================================================================== */
 clic($('[data-campo="alergia"] .opcion-sino[data-valor="1"]'), 'el boton Si de alergia');
-comprobar('picar "Si" abre la ventana', abierta(), true);
+comprobar('picar "Si" NO abre ninguna ventana', abierta(), false);
+comprobar('la respuesta queda marcada', $('[name="alergia"]').value, '1');
+comprobar('y sale la capsula diciendo NO ESPECIFICA',
+  ($('.respuesta-extra')?.textContent ?? '').includes('NO ESPECIFICA'), true);
+comprobar('marcada como no especificada',
+  $('.respuesta-extra')?.classList.contains('sin-especificar'), true);
+comprobar('el detalle sigue vacio en el formulario',
+  $('[name="alergia_detalle"]')?.value, '');
+comprobar('y no hubo ningun aviso de error', window.__errores, []);
+
+/* =====================================================================
+   2. La capsula es la que abre la ventana
+   ===================================================================== */
+clic($('.respuesta-extra'), 'la capsula de la respuesta');
+comprobar('picar la capsula abre la ventana', abierta(), true);
+comprobar('y llega vacia, que es lo que hay guardado',
+  $('#pxValor').value, '');
 
 $('#pxValor').value = 'penicilina';
 clic($('#pxGuardar'), 'el boton Guardar');
@@ -217,13 +264,14 @@ clic($('#pxGuardar'), 'el boton Guardar');
 comprobar('guardar cierra la ventana', abierta(), false);
 comprobar('el dato queda escrito, en mayusculas',
   $('[name="alergia_detalle"]')?.value, 'PENICILINA');
-comprobar('y aparece la etiqueta bajo el selector', !!$('.respuesta-extra'), true);
-comprobar('guardar no dejo ningun aviso de error', window.__errores, []);
+comprobar('la capsula deja de estar sin especificar',
+  $('.respuesta-extra')?.classList.contains('sin-especificar'), false);
 
 /* =====================================================================
-   2. MODIFICAR una respuesta ya contestada
+   2b. MODIFICAR una respuesta ya contestada
    ===================================================================== */
-// Esta es la que fallaba: la ventana salia y el boton no respondia.
+// Esta es la que fallaba una vez: la ventana salia y el boton no
+// respondia.
 clic($('.respuesta-extra'), 'la etiqueta de la respuesta');
 comprobar('picar la etiqueta reabre la ventana', abierta(), true);
 comprobar('y llega con el texto que ya habia', $('#pxValor').value, 'PENICILINA');
@@ -240,40 +288,74 @@ comprobar('MODIFICAR: la etiqueta muestra lo nuevo',
   ($('.respuesta-extra')?.textContent ?? '').includes('PENICILINA Y SULFAS'), true);
 
 /* =====================================================================
-   3. Guardar en blanco avisa y no cierra
+   3. Guardar en blanco se permite: el detalle es opcional
+   =====================================================================
+   Hasta el 16 de octubre de 2026 esto se rechazaba con un aviso. Ahora
+   se acepta, porque el tutor muchas veces no sabe el detalle y la
+   alternativa era inventarlo o cambiar el "si" por un "no" —que borra
+   un antecedente clinico para poder avanzar—.
+
+   Lo que no puede pasar es que el dato quede invisible: la capsula se
+   queda, diciendo NO ESPECIFICA, y se pica para escribirlo cuando se
+   sepa.
    ===================================================================== */
+window.__errores.length = 0;
 clic($('.respuesta-extra'), 'la etiqueta de la respuesta');
 $('#pxValor').value = '   ';
 clic($('#pxGuardar'), 'el boton Guardar');
 
-comprobar('guardar en blanco no cierra la ventana', abierta(), true);
-comprobar('y avisa de que falta la respuesta',
-  window.__errores.length > 0, true);
-comprobar('sin tocar lo que ya estaba guardado',
-  $('[name="alergia_detalle"]').value, 'PENICILINA Y SULFAS');
+comprobar('guardar en blanco cierra la ventana', abierta(), false);
+comprobar('y no regaznia', window.__errores.length, 0);
+comprobar('el detalle queda vacio en el formulario',
+  $('[name="alergia_detalle"]').value, '');
+comprobar('la respuesta de arriba se conserva',
+  $('[name="alergia"]').value, '1');
+comprobar('la capsula sigue ahi, diciendo NO ESPECIFICA',
+  ($('.respuesta-extra')?.textContent ?? '').includes('NO ESPECIFICA'), true);
+comprobar('y se marca como no especificada',
+  $('.respuesta-extra')?.classList.contains('sin-especificar'), true);
 
-/* =====================================================================
-   4. Cerrar sin contestar deshace la respuesta
-   ===================================================================== */
-// Se cierra la de arriba sin contestar: como ya habia respuesta previa,
-// no se pierde nada.
+// Se vuelve a llenar para lo que sigue.
+clic($('.respuesta-extra'), 'la capsula sin especificar');
+comprobar('la capsula vacia tambien se puede picar', abierta(), true);
 $('#pxValor').value = 'PENICILINA Y SULFAS';
 clic($('#pxGuardar'), 'el boton Guardar');
+comprobar('y al escribirlo deja de estar sin especificar',
+  $('.respuesta-extra')?.classList.contains('sin-especificar'), false);
 
-// Ahora una pregunta nueva, y se cierra con la cruz.
+/* =====================================================================
+   4. Cerrar sin contestar CONSERVA la respuesta
+   =====================================================================
+   Esto deshacia el "si" hasta octubre de 2026. Era coherente mientras
+   el detalle era obligatorio; con el detalle opcional, deshacerlo es
+   perder el antecedente por no saber una precision.
+   ===================================================================== */
 clic($('[data-campo="primera_visita_dentista"] .opcion-sino[data-valor="0"]'), 'el boton No de primera visita');
-comprobar('"no es la primera visita" abre su ventana', abierta(), true);
+comprobar('"no es la primera visita" tampoco abre ventana', abierta(), false);
 
-clic($('#modalPreguntaExtra [data-bs-dismiss="modal"]'), 'el boton Cancelar');
+// Se abre a mano, que es lo que hace quien pica la capsula, para poder
+// probar lo que pasa al cerrarla sin contestar.
+clic($('[data-campo="primera_visita_dentista"]').parentElement
+       .querySelector('.respuesta-extra'),
+     'la capsula de primera visita');
+comprobar('su capsula abre la ventana', abierta(), true);
+
+clic($('#modalPreguntaExtra [data-bs-dismiss="modal"]'), 'el boton Cerrar');
 // El Bootstrap de mentira no cierra solo con data-bs-dismiss: se le
 // pide a mano, que es lo que hace el de verdad.
 window.bootstrap.Modal.getOrCreateInstance(
   window.document.getElementById('modalPreguntaExtra')).hide();
 
-comprobar('cerrar sin contestar deshace la respuesta',
-  $('[name="primera_visita_dentista"]').value, '');
-comprobar('y no deja un detalle suelto',
+comprobar('cerrar sin contestar conserva la respuesta',
+  $('[name="primera_visita_dentista"]').value, '0');
+comprobar('el detalle se queda vacio',
   $('[name="ultima_visita_dentista"]').value, '');
+
+// Y la capsula aparece en la pregunta de primera visita, que es la que
+// se acaba de contestar sin detalle.
+const capsulas = [...window.document.querySelectorAll('.respuesta-extra')]
+  .filter((c) => c.textContent.includes('NO ESPECIFICA'));
+comprobar('y sale su capsula de NO ESPECIFICA', capsulas.length >= 1, true);
 
 /* =====================================================================
    5. Cambiar "si" por "no" limpia el detalle
@@ -281,7 +363,16 @@ comprobar('y no deja un detalle suelto',
 clic($('[data-campo="alergia"] .opcion-sino[data-valor="0"]'), 'el boton No de alergia');
 comprobar('al pasar a "no" se borra el detalle',
   $('[name="alergia_detalle"]').value, '');
-comprobar('y desaparece la etiqueta', !!$('.respuesta-extra'), false);
+/* La capsula se busca DENTRO del bloque de alergia, no en toda la
+   pantalla.
+
+   Un selector global fallaba desde que las capsulas aparecen tambien
+   vacias: la de "primera visita", que quedo sin detalle en el paso
+   anterior, es la que encontraba primero y la comprobacion se quejaba
+   de una capsula que es correcta y de otra pregunta. */
+const bloqueAlergia = $('[data-campo="alergia"]')?.parentElement;
+comprobar('y desaparece la etiqueta de alergia',
+  !!bloqueAlergia?.querySelector('.respuesta-extra'), false);
 comprobar('sin abrir ninguna ventana', abierta(), false);
 
 // Un error dentro de un manejador no detiene nada, pero deja el boton

@@ -322,8 +322,15 @@ try {
     Respuesta::error('No se pudo guardar el plan de tratamiento.', 500);
 }
 
-// Los cargos del plan se ponen al dia. Solo se cobran si el plan ya
-// esta aceptado: mientras es una propuesta, no hay nada que deber.
+/*
+   Los cargos del plan se ponen al dia AQUI, al guardar.
+
+   Y para cualquier estado menos el cancelado. Antes empezaban en
+   Aceptado, asi que el pendiente de pago no existia hasta que alguien
+   escaneaba la hoja firmada y volvia a guardar el plan: el paciente no
+   debia nada por un tratamiento que ya habia arrancado. La regla vive
+   en Cargos::ESTADOS_COBRABLES, con el porque completo.
+*/
 $cargos = Cargos::sincronizarPlan($idPlan);
 
 // El plan se imprime y se firma, asi que hay que escanearlo de regreso.
@@ -383,10 +390,34 @@ Bitacora::registrar('consultas', $accion, 'plan_tratamiento', (string) $idPlan, 
     'renglones'   => count($limpios),
 ]);
 
+/*
+   El mensaje dice cuantos pendientes de pago quedaron.
+
+   Es lo que Angel echaba de menos sin saberlo: guardaba el plan, la
+   pantalla decia "guardado" y no habia forma de saber si el paciente ya
+   debia algo. Ahora se dice en el mismo aviso, con el numero, para que
+   el mostrador no tenga que irse al estado de cuenta a comprobarlo.
+
+   Los intocables tambien se dicen: son conceptos con abonos encima que
+   no se reescribieron, y callarlos dejaria creyendo que el cambio
+   entro completo.
+*/
+$aviso = 'Plan de tratamiento guardado.';
+
+if ($cargos['creados'] > 0) {
+    $aviso .= ' Se registraron ' . $cargos['creados'] . ' concepto(s) '
+            . 'como pendientes de pago del paciente.';
+}
+if ($cargos['intocables'] > 0) {
+    $aviso .= ' ' . $cargos['intocables'] . ' concepto(s) no se tocaron '
+            . 'porque ya tienen pagos aplicados.';
+}
+
 Respuesta::ok([
     'id_plan_tratamiento' => $idPlan,
     'folio'               => $folioPlan,
     'total'               => $total,
+    'cargos'              => $cargos,
     'pendiente'           => $pendiente !== null,
     'pendiente_consentimiento' => $pendienteConsentimiento !== null,
-], 'Plan de tratamiento guardado.');
+], $aviso);

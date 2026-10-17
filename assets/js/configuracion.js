@@ -1244,7 +1244,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const cuadro   = document.getElementById('recMensaje');
   const previa   = document.getElementById('recPrevia');
   const contador = document.getElementById('recContador');
-  const MUESTRA  = window.MUESTRA_RECORDATORIO ?? {};
+
+  /*
+     Dos plantillas, un solo cuadro.
+
+     La de las citas con hora y la del dia apartado sin hora. Se editan
+     en el mismo cuadro porque apiladas serian dos cajas grandes con dos
+     vistas previas y la tarjeta no da para tanto; lo que cambia al
+     picar el selector es QUE texto se esta editando y con que datos de
+     muestra se ensaya.
+
+     El texto en curso se guarda en este objeto al salir de cada
+     pestania. Sin eso, cambiar de pestania y volver perderia lo que se
+     acababa de escribir —y se perderia en silencio, que es lo peor—.
+  */
+  const MENSAJES = window.MENSAJES_RECORDATORIO ?? {
+    con: { texto: cuadro?.value ?? '',
+           muestra: window.MUESTRA_RECORDATORIO ?? {}, ayuda: '' },
+  };
+
+  let cual = 'con';
+
+  const muestraActual = () => MENSAJES[cual]?.muestra ?? {};
 
   /* Misma regla que AgendaExtra::sustituir en PHP: UNA sola pasada.
      Si aqui se hiciera etiqueta por etiqueta, la vista previa mostraria
@@ -1252,15 +1273,46 @@ document.addEventListener('DOMContentLoaded', () => {
      sitio donde no puede haber diferencia: la vista previa existe para
      confiar en ella. */
   function sustituir(plantilla) {
+    const muestra = muestraActual();
     return plantilla.replace(/\{(\w+)\}/g,
-      (entera, nombre) => MUESTRA[nombre] ?? entera);
+      (entera, nombre) => muestra[nombre] ?? entera);
   }
 
   function refrescarPrevia() {
     if (!cuadro) return;
+    // Lo que se ve en el cuadro es siempre el texto de la pestania en
+    // curso: se guarda en cada tecla para que cambiar de pestania no
+    // pueda perderlo.
+    if (MENSAJES[cual]) MENSAJES[cual].texto = cuadro.value;
+
     previa.textContent = sustituir(cuadro.value);
     contador.textContent = `${cuadro.value.length} / 1000`;
   }
+
+  /** Pasa a la otra plantilla sin perder lo escrito en esta. */
+  function elegirMensaje(nuevo) {
+    if (!cuadro || !MENSAJES[nuevo]) return;
+
+    if (MENSAJES[cual]) MENSAJES[cual].texto = cuadro.value;
+    cual = nuevo;
+
+    cuadro.value = MENSAJES[cual].texto ?? '';
+    cuadro.classList.remove('is-invalid');
+
+    document.querySelectorAll('#recQueMensaje [data-cual]').forEach((b) => {
+      b.classList.toggle('activo', b.dataset.cual === cual);
+    });
+    const ayuda = document.getElementById('recQueMensajeAyuda');
+    if (ayuda) ayuda.textContent = MENSAJES[cual].ayuda ?? '';
+
+    refrescarPrevia();
+  }
+
+  document.getElementById('recQueMensaje')
+    ?.addEventListener('click', (ev) => {
+      const boton = ev.target.closest('[data-cual]');
+      if (boton) elegirMensaje(boton.dataset.cual);
+    });
 
   /* Inserta la etiqueta DONDE ESTA EL CURSOR, no al final.
 
@@ -1289,23 +1341,41 @@ document.addEventListener('DOMContentLoaded', () => {
   async function guardarMensaje() {
     if (!cuadro) return;
 
+    // Lo que esta en el cuadro ahora mismo es de la pestania en curso.
+    if (MENSAJES[cual]) MENSAJES[cual].texto = cuadro.value;
+
     cuadro.classList.remove('is-invalid');
     try {
+      // Los dos de un viaje: se editan juntos y se guardan juntos. El
+      // servidor rechaza los dos si uno falla, asi que mandarlos por
+      // separado podria dejar uno guardado y el otro no.
       await App.api('configuracion/recordatorio_mensaje_guardar.php', {
-        mensaje: cuadro.value,
+        mensaje: MENSAJES.con?.texto ?? cuadro.value,
+        mensaje_sin_hora: MENSAJES.sin?.texto ?? '',
       });
     } catch (e) {
-      // El aviso va pegado al cuadro, no en una ventana: el error es
-      // de ese campo y ahi es donde hay que corregirlo.
-      if (e.errores?.mensaje) {
+      /*
+         El aviso va pegado al cuadro, y la pestania del error se abre.
+
+         El error puede ser del mensaje que NO se esta viendo: se guardan
+         los dos con un boton. Sin cambiar de pestania, el cuadro se
+         marcaria en rojo con un texto que esta bien y el aviso hablaria
+         de otro, que es como se pierde media hora.
+      */
+      const deQuien = e.errores?.mensaje_sin_hora ? 'sin'
+        : (e.errores?.mensaje ? 'con' : null);
+
+      if (deQuien) {
+        if (deQuien !== cual) elegirMensaje(deQuien);
         cuadro.classList.add('is-invalid');
-        document.getElementById('recMensajeError').textContent = e.errores.mensaje;
+        document.getElementById('recMensajeError').textContent =
+          e.errores[deQuien === 'sin' ? 'mensaje_sin_hora' : 'mensaje'];
         cuadro.focus();
       }
       throw e;
     }
   }
 
-  refrescarPrevia();
+  elegirMensaje('con');
   pintar();
 });

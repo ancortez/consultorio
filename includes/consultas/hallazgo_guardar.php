@@ -7,6 +7,10 @@
  * texto, y entonces no habia forma de colgarle una radiografia a una
  * sola de ellas ni de saber, en la siguiente cita, cual se resolvio.
  *
+ * La descripcion se puede escribir o dejar que se ponga sola: sin
+ * texto, el hallazgo se llama CLIN_01 o RADIO_01 segun donde se vio.
+ * Nunca queda sin nombre.
+ *
  * La imagen es opcional y se sube aqui mismo. Hacerlo en dos pasos
  * —guardar el hallazgo, cerrar, abrir el album, subir, volver a
  * explicar a cual pertenece— es exactamente lo que nadie hace con un
@@ -28,10 +32,6 @@ if (!$idConsulta) {
 if (!in_array($tipo, TIPOS_HALLAZGO, true)) {
     Respuesta::validacion(['tipo' => 'Elige si es clinico o radiografico.']);
 }
-if ($descripcion === null || mb_strlen($descripcion) < 3) {
-    Respuesta::validacion(['descripcion' => 'Escribe que observaste.']);
-}
-
 $consulta = Conexion::uno(
     'SELECT id_consulta, id_registro_paciente, id_plan_tratamiento, cerrada
        FROM consulta WHERE id_consulta = :c AND estatus = 1',
@@ -49,6 +49,47 @@ if ((int) $consulta['cerrada'] === 1) {
     Respuesta::error(
         'Esta consulta ya esta cerrada. Para agregar algo, usa una nota '
         . 'de evolucion.');
+}
+
+/*
+   Sin descripcion, se le pone su codigo: CLIN_01, RADIO_03.
+
+   Antes aqui se exigia una de dos cosas, texto o imagen, y se rechazaba
+   el hallazgo vacio del todo. Era correcto y no resolvia el problema de
+   fondo: la exploracion se dicta —"clinico, foto; radiografico, foto"—
+   y escribir una descripcion por cada cosa con el paciente en el sillon
+   no se hace. Lo que pasaba es que se dejaba en blanco y el expediente
+   acababa con una lista de hallazgos sin nombre que nadie podia leer
+   despues.
+
+   La doctora pidio el codigo, y resuelve las dos cosas: el hallazgo
+   siempre tiene nombre, nadie tiene que escribirlo, y sirve para
+   referirse a el en voz alta ("la del CLIN_02").
+
+   Se pone AQUI y no solo en la pantalla porque es el nombre con el que
+   el archivo entra al expediente: si el campo llegara vacio por
+   cualquier camino —otra pantalla, un navegador que no corrio el
+   JavaScript— el documento se llamaria "" y se perderia de vista.
+
+   El numero sale del maximo que ya exista en esta consulta, no de
+   contarlos: ver codigoHallazgo() en funciones.php.
+*/
+if ($descripcion === null || $descripcion === '') {
+    $yaHay = Conexion::todos(
+        'SELECT descripcion FROM hallazgo
+          WHERE id_consulta = :c AND estatus = 1',
+        [':c' => $idConsulta]
+    );
+
+    $descripcion = codigoHallazgo(
+        prefijoHallazgo($tipo), array_column($yaHay, 'descripcion'));
+}
+
+// Con texto escrito a mano, al menos tres letras: una "x" suelta no es
+// una descripcion, es un campo que alguien lleno para pasar. El codigo
+// automatico mide mas que eso, asi que esto solo alcanza a lo escrito.
+if (mb_strlen($descripcion) < 3) {
+    Respuesta::validacion(['descripcion' => 'Escribe que observaste.']);
 }
 
 // ---------------------------------------------------------------------

@@ -11,7 +11,7 @@
     <div>
         <h1 class="titulo-vista">Planes de tratamiento</h1>
         <p class="subtitulo-vista">
-            Propuestos, aceptados y en proceso
+            Propuestos, aceptados y en proceso. Los cancelados, con el filtro de estatus
         </p>
     </div>
     <?php if (Auth::puede('consultas.plan')): ?>
@@ -57,6 +57,16 @@
                             <?= e($ep['nombre_estado']) ?>
                         </option>
                     <?php endforeach; ?>
+                    <?php /* Los cancelados, aparte y al final.
+
+                             No son trabajo pendiente —por eso no entran en
+                             "todos los vigentes"— pero si son la respuesta a
+                             "¿por que este paciente no siguio?", que se
+                             pregunta cada tanto. Con el motivo guardado
+                             desde que se cancela, esta lista la contesta de
+                             una vez en vez de ir expediente por
+                             expediente. */ ?>
+                    <option value="5">Cancelados</option>
                 </select>
             </div>
             <div class="col-3 text-end">

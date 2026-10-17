@@ -363,9 +363,18 @@ cerrar = (raiz/'includes/consultas/consulta_cerrar.php').read_text(encoding='utf
 if "empty($c['diagnostico'])" in cerrar:
     fallos.append('cerrar consulta sigue exigiendo diagnostico, que ya no se captura: '
                   'ninguna consulta se podria cerrar')
-if "plan_indicaciones" not in cerrar:
-    fallos.append('cerrar consulta no exige el tratamiento realizado')
-print('  ok   cerrar consulta exige el tratamiento, no el diagnostico')
+# Y desde el 16 de octubre de 2026 tampoco exige el tratamiento
+# realizado, por lo mismo: ese campo tambien se quito de la pantalla.
+# Lo que se exige ahora es que la consulta tenga algo clinico escrito
+# —un hallazgo o una nota de evolucion—, que es lo que hace que el
+# expediente sirva de algo. Cerrar una consulta vacia la vuelve
+# inmodificable sin que haya quedado nada registrado.
+if 'FROM hallazgo' not in cerrar or 'FROM nota_evolucion' not in cerrar:
+    fallos.append('cerrar consulta no exige ni un hallazgo ni una nota')
+if '+ (SELECT COUNT(*)' not in cerrar:
+    fallos.append('cerrar consulta no cuenta las dos cosas: exigiendo solo '
+                  'una, una consulta de pura nota no se podria cerrar')
+print('  ok   cerrar consulta exige un hallazgo o una nota')
 
 # ---------- Plan ----------
 if 'CREATE TABLE plan_traumatismo (' not in esq:
@@ -662,7 +671,13 @@ guardarHz2 = (raiz/'includes/consultas/hallazgo_guardar.php').read_text(encoding
 if "$_FILES['archivos']" not in guardarHz2:
     fallos.append('el hallazgo no recibe varias imagenes')
 # El hallazgo se guarda ANTES que las imagenes: cada una necesita su id.
-if guardarHz2.index('INSERT INTO hallazgo') > guardarHz2.index("$_FILES['archivos']"):
+#
+# El ancla era la primera aparicion de $_FILES, y dejo de servir cuando
+# la descripcion paso a ser opcional: ahora el archivo mira $_FILES
+# arriba, antes de validar, para saber si el hallazgo trae imagen o
+# texto. Lo que importa comparar es contra el momento en que se CREA el
+# documento, que es lo que necesita el id.
+if guardarHz2.index('INSERT INTO hallazgo') > guardarHz2.index('Documentos::crearPendiente'):
     fallos.append('las imagenes se guardan antes que el hallazgo: no tendrian '
                   'a que colgarse')
 print('  ok   un hallazgo acepta varias imagenes')
@@ -920,10 +935,26 @@ if 'Planes::CANCELADO' not in guardarCn2:
 print('  ok   un plan cancelado no recibe consultas')
 
 # ---------- El odontograma dibuja dientes ----------
+#
+# El dibujo se mudo al nucleo el 17 de octubre de 2026. Estaba dentro de
+# _modal_dientes.php con unas funciones anonimas, y servia mientras ese
+# fuera el unico sitio que dibujaba una dentadura; ahora hay dos —el
+# selector del plan y la pestania del paciente— y una copia serian dos
+# dentaduras que se separan en cuanto alguien corrija una raiz en una
+# sola.
+#
+# Lo que se comprueba es lo mismo que antes y donde vive ahora. El
+# detalle fino —los 52 dientes, la forma de cada uno, que ninguna vista
+# vuelva a dibujar por su cuenta— lo prueba probar_odontograma_estado.py.
 modalD = (raiz/'vistas/consultas/_modal_dientes.php').read_text(encoding='utf-8')
-if 'bi-hexagon-fill' in modalD:
+nucleoD = (raiz/'includes/core/odontograma.php').read_text(encoding='utf-8')
+
+if 'bi-hexagon-fill' in nucleoD:
     fallos.append('el odontograma sigue dibujando hexagonos')
-coronas = modalD[modalD.index('$coronas = ['):]
+if 'Odontograma::arcada(' not in modalD:
+    fallos.append('el selector de dientes ya no usa el dibujo del nucleo')
+
+coronas = nucleoD[nucleoD.index('private const CORONAS = ['):]
 coronas = coronas[:coronas.index('];')]
 for forma in ('incisivo', 'canino', 'premolar', 'molar'):
     # Con espacios opcionales: las claves van alineadas a mano y
@@ -931,25 +962,54 @@ for forma in ('incisivo', 'canino', 'premolar', 'molar'):
     # buscador literal.
     if not re.search(rf"'{forma}'\s*=>", coronas):
         fallos.append(f'el odontograma no dibuja el {forma}')
-    if f"return '{forma}'" not in modalD and f"'{forma}';" not in modalD:
+    if f"return '{forma}'" not in nucleoD and f"'{forma}';" not in nucleoD:
         fallos.append(f'ningun diente se clasifica como {forma}')
 cssTxt = (raiz/'assets/css/estilo.css').read_text(encoding='utf-8')
 if not defineClase(cssTxt, '.diente.elegido .cr'):
     fallos.append('el diente elegido no cambia de color')
 print('  ok   el odontograma dibuja cuatro formas y colorea el elegido')
 
-# ---------- Consulta compacta ----------
+# ---------- Consulta: un solo texto y las tarjetas reacomodadas ----------
+#
+# Esta comprobacion decia lo contrario hasta el 16 de octubre de 2026:
+# exigia que los TRES textos —motivo, padecimiento actual y tratamiento
+# realizado— estuvieran en una sola tarjeta. La doctora pidio quitar dos
+# de los tres: en la practica repetian lo mismo, el padecimiento se
+# escribia igual que el motivo y las indicaciones acabaron en la receta,
+# que es el papel que el paciente se lleva.
+#
+# Se deja el rastro del cambio en vez de borrar el parrafo: sin esto, el
+# que lea el verificador va a pensar que falta algo.
 vistaCn = (raiz/'vistas/consultas/consulta.php').read_text(encoding='utf-8')
-# Los tres textos en UNA tarjeta: si siguieran en tres, las notas de
-# evolucion no suben y no se ve todo sin desplazarse.
-for campo in ('motivo', 'padecimiento_actual', 'plan_indicaciones'):
-    if f'name="{campo}"' not in vistaCn:
-        fallos.append(f'se perdio el campo {campo} de la consulta')
-bloque = vistaCn[vistaCn.index('Motivo de la consulta'):]
-bloque = bloque[:bloque.index('Exploraci')]
-if 'plan_indicaciones' not in bloque:
-    fallos.append('los tres textos no quedaron en la misma tarjeta')
-print('  ok   los tres textos de la consulta, en una sola tarjeta')
+
+if 'name="motivo"' not in vistaCn:
+    fallos.append('se perdio el campo motivo de la consulta')
+for ido in ('padecimiento_actual', 'plan_indicaciones'):
+    if f'name="{ido}"' in vistaCn:
+        fallos.append(f'el campo {ido} volvio a la consulta')
+
+# El orden de la columna izquierda: el motivo arriba y la exploracion
+# debajo. Se mide por posicion porque es justo lo que se pidio mover.
+posMotivo = vistaCn.index('Motivo de consulta')
+posExplora = vistaCn.index('Exploraci')
+posNotas = vistaCn.index('Notas de evoluci')
+if not posMotivo < posExplora < posNotas:
+    fallos.append('la consulta no quedo motivo, exploracion y notas en ese orden')
+
+# Y las notas en la columna de la derecha, a todo el alto: antes estaban
+# donde ahora va la exploracion.
+columnaDer = vistaCn[vistaCn.index('<div class="col-5">'):]
+if 'Notas de evoluci' not in columnaDer[:columnaDer.index('</div>') + 2000]:
+    fallos.append('las notas de evolucion no quedaron en la columna derecha')
+
+# Una sola tarjeta de notas: la de la columna de anexos se quito, y si
+# volviera habria dos cajas de texto distintas guardando lo mismo.
+# Con la entidad HTML, no con el texto suelto: "Notas de evolucion" sin
+# acento aparece tambien en el comentario que explica la columna, y
+# contando las dos cosas esto se queja de un duplicado que no existe.
+if vistaCn.count('Notas de evoluci&oacute;n') != 1:
+    fallos.append('hay mas de una tarjeta de notas de evolucion')
+print('  ok   la consulta: motivo, exploracion y notas en su sitio')
 
 jsCons3 = (raiz/'assets/js/consultas.js').read_text(encoding='utf-8')
 if 'function imagenesDeLaConsulta' not in jsCons3:
@@ -1594,15 +1654,21 @@ elif not defineClase(cssT, '.respuesta-extra'):
 else:
     print('  ok   las 12 preguntas extra salen en ventanita')
 
-# Cerrar sin contestar DESHACE la respuesta: un "si" a medias es un dato
-# que parece capturado y no lo esta.
-if 'valorPrevio' not in jsHist2:
-    fallos.append('no se recuerda la respuesta anterior: cerrar la '
-                  'ventanita dejaria un si sin su detalle')
-elif "hidden.bs.modal" not in jsHist2:
-    fallos.append('cerrar la ventanita sin contestar no deshace nada')
+# Cerrar sin contestar CONSERVA la respuesta.
+#
+# Hasta el 16 de octubre de 2026 la deshacia, con el argumento de que un
+# "si" sin su detalle es un dato que parece capturado y no lo esta. El
+# detalle paso a ser opcional y el argumento se cayo: el "si" es una
+# respuesta completa por si sola, y deshacerlo borra un antecedente
+# clinico porque no se supo una precision.
+#
+# Lo que si tiene que seguir enganchado es el cierre de la ventana, que
+# es cuando se pinta la capsula.
+if 'hidden.bs.modal' not in jsHist2:
+    fallos.append('cerrar la ventanita no dispara nada: la capsula de NO '
+                  'ESPECIFICA no se pintaria')
 else:
-    print('  ok   cerrar sin contestar regresa a la respuesta anterior')
+    print('  ok   cerrar sin contestar conserva la respuesta')
 
 # Y abrir un expediente ya capturado NO puede lanzar doce modales.
 if 'porPersona' not in jsHist2:
@@ -1615,10 +1681,11 @@ elif re.search(r"addEventListener\('change'[^)]*aplicarDependencias\(true", jsHi
     fallos.append('la pregunta vuelve a colgar del evento change, que '
                   'no distingue a una persona del propio codigo')
 
-# El prellenado deja respuestas a medias a proposito —contesta "si" sin
-# saber el detalle— y eso no puede pasar al siguiente paso.
-if 'respuestasQueFaltan' not in jsHist2:
-    fallos.append('nada impide avanzar con un "si" sin su detalle')
+# El prellenado deja respuestas sin detalle a proposito —contesta "si"
+# sin saber hasta cuando ni por que— y eso YA PUEDE pasar al siguiente
+# paso: el detalle es opcional. Lo que no puede es quedar invisible, y
+# de eso se encarga la capsula con su NO ESPECIFICA (se comprueba mas
+# abajo, en el bloque de los complementos opcionales).
 
 # Las referencias a la ventana se buscan al momento: la historia se
 # inyecta al abrir su pestania, y guardarlas al cargar el archivo las
@@ -2017,10 +2084,10 @@ if 'AS consultas' not in vistaCn:
 # Y la propuesta no puede pisar lo que alguien escribio a mano.
 if 'function proponerDelPlan' not in jsCnC:
     fallos.append('nadie escribe la propuesta al elegir el plan')
-elif 'esMia' not in jsCnC:
+elif 'mias.includes(actual)' not in jsCnC:
     fallos.append('la propuesta pisa el texto escrito a mano: solo deberia '
                   'reemplazar un campo vacio o una propuesta anterior')
-print('  ok   el motivo y el padecimiento se proponen sin pisar lo escrito')
+print('  ok   el motivo se propone sin pisar lo escrito')
 
 # ---------- El Guardar abajo ----------
 # Pegado al ultimo campo que se escribe. Arriba obligaba a subir la
@@ -2029,9 +2096,12 @@ print('  ok   el motivo y el padecimiento se proponen sin pisar lo escrito')
 if 'pie-guardar' not in vistaCn:
     fallos.append('el Guardar de la consulta no bajo al pie del motivo')
 else:
-    cuerpo = vistaCn[vistaCn.index('name="plan_indicaciones"'):]
+    # El ancla era "Tratamiento realizado", que se quito el 16 de
+    # octubre de 2026. Ahora el ultimo campo que se escribe antes de
+    # guardar es el motivo, que es el unico que queda.
+    cuerpo = vistaCn[vistaCn.index('name="motivo"'):]
     if 'id="cnGuardar"' not in cuerpo:
-        fallos.append('el Guardar no quedo DEBAJO de "Tratamiento realizado"')
+        fallos.append('el Guardar no quedo DEBAJO del motivo de consulta')
 if not defineClase(cssCn, '.pie-guardar'):
     fallos.append('falta el estilo del pie con el Guardar')
 # Cerrar consulta se queda arriba a proposito: no se deshace.
@@ -2169,28 +2239,129 @@ if 'function bloqueDelDisparador' not in jsHistCodigo:
     fallos.append('la respuesta extra sigue atada a los grupos de si/no')
 elif '.grupo-sino' not in jsHistCodigo:
     fallos.append('bloqueDelDisparador ya no distingue los grupos de si/no')
-# Y nadie preguntaba por el: elegir() solo lo llaman los botones.
+# Y el desplegable necesita su propio escucha para repintar: no pasa
+# por elegir(), asi que sin esto elegir una frecuencia de azucar no
+# pinta su capsula y la respuesta no se ve en ningun lado. (Hasta el 17
+# de octubre de 2026 ese escucha ADEMAS abria la ventanita; ya no, ver
+# mas abajo.)
 if "tagName !== 'SELECT'" not in jsHistCodigo:
-    fallos.append('un desplegable no abre su pregunta extra: la respuesta '
-                  'de "momentos de azucar" no se pide nunca')
-# Deshacer al cerrar sin contestar tiene que funcionar para el select
-# tambien, o queda la frecuencia elegida sin su detalle.
+    fallos.append('un desplegable no repinta su capsula: la respuesta de '
+                  '"momentos de azucar" no se veria en ningun lado')
+# Cerrar sin contestar YA NO deshace nada.
+#
+# Hasta el 16 de octubre de 2026 devolvia el selector a su valor
+# anterior, porque un "si" sin su detalle era un dato a medias. Al
+# volverse opcional el detalle, deshacerlo seria borrar un antecedente
+# clinico por no saber una precision: lo que se pidio es justo lo
+# contrario.
 cerrar = jsHistCodigo[jsHistCodigo.index('function alCerrarVentana'):]
 cerrar = cerrar[:cerrar.index('\n  }')]
-if 'disparador.value = antes' not in cerrar:
-    fallos.append('cerrar sin contestar no deshace un desplegable')
-print('  ok   un desplegable pregunta, muestra su respuesta y se deshace')
+if 'disparador.value = antes' in cerrar or 'valorPrevio.get' in cerrar:
+    fallos.append('cerrar la ventana sigue deshaciendo la respuesta: el '
+                  'detalle es opcional desde octubre de 2026')
+if 'pintarRespuesta' not in cerrar:
+    fallos.append('al cerrar la ventana no se pinta la capsula: un detalle '
+                  'sin contestar quedaria invisible')
+print('  ok   cerrar la ventana conserva la respuesta y pinta la capsula')
 
-# ---------- Lo prellenado a medias, en amarillo ----------
-if 'function marcarSiFalta' not in jsHistCodigo:
-    fallos.append('nada marca las respuestas que estan a medias')
-elif 'falta-complemento' not in jsHistCodigo:
-    fallos.append('marcarSiFalta no pone la clase del amarillo')
-if not defineClase(cssPac if 'cssPac' in dir() else
-                   (raiz/'assets/css/estilo.css').read_text(encoding='utf-8'),
-                   '.falta-complemento'):
-    fallos.append('falta el estilo amarillo de lo que esta a medias')
-print('  ok   lo prellenado sin su detalle se ve en amarillo')
+# ---------- La ventanita NO se abre sola ----------
+#
+# Contestar una de las doce preguntas abria la ventanita del
+# complemento. La doctora pidio que no el 17 de octubre de 2026: las
+# doce se contestan de corrido y una ventana que salta en medio rompe el
+# ritmo, mas todavia siendo el complemento opcional —interrumpia para
+# pedir algo que se puede no contestar—.
+#
+# Lo que abre la ventana ahora es UNICAMENTE el clic en la capsula.
+if re.search(r'atender\(\s*caja\s*,\s*(true|porPersona)\s*\)', jsHistCodigo):
+    fallos.append('atender() vuelve a recibir permiso para preguntar: la '
+                  'ventanita se abriria sola al contestar')
+if 'function atender(caja, preguntar' in jsHistCodigo:
+    fallos.append('atender() recupero el parametro de preguntar')
+
+# Y el unico que la abre es la capsula. Se mide sobre el codigo: hay
+# exactamente dos llamadas a abrirPregunta, la del chip y la del boton
+# de la propia ventana.
+abre = re.findall(r'abrirPregunta\(', jsHistCodigo)
+if len(abre) > 2:
+    fallos.append(f'hay {len(abre)} sitios que abren la ventanita del '
+                  'complemento: deberian ser solo la capsula y su reapertura')
+if "chip.addEventListener('click', () => abrirPregunta(caja))" not in jsHistCodigo:
+    fallos.append('la capsula ya no abre la ventanita: entonces no hay forma '
+                  'de escribir el detalle')
+print('  ok   la ventanita del complemento solo se abre al picar la capsula')
+
+# ---------- Los doce complementos, opcionales ----------
+#
+# Aqui se exigia lo contrario: que marcarSiFalta() pusiera el amarillo
+# de "falta el detalle" y que el paso no avanzara. Las dos cosas se
+# quitaron. Se comprueba que no hayan vuelto —volverian a bloquear la
+# captura— y que lo que las reemplaza este completo.
+if 'function marcarSiFalta' in jsHistCodigo:
+    fallos.append('volvio marcarSiFalta: el detalle es opcional y el '
+                  'amarillo regazniaria por algo valido')
+if 'function respuestasQueFaltan' in jsHistCodigo:
+    fallos.append('volvio respuestasQueFaltan: era lo que no dejaba avanzar')
+if 'falta-complemento' in jsHistCodigo:
+    fallos.append('el JavaScript vuelve a poner la clase del amarillo')
+
+# El texto por omision tiene que decir lo mismo en los dos lados. Si la
+# pantalla dijera una cosa y la hoja impresa otra, el expediente
+# firmado no coincidiria con lo que se vio al capturar.
+hcPhp = (raiz/'includes/core/historia_clinica.php').read_text(encoding='utf-8')
+if "SIN_ESPECIFICAR = 'NO ESPECIFICA'" not in hcPhp:
+    fallos.append('falta la constante del texto por omision en PHP')
+if "SIN_ESPECIFICAR = 'NO ESPECIFICA'" not in jsHistCodigo:
+    fallos.append('falta la constante del texto por omision en el JavaScript')
+
+# Y complementoImpreso tiene que devolverla, no cadena vacia: un
+# renglon en blanco en una hoja firmada se lee como "no se pregunto" y
+# se puede llenar a mano despues de la firma.
+impreso = hcPhp[hcPhp.index('function complementoImpreso'):]
+if 'self::SIN_ESPECIFICAR' not in impreso:
+    fallos.append('la hoja impresa deja el complemento en blanco en vez de '
+                  'escribir NO ESPECIFICA')
+
+# La capsula aparece aunque este vacia: es el recordatorio de que ahi
+# cabe un dato y el camino para escribirlo.
+if 'sin-especificar' not in jsHistCodigo:
+    fallos.append('la capsula no se marca cuando el detalle esta vacio')
+cssHist = (raiz/'assets/css/estilo.css').read_text(encoding='utf-8')
+if not defineClase(cssHist, '.respuesta-extra.sin-especificar'):
+    fallos.append('falta el estilo de la capsula sin especificar')
+if not defineClase(cssHist, '.aviso-opcional'):
+    fallos.append('falta el estilo del aviso de que el detalle es opcional')
+
+# Y la ventana lo dice. Sin el aviso, el cuadro en blanco parece un
+# error: la ventana se abrio sola y nada indica que se puede cerrar sin
+# escribir.
+tabHist = (raiz/'vistas/paciente/_tab_historia.php').read_text(encoding='utf-8')
+if 'aviso-opcional' not in tabHist:
+    fallos.append('la ventana del detalle no avisa de que es opcional')
+if 'NO ESPECIFICA' not in tabHist:
+    fallos.append('el aviso no dice que quedara como NO ESPECIFICA')
+print('  ok   los doce complementos son opcionales y nunca salen en blanco')
+
+# ---------- Cepillados al dia: en palabras ----------
+#
+# Pedir un entero obliga a elegir un numero cuando la respuesta es "en
+# la maniana y en la noche" o "solo cuando se acuerda": el dato queda
+# mas limpio y menos cierto.
+if 'type="number"' in tabHist[tabHist.index('cepillados_dia') - 400:
+                              tabHist.index('cepillados_dia') + 200]:
+    fallos.append('cepillados al dia sigue pidiendo un numero')
+guardarHist = (raiz/'includes/historia/guardar.php').read_text(encoding='utf-8')
+if "'cepillados_dia'          => 'num'" in guardarHist:
+    fallos.append('el guardado sigue tratando los cepillados como numero')
+if 'Revisa el numero de cepillados' in guardarHist:
+    fallos.append('quedo la validacion de "maximo 10 cepillados" sobre un '
+                  'campo que ya es texto: rechazaria cualquier frase')
+if 'cepillados_dia       VARCHAR' not in (raiz/'db/01_schema.sql').read_text(
+        encoding='utf-8'):
+    fallos.append('el esquema sigue declarando cepillados_dia como numero')
+if not (raiz/'db/migraciones/0015_historia_opcionales.sql').exists():
+    fallos.append('falta la migracion que cambia el tipo de cepillados_dia')
+print('  ok   cepillados al dia se captura en palabras')
 
 # ---------- Fichas pagadas en COBRAR ----------
 cuentaPhp = (raiz/'includes/cajas/paciente_cuenta.php').read_text(encoding='utf-8')

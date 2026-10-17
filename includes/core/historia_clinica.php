@@ -25,12 +25,28 @@
  * intercambiables: a "¿cirugias?" se le contesta NINGUNA y a "¿hasta
  * cuando tomo formula?" se le contesta N/A, que no es lo mismo.
  *
- * Lo que NO se rellena nunca
+ * Lo que falta por contestar
  * --------------------------
- * Si la respuesta SI pedia complemento y esta vacio, no se inventa
- * nada. Ahi el blanco es correcto, porque de verdad falta el dato: un
- * "alergico: SI" sin decir a que es un hueco en el expediente, y
- * taparlo con "NINGUNA" lo convertiria en una contradiccion firmada.
+ * Desde el 16 de octubre de 2026 los doce complementos son OPCIONALES.
+ * Antes eran obligatorios: un "¿alergico? SI" sin decir a que no dejaba
+ * guardar la historia.
+ *
+ * La doctora pidio quitar esa traba y la razon es de consultorio: el
+ * tutor muchas veces no sabe el detalle en ese momento —"si tuvo
+ * complicaciones en el parto, pero no me acuerdo de cuales"— y el
+ * sistema lo dejaba elegir entre inventar un detalle o cambiar el "si"
+ * por un "no". La segunda salida borra un antecedente clinico para
+ * poder avanzar, y es la que uno elige con el paciente esperando.
+ *
+ * Asi que ahora falta un tercer texto: el de "esto si pedia detalle y
+ * no se dio". Es SIN_ESPECIFICAR, y no se confunde con los rellenos de
+ * arriba: "alergico: SI / NO ESPECIFICA" dice una cosa verdadera y
+ * distinta de "alergico: NO / NINGUNA".
+ *
+ * Lo que no cambia es que el renglon nunca sale en blanco, que es la
+ * razon de ser de este archivo. Lo que se GUARDA sigue siendo vacio
+ * —para poder distinguir despues lo que no se pregunto de lo que se
+ * contesto— y lo que se IMPRIME es siempre un texto.
  */
 final class HistoriaClinica
 {
@@ -42,6 +58,16 @@ final class HistoriaClinica
      *            invierte la condicion, igual que en el formulario.
      *   relleno  lo que se imprime cuando la respuesta no pide nada
      */
+    /**
+     * Lo que se imprime cuando la respuesta SI pedia detalle y no se
+     * dio ninguno.
+     *
+     * Tiene que decir lo mismo que la constante SIN_ESPECIFICAR del
+     * historia.js: la pantalla y la hoja impresa no pueden contestar
+     * distinto a la misma pregunta.
+     */
+    public const SIN_ESPECIFICAR = 'NO ESPECIFICA';
+
     public const COMPLEMENTOS = [
         'ultima_visita_dentista' => [
             'depende' => 'primera_visita_dentista',
@@ -129,10 +155,18 @@ final class HistoriaClinica
      * Devuelve:
      *   - lo capturado, si hay algo
      *   - el relleno ("NINGUNA", "N/A"...) si la respuesta no pedia nada
-     *   - cadena vacia si la respuesta SI pedia complemento y falta
+     *   - "NO ESPECIFICA" si la respuesta SI pedia detalle y falta
+     *   - cadena vacia solo si la pregunta madre no se contesto
      *
-     * Ese ultimo caso se deja vacio a proposito. Ver el comentario de
-     * la clase: rellenarlo convertiria un hueco en una contradiccion.
+     * El tercer caso devolvia cadena vacia hasta octubre de 2026, con
+     * el argumento de que rellenarlo convertiria un hueco en una
+     * contradiccion. Con "NINGUNA" habria sido cierto —"alergico: SI /
+     * NINGUNA" se contradice solo— pero "NO ESPECIFICA" no se
+     * contradice con nada: dice exactamente lo que paso.
+     *
+     * Y deja la hoja mejor que antes: un renglon en blanco en un
+     * documento firmado no se lee como "no se especifico", se lee como
+     * "no se pregunto", y se puede llenar a mano despues de la firma.
      */
     public static function complementoImpreso(array $hc, string $campo): string
     {
@@ -154,37 +188,21 @@ final class HistoriaClinica
         }
 
         return self::pideComplemento($regla['cuando'], (string) $respuesta)
-            ? ''
+            ? self::SIN_ESPECIFICAR
             : $regla['relleno'];
     }
 
-    /**
-     * Las respuestas que estan a medias: piden complemento y no lo
-     * tienen.
-     *
-     * Pasa sobre todo con el prellenado, que contesta varias preguntas
-     * de golpe sin poder saber el detalle. Lo usa la pantalla para
-     * marcarlas en amarillo y el guardado para no dejar avanzar: un
-     * "si" sin su detalle es un dato que PARECE capturado y no lo esta,
-     * que es peor que uno vacio.
-     *
-     * @return string[] los nombres de los campos de complemento
-     */
-    public static function complementosQueFaltan(array $hc): array
-    {
-        $faltan = [];
+    /*
+       Aqui vivia complementosQueFaltan().
 
-        foreach (self::COMPLEMENTOS as $campo => $regla) {
-            $respuesta = $hc[$regla['depende']] ?? null;
-            if (!self::pideComplemento($regla['cuando'], $respuesta === null
-                    ? null : (string) $respuesta)) {
-                continue;
-            }
-            if (trim((string) ($hc[$campo] ?? '')) === '') {
-                $faltan[] = $campo;
-            }
-        }
+       Devolvia los complementos que pedian detalle y estaban vacios, y
+       servia para no dejar guardar la historia con un "si" a medias.
+       Esa regla se quito el 16 de octubre de 2026 —ver la cabecera de
+       la clase— y con ella el metodo: dejarlo habria sido un metodo
+       publico que nadie llama y que describe una regla que ya no
+       existe, o sea una trampa para el que lo encuentre y lo use.
 
-        return $faltan;
-    }
+       Lo que marca ahora un complemento sin contestar es
+       complementoImpreso(), que devuelve SIN_ESPECIFICAR.
+    */
 }

@@ -115,11 +115,11 @@ $planes = Conexion::todos(
 /*
    Lo que se propone al elegir un plan.
 
-   El motivo y el padecimiento se escriben igual en todas las citas de
-   un mismo plan, y escribirlos a mano cada vez termina en expedientes
-   donde la misma cosa esta escrita de cinco formas. Se proponen ya
-   armados y quien captura los corrige si hace falta: es una propuesta,
-   no un campo calculado.
+   El motivo se escribe igual en todas las citas de un mismo plan, y
+   escribirlo a mano cada vez termina en expedientes donde la misma
+   cosa esta escrita de cinco formas. Se propone ya armado y quien
+   captura lo corrige si hace falta: es una propuesta, no un campo
+   calculado.
 
    El ordinal NO se guarda en ninguna columna. Se deduce de las
    consultas que el plan ya tiene, asi que no puede quedar
@@ -130,7 +130,6 @@ foreach ($planes as $p) {
     $propuestaPorPlan[(int) $p['id_plan_tratamiento']] = [
         'motivo' => motivoDeCitaDePlan(
             (string) $p['folio'], (int) $p['consultas']),
-        'padecimiento' => mayus(trim((string) ($p['descripcion'] ?? ''))) ?? '',
     ];
 }
 
@@ -327,7 +326,6 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
                         <?php foreach ($planes as $p): ?>
                         <option value="<?= (int) $p['id_plan_tratamiento'] ?>"
                             data-motivo="<?= e($propuestaPorPlan[(int) $p['id_plan_tratamiento']]['motivo']) ?>"
-                            data-padecimiento="<?= e($propuestaPorPlan[(int) $p['id_plan_tratamiento']]['padecimiento']) ?>"
                             <?= (int) $p['id_plan_tratamiento'] === $idPlan ? 'selected' : '' ?>>
                             <?= e($p['folio']) ?> &mdash; <?= e($p['descripcion'] ?? $p['nombre_estado']) ?>
                         </option>
@@ -336,22 +334,26 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
                 </label>
             </div>
 
-            <?php /* Los tres textos en una sola tarjeta.
+            <?php /* El acomodo: a la izquierda lo clinico de hoy, a la
+                     derecha lo que se escribe.
 
-                     Eran tres tarjetas de ancho medio: motivo arriba,
-                     padecimiento y tratamiento abajo. Cada una con su
-                     cabecera, su borde y su relleno, para contener un
-                     campo de texto.
+                     Arriba a la izquierda el motivo —una linea— y
+                     debajo la exploracion, que es donde se trabaja
+                     durante la cita. A su lado, a todo el alto, las
+                     notas de evolucion.
 
-                     Juntos en una ocupan la mitad del alto, y ese alto
-                     se lo gana la exploracion y las notas de
-                     evolucion, que es lo que de verdad se consulta
-                     despues. */ ?>
+                     Se fueron dos campos: "padecimiento actual", que en
+                     la practica repetia el motivo con otras palabras, y
+                     "tratamiento realizado", que decia lo mismo que ya
+                     cuentan los hallazgos y las notas. Tres cajas de
+                     texto pidiendo variaciones de la misma cosa hacen
+                     que se llene una y se dejen dos vacias, y despues
+                     nadie sabe en cual estaba lo importante. */ ?>
             <div class="row g-3 mb-3">
                 <div class="col-7">
-                    <div class="card h-100">
+                    <div class="card mb-3">
                         <div class="card-header">
-                            <i class="bi bi-chat-left-quote me-2"></i>Motivo de la consulta
+                            <i class="bi bi-chat-left-quote me-2"></i>Motivo de consulta
                         </div>
                         <div class="card-body py-2">
                             <?php /* Prellenado cuando se entro desde un plan.
@@ -361,44 +363,20 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
                                      dejarlo para despues haria aparecer el
                                      texto un instante despues de la vista, y
                                      eso se lee como si el sistema lo hubiera
-                                     escrito solo a espaldas de quien captura.
-                                     Las propuestas que decide el usuario —al
-                                     contestar de que plan es— si las pone el
-                                     JavaScript, porque ahi todavia no se
-                                     sabia. */ ?>
+                                     escrito solo a espaldas de quien captura. */ ?>
                             <?php $pre = $propuestaPorPlan[$idPlan] ?? null; ?>
-                            <label class="form-label">
-                                &iquest;A qu&eacute; vino? <span class="req">*</span>
-                            </label>
                             <input type="text" class="form-control form-control-sm"
                                    name="motivo" maxlength="255" required
                                    value="<?= $pre ? e($pre['motivo']) : '' ?>"
                                    placeholder="LO QUE DICE EL TUTOR O EL PACIENTE">
 
-                            <label class="form-label mt-2">Padecimiento actual</label>
-                            <textarea class="form-control form-control-sm"
-                                      name="padecimiento_actual" rows="2"
-                                      placeholder="DESDE CU&Aacute;NDO, C&Oacute;MO EMPEZ&Oacute;"><?= $pre ? e($pre['padecimiento']) : '' ?></textarea>
-
-                            <label class="form-label mt-2">
-                                Tratamiento realizado e indicaciones
-                            </label>
-                            <textarea class="form-control form-control-sm"
-                                      name="plan_indicaciones" rows="3"
-                                      placeholder="QU&Eacute; SE HIZO HOY Y QU&Eacute; DEBE HACER EN CASA"></textarea>
-                            <div class="form-text">
-                                El tratamiento se pide para poder cerrar la consulta.
-                            </div>
-
                             <?php /* El Guardar, aqui abajo.
 
-                                     Debajo del ultimo campo que se escribe y
-                                     dentro de la unica tarjeta que esta viva
-                                     antes del primer guardado. Mientras la
-                                     consulta no exista, lo demas de la
-                                     pantalla esta difuminado y este boton es
-                                     literalmente lo unico que se puede
-                                     picar. */ ?>
+                                     Debajo del unico campo que se escribe y
+                                     dentro de la unica tarjeta viva antes del
+                                     primer guardado: mientras la consulta no
+                                     exista, lo demas esta difuminado y este
+                                     boton es lo unico que se puede picar. */ ?>
                             <?php if (Auth::puede('consultas.crear')): ?>
                             <div class="pie-guardar" id="cnPieGuardar">
                                 <span class="texto-guardar">
@@ -413,18 +391,16 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
 
-                <?php /* Exploracion: un hallazgo a la vez.
+                    <?php /* Exploracion: un hallazgo a la vez.
 
-                         Antes era una caja de texto donde terminaban
-                         tres observaciones pegadas en un parrafo:
-                         "CARIES OCLUSAL EN 46. GINGIVITIS LEVE. MANCHA
-                         BLANCA EN 11". Asi no se puede ligar una
-                         radiografia a UN hallazgo, ni saber en la
-                         siguiente cita cual de los tres se resolvio. */ ?>
-                <div class="col-5">
-                    <div class="card h-100 zona-sin-consulta">
+                             Antes era una caja de texto donde terminaban
+                             tres observaciones pegadas en un parrafo:
+                             "CARIES OCLUSAL EN 46. GINGIVITIS LEVE. MANCHA
+                             BLANCA EN 11". Asi no se puede ligar una
+                             radiografia a UN hallazgo, ni saber en la
+                             siguiente cita cual de los tres se resolvio. */ ?>
+                    <div class="card zona-sin-consulta">
                         <div class="card-header d-flex align-items-center
                                     justify-content-between">
                             <span><i class="bi bi-search-heart me-2"></i>Exploraci&oacute;n</span>
@@ -443,7 +419,38 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
                         <div class="card-body py-2" id="cnHallazgos">
                             <div class="exp-vacio">
                                 Sin hallazgos. Agrega uno por cada cosa que
-                                observes, en boca o en placa.
+                                observes, en boca o en placa. Con subir la
+                                foto basta: la descripci&oacute;n es opcional.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <?php /* Notas de evolucion, a todo el alto de la columna.
+
+                         Estuvieron abajo de las recetas, en la columna
+                         angosta de los anexos. Ahi caben dos renglones y
+                         son lo que convierte un expediente en una historia
+                         que se puede leer: el "mejoro", el "el nino llego
+                         asustado", el "la mama pregunto por". Al lado de la
+                         exploracion tienen el alto para que se vean varias
+                         sin desplazarse. */ ?>
+                <div class="col-5">
+                    <div class="card borde-destacado h-100 zona-sin-consulta">
+                        <div class="card-header d-flex align-items-center
+                                    justify-content-between">
+                            <span><i class="bi bi-journal-text me-2"></i>Notas de evoluci&oacute;n</span>
+                            <button type="button" class="btn btn-sm btn-morado"
+                                    id="cnNuevaNota" disabled>
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                        <div class="card-body py-2" id="cnNotas">
+                            <div class="exp-vacio">
+                                Sin notas. Sirven para dejar constancia de lo
+                                que se observ&oacute; o se acord&oacute; y no
+                                cabe en los campos de la izquierda. No generan
+                                pendiente de digitalizaci&oacute;n.
                             </div>
                         </div>
                     </div>
@@ -495,39 +502,14 @@ $preguntarPlan = !$idConsulta && $planes && !$idPlan;
             </div>
         </div>
 
-        <?php /* Notas de evolucion.
+        <?php /* Las notas de evolucion se fueron de aqui.
 
-                 Vinieron a dar aqui, debajo de Recetas, en la columna
-                 de lo que se le AGREGA a la consulta: recetas, cargos,
-                 anexos y notas son todas cosas que se suman a lo
-                 clinico y cada una abre su propio dialogo. Una nota no
-                 es un campo del registro, es un anexo, y ponerla en la
-                 columna izquierda la hacia competir en ancho con el
-                 motivo y la exploracion para contener texto corto.
-
-                 Toma el ancho de esta columna, que es el que necesita:
-                 una nota es de dos renglones, no de diez. */ ?>
-        <?php /* Sin zona-sin-consulta propia: ya va dentro de cnAnexos,
-                 que es la zona. Anidar una dentro de otra difumina dos
-                 veces —el filtro y la opacidad se multiplican— y la
-                 tarjeta se veria mas apagada que sus vecinas sin que
-                 nada lo justifique. */ ?>
-        <div class="card borde-destacado mb-3">
-            <div class="card-header d-flex align-items-center justify-content-between">
-                <span><i class="bi bi-journal-text me-2"></i>Notas de evoluci&oacute;n</span>
-                <button type="button" class="btn btn-sm btn-morado" id="cnNuevaNota" disabled>
-                    <i class="bi bi-plus-lg"></i>
-                </button>
-            </div>
-            <div class="card-body py-2" id="cnNotas">
-                <div class="exp-vacio">
-                    Sin notas. Sirven para dejar constancia de lo que se
-                    observ&oacute; o se acord&oacute; y no cabe en los campos de
-                    la izquierda. No generan pendiente de
-                    digitalizaci&oacute;n.
-                </div>
-            </div>
-        </div>
+                 Estuvieron en esta columna, debajo de Recetas, con el
+                 argumento de que una nota es un anexo y no un campo del
+                 registro. El argumento era bueno y el resultado no: en
+                 una columna de este ancho caben dos renglones, y las
+                 notas son lo que se LEE en la siguiente cita. Ahora van
+                 al lado de la exploracion, a todo el alto. */ ?>
 
         <?php /* Se fue la tarjeta "Documentos de la consulta".
 

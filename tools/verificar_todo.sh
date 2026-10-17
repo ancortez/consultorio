@@ -78,6 +78,13 @@ correr tools/probar_complementos.py
 correr tools/probar_saldo_a_favor.py
 correr tools/probar_esquema.py
 correr tools/probar_heic.py
+correr tools/probar_cita_sin_hora.py
+correr tools/probar_agenda_navegador.js
+correr tools/probar_orden_pacientes.py
+correr tools/probar_buscar_navegador.js
+correr tools/probar_codigo_hallazgo.py
+correr tools/probar_odontograma_estado.py
+correr tools/probar_odontograma_navegador.js
 
 # Si manianaa alguien agrega un archivo a tools/ y no lo mete en la lista
 # de arriba, esto lo avisa en vez de dejarlo sin correr para siempre.

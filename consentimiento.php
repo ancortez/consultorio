@@ -102,16 +102,54 @@ $tutor = Conexion::uno(
     [':r' => $idExpediente, ':t' => $idTutor, ':t2' => $idTutor]
 );
 
-// Domicilio: el que pidieron, o el principal del tutor.
+/*
+   El domicilio que se imprime es el del PACIENTE.
+
+   Antes salia el del tutor, y el razonamiento era que firma el tutor,
+   asi que va su direccion. En la practica el domicilio del tutor
+   muchas veces no se captura —con el paciente enfrente se registra lo
+   del nino y lo del adulto se deja para luego—, y el consentimiento
+   salia con la linea del domicilio en blanco. Un documento legal con
+   un hueco donde va una direccion es un documento que alguien va a
+   rellenar a mano despues de la firma, o que no sirve.
+
+   El del paciente si esta siempre: es parte del alta. Y en un
+   consultorio de odontopediatria viven en la misma casa casi siempre,
+   asi que ademas suele ser la misma direccion.
+
+   Se puede seguir pidiendo uno concreto por la direccion web: esa es
+   la pantalla del expediente, donde hay un selector y quien lo usa
+   sabe lo que elige.
+*/
 $domicilio = null;
-if ($tutor !== null) {
+
+if ($idDomicilio > 0) {
+    $domicilio = Conexion::uno(
+        'SELECT vd.* FROM v_domicilio vd
+          WHERE vd.id_domicilio = :d AND vd.estatus = 1',
+        [':d' => $idDomicilio]
+    );
+}
+
+if ($domicilio === null) {
     $domicilio = Conexion::uno(
         'SELECT vd.* FROM v_domicilio vd
           WHERE vd.id_persona = :p AND vd.estatus = 1
-            AND (:d = 0 OR vd.id_domicilio = :d2)
           ORDER BY vd.es_principal DESC, vd.id_domicilio
           LIMIT 1',
-        [':p' => $tutor['id_persona'], ':d' => $idDomicilio, ':d2' => $idDomicilio]
+        [':p' => $paciente['id_persona']]
+    );
+}
+
+// Y si el paciente no tiene domicilio capturado, el del tutor antes
+// que dejar la linea en blanco.
+if ($domicilio === null && $tutor !== null) {
+    $domicilio = Conexion::uno(
+        'SELECT vd.* FROM v_domicilio vd
+          WHERE vd.id_persona = :p AND vd.estatus = 1
+          ORDER BY vd.es_principal DESC, vd.id_domicilio
+          LIMIT 1',
+        [':p' => $tutor['id_persona']]
     );
 }
 

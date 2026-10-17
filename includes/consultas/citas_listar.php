@@ -30,7 +30,8 @@ if ($idEstado) {
 }
 
 Respuesta::ok(Conexion::todos(
-    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.motivo, c.notas,
+    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.sin_hora,
+            c.motivo, c.notas,
             c.id_estado_cita, c.id_usuario_dentista, c.id_registro_paciente,
             ec.nombre_estado, ec.color,
             vp.nombre_completo, vp.num_expediente, vp.telefono, vp.edad,
@@ -42,6 +43,6 @@ Respuesta::ok(Conexion::todos(
        JOIN usuario u      ON u.id_usuario = c.id_usuario_dentista
        LEFT JOIN consultorio_sala s ON s.id_sala = c.id_sala
       WHERE ' . implode(' AND ', $where) . '
-      ORDER BY c.fecha_inicio',
+      ORDER BY DATE(c.fecha_inicio), c.sin_hora DESC, c.fecha_inicio',
     $params
 ));

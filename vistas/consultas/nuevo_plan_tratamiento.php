@@ -519,6 +519,10 @@ $dientes = Conexion::todos(
 
 <?php require RUTA_VISTAS . '/consultas/_modal_procedimiento.php'; ?>
 
+<?php /* El selector de dientes pinta el estado actual de ESTE
+         paciente: se elige donde va el procedimiento mirando como esta
+         la boca, no una rejilla de numeros iguales. */ ?>
+<?php $idExpedienteOdo = $idExpediente; ?>
 <?php require RUTA_VISTAS . '/consultas/_modal_dientes.php'; ?>
 
 <?php require RUTA_VISTAS . '/consultas/_modales_diagnostico.php'; ?>

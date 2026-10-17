@@ -6,8 +6,7 @@ declare(strict_types=1);
  *
  * Un cargo puede nacer de tres lados y los tres terminan igual:
  *
- *   - Del plan de tratamiento, cuando el tutor lo acepta. Antes de eso
- *     el plan es una cotizacion y cobrarla seria adelantarse.
+ *   - Del plan de tratamiento, en cuanto el plan se guarda.
  *   - De la consulta, cuando sale algo que no estaba planeado. Es la
  *     mitad del trabajo real de un consultorio.
  *   - A mano, para lo que no cabe en ninguno de los dos.
@@ -18,8 +17,33 @@ declare(strict_types=1);
  */
 final class Cargos
 {
-    /** El plan empieza a cobrarse a partir de Aceptado. */
-    public const ESTADOS_COBRABLES = [2, 3, 4];   // Aceptado, En proceso, Terminado
+    /*
+       Un plan genera cargos desde que se guarda. Solo el cancelado no.
+
+       Hasta el 17 de octubre de 2026 esto empezaba en Aceptado, con el
+       argumento de que un plan propuesto es una cotizacion y cobrarla
+       seria adelantarse. Suena bien y no era lo que pasaba en el
+       consultorio: la doctora captura el plan, lo imprime, lo explica, y
+       el tratamiento arranca ese mismo dia. El cargo no aparecia hasta
+       que alguien escaneaba la hoja firmada y volvia a guardar el plan
+       —tres pasos despues y a veces otro dia—, asi que en el mostrador
+       el paciente no debia nada por un trabajo que ya se le estaba
+       haciendo.
+
+       Angel lo reporto justo asi: "no me los pone pendientes hasta que
+       escaneo, me meto al plan y guardo otra vez".
+
+       Que un plan propuesto ya genere pendientes es lo que se pidio y
+       tiene su contrapeso: un plan que al final no se acepta se
+       cancela, y cancelarlo retira sus cargos sin pagos (ver la rama de
+       !$cobrable mas abajo). Asi que el plan que no llega a nada
+       limpia lo suyo, y mientras tanto el mostrador ve lo que de
+       verdad se esta haciendo.
+
+       El 5 —cancelado— se queda fuera a proposito: ahi el plan dejo de
+       existir para el consultorio.
+    */
+    public const ESTADOS_COBRABLES = [1, 2, 3, 4];  // todos menos Cancelado
 
     /**
      * Crea un cargo.
@@ -85,8 +109,8 @@ final class Cargos
     /**
      * Pone al dia los cargos de un plan de tratamiento.
      *
-     * Se llama al guardar el plan. Solo genera cargos si el plan ya
-     * esta aceptado: un plan propuesto todavia es una cotizacion.
+     * Se llama al guardar el plan, y genera cargos para cualquier
+     * estado menos el cancelado: ver ESTADOS_COBRABLES.
      *
      * Los renglones ya pagados no se tocan aunque el plan cambie. Si
      * un concepto desaparece del plan y no se le habia abonado nada,
@@ -128,12 +152,14 @@ final class Cargos
         $creados = $cancelados = $intocables = 0;
 
         if (!$cobrable) {
-            // El plan volvio a propuesto o se cancelo: se retiran los
-            // cargos que nadie ha pagado.
+            // El plan se cancelo: se retiran los cargos que nadie ha
+            // pagado. Es la contrapartida de que un plan recien
+            // capturado ya genere pendientes —el que no llega a nada
+            // limpia lo suyo—.
             foreach ($actuales as $a) {
                 if ((float) $a['aplicado'] > 0) { $intocables++; continue; }
                 self::cancelar((int) $a['id_cargo'],
-                    'El plan dejo de estar aceptado.');
+                    'Se cancelo el plan de tratamiento.');
                 $cancelados++;
             }
             return compact('creados', 'cancelados', 'intocables');

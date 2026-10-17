@@ -15,6 +15,43 @@ $q       = trim((string) param('q', ''));
 $estatus = param('estatus', '1');
 $limite  = (int) parametro('pacientes_lista_inicio', (string) PACIENTES_INICIO);
 
+/*
+   El orden: una lista cerrada, no el texto que llegue.
+
+   Lo que manda la pantalla es una CLAVE y aqui se traduce a SQL. Pegar
+   el parametro en el ORDER BY seria una inyeccion de las de libro: el
+   ORDER BY no admite marcadores de posicion, asi que no hay forma de
+   mandarlo como dato y la unica defensa es que no se use nunca lo que
+   venga de fuera.
+
+   Los apellidos aparte de los nombres porque son dos busquedas
+   distintas y las dos se hacen: "a ver los Guzman" ordena por apellido,
+   y "¿como se llamaba el Mateo?" ordena por nombre. El nombre_completo
+   empieza por los nombres, asi que ordenar por el es ordenar por
+   nombre: para los apellidos hace falta su propia opcion.
+
+   El desempate siempre acaba en el id, que es unico. Sin el, dos altas
+   del mismo dia pueden salir en un orden distinto en cada consulta
+   —MySQL no promete nada— y la lista "baila" al recargar sin que nada
+   haya cambiado.
+*/
+const ORDENES = [
+    'ultima_consulta' => 'vp.ultima_consulta',
+    'alta'            => 'vp.fecha_alta',
+    'nombres'         => 'vp.nombres',
+    'apellidos'       => 'vp.ap_paterno',
+];
+
+$orden = (string) param('orden', 'ultima_consulta');
+if (!isset(ORDENES[$orden])) {
+    $orden = 'ultima_consulta';
+}
+
+// Las fechas arrancan de lo mas nuevo a lo mas viejo y los nombres de la
+// A a la Z: es lo que uno espera de cada cosa sin tener que pedirlo.
+$esFecha = in_array($orden, ['ultima_consulta', 'alta'], true);
+$baja    = param('baja', $esFecha ? '1' : '0') === '1';
+
 $where  = [];
 $params = [];
 
@@ -49,7 +86,7 @@ if ($q !== '') {
 // adivinar donde cortar.
 $sql = 'SELECT vp.id_registro_paciente, vp.num_expediente, vp.id_persona,
                vp.nombre_completo, vp.edad, vp.telefono, vp.correo,
-               vp.estatus, vp.ultima_consulta, vp.foto,
+               vp.estatus, vp.fecha_alta, vp.ultima_consulta, vp.foto,
                (SELECT vd.calle_numero
                   FROM v_domicilio vd
                  WHERE vd.id_persona = vp.id_persona AND vd.estatus = 1
@@ -68,9 +105,26 @@ if ($where) {
     $sql .= ' WHERE ' . implode(' AND ', $where);
 }
 
-// Los que tienen consulta reciente primero; los que nunca han venido al final.
-$sql .= ' ORDER BY vp.ultima_consulta IS NULL, vp.ultima_consulta DESC,
-                   vp.id_registro_paciente DESC';
+/*
+   Los vacios SIEMPRE al final, ordene como ordene.
+
+   "IS NULL" primero en el ORDER BY: en MySQL un NULL es mas chico que
+   cualquier valor, asi que ordenando de la Z a la A los pacientes que
+   nunca han venido se irian a la cabeza de la lista. Un paciente sin
+   consultas no es "el mas reciente" ni "el mas antiguo": es el que no
+   tiene ese dato, y su sitio es abajo en los dos sentidos.
+
+   Solo pasa con las fechas —ultima_consulta puede ser NULL y
+   fecha_apertura no—, pero la expresion se deja igual para las cuatro:
+   una sola forma de armar el ORDER BY se lee de un golpe, y sobre una
+   columna NOT NULL "IS NULL" vale 0 en todos los renglones y no cambia
+   nada.
+*/
+$columna = ORDENES[$orden];
+$sentido = $baja ? 'DESC' : 'ASC';
+
+$sql .= " ORDER BY $columna IS NULL, $columna $sentido,
+                   vp.id_registro_paciente DESC";
 
 // Con filtro se permite ver mas resultados; sin filtro se respeta el tope.
 $sql .= ' LIMIT ' . ($q !== '' ? 100 : $limite);

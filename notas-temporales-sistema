@@ -1,4 +1,71 @@
+* CORRECCIONES 16/10/2026 
 
+CONSULTAS>PLAN DE TRATAMIENTO
+    -> Agregar en el filtro "CANCELADOS"
+
+AGENDA
+    -> Pacientes que se citan con mucho tiempo de anticipación, permitir agregar la cita solo para el día sin definir la hora (todo el dia por ejemplo). Ya que se vaya llegando la fecha, la doctora se encargará de agendar a la hora que le toca al paciente.
+
+PACIENTES>BUSCAR PACIENTE
+    -> Agregar 2 columnas a la tabla: fecha de creación y fecha de ultima consulta.
+    -> Filtros para ordenar en nombre completo, fecha de creación y fecha de ultima consulta.
+    -> Para Nombre Completo, poder ordenar por nombres o por apellidos.
+    >HISTORIA CLÍNICA
+        * Para algunas preguntas de elección, el comentario complementario será opcional. Te dejo la descripción de las que serán opcionales:
+            
+            PREGUNTA            OPCIÓN                      MOSTRAR MODAL       RESPUESTA DEFAULT
+            --------------------------------------------------------------------------------------
+            Primera visita      NO                          Opcional            No especifica
+            Complicaciones      SI                          Opcional            No especifica       
+            Lactancia materna   SI                          Opcional            No especifica
+            Fórmula             SI                          Opcional            No especifica
+            Dieta Actual        INCOMPLETA                  Opcional            No especifica
+            Momento de azucar   TODAS excepto "No consume"  Opcional            No especifica
+            Enfermedad cronica  SI                          Opcional            No especifica
+            Discapacidad        SI                          Opcional            No especifica
+            Alergico            SI                          Opcional            No especifica
+            Tratamiento med.    SI                          Opcional            No especifica
+            Cirugías            SI                          Opcional            No especifica
+            Otro elem higiene   SI                          Opcional            No especifica
+            -------------------------------------------------------------
+        
+        * En caso de no poner la respuesta, pondrá ese elemento que agregaste (capsula con un lapiz y la respuesta dentro) y colocará la respuesta default que te especifico en el cuadro y un pequeño aviso que diga que es opcional.
+        * CEPILLADOS AL DÍA. En lugar de pedir un número campo para escribir descripción.
+
+CONSULTAS>LISTA DE CONSULTAS>DETALLE DE CONSULTA
+    -> Vamos a cambiar un poco la estructura de esta patalla.
+        * Los campos de Padecimiento actual y Tratamiento realizado e indicaciones los vamos a eliminar. Solo se queda el de A que vino. Cambiar "A que vino" por "Motivo de Consulta"
+        * Debajo del Motivo de consulta reacomodar card de "Exploración".
+        * Donde estaba exploración reacomodar card de "Notas de evolución".
+        * Se anexa imagen de referencia.
+    >HALLAZGOS
+        * Campo "Descripción" pasa a ser opcional. No es necesario escribir la descripcion. A veces con subir las fotos basta.
+
+CONSULTAS>PLAN DE TRATAMIENTO / PACIENTE>EXPEDIENTE ELECTRÓNICO>PLAN DE TRATAMIENTO
+    >CONSENTIMIENTO
+        * El consentimiento tomará el domicilio del paciente como domicilio que se va a imprimir en el consentimiento. A veces por la prisa no registramos el domicilio del tutor, por lo que mejor optams por poner el domicilio del paciente.
+
+CAJAS>COBRO CON SALDO A FAVOR
+    -> Cuando cobramos un procedimiento y existe saldo a favor del paciente la ficha sale un poco confusa.
+        Ejempo: Un paciente tiene $500.00 de saldo a favor y va a una consulta que cuesta $600.00. Lo normal es que solo pagará $100.00
+        La ficha debe salir:
+
+        CONCEPTO                    FECHA           IMPORTE
+        ----------------------------------------------------
+        CONSULTA Y DIAGNÓSTICO      16/10/2026      $600.00
+        SALDO A FAVOR               16/10/2026     -$500.00
+        ----------------------------------------------------
+        FORMA DE PAGO
+        XXXXXXXX
+        ----------------------------------------------------
+        TOTAL RECIBIDO                              $100.00
+        ----------------------------------------------------
+
+GENERAL
+    -> Extender límites de sesiones de usuario abiertas a 4 horas.
+
+
+----------------
 * CORRECCIONES 13/10/2026
 
 CONSULTAS>PLAN DE TRATAMIENTO

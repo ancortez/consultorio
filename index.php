@@ -277,5 +277,14 @@ if (is_file($jsModulo)):
           && in_array($vista, ['detalle_paciente', 'historia_clinica'], true)): ?>
 <script src="<?= URL_BASE ?>/assets/js/historia.js?v=<?= e(APP_VERSION) ?>"></script>
 <?php endif; ?>
+<?php /* El odontograma solo en la ficha del paciente.
+
+         El selector de dientes del plan ENSENIA los mismos colores,
+         pero eso lo pinta PHP: no hace falta el JavaScript de aqui, que
+         es el que marca condiciones. Cargarlo alla seria traer codigo
+         que no tiene nada que hacer en esa pantalla. */ ?>
+<?php if ($modulo === 'paciente' && $vista === 'detalle_paciente'): ?>
+<script src="<?= URL_BASE ?>/assets/js/odontograma.js?v=<?= e(APP_VERSION) ?>"></script>
+<?php endif; ?>
 </body>
 </html>

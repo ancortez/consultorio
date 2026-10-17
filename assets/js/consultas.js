@@ -37,6 +37,10 @@ function listadoPlanes() {
     try {
       const r = await App.api('consultas/planes_listar.php', {
         abiertos: 1,
+        // El estatus viaja al servidor. Filtrarlo aqui solo podia
+        // QUITAR de lo que ya habia llegado, y los cancelados nunca
+        // llegaban: la consulta traia unicamente los vigentes.
+        estado: estado.value,
         q: filtro.value.trim(),
       });
       todos = r.datos;
@@ -48,9 +52,7 @@ function listadoPlanes() {
   }
 
   function pintar() {
-    const lista = estado.value
-      ? todos.filter((p) => String(p.id_estado_plan) === estado.value)
-      : todos;
+    const lista = todos;
 
     contador.textContent = lista.length
       ? `${lista.length} plan${lista.length === 1 ? '' : 'es'}`
@@ -64,7 +66,7 @@ function listadoPlanes() {
   }
 
   filtro.addEventListener('input', App.debounce(cargar, 350));
-  estado.addEventListener('change', pintar);
+  estado.addEventListener('change', cargar);
   limpiar.addEventListener('click', () => { filtro.value = ''; cargar(); filtro.focus(); });
 
   cargar();
@@ -119,11 +121,19 @@ function moduloAgenda() {
     }
 
     tabla.innerHTML = r.datos.map((c) => `
-      <tr data-cita='${App.esc(JSON.stringify(c))}'>
+      <tr data-cita='${App.esc(JSON.stringify(c))}'
+          class="${Number(c.sin_hora) === 1 ? 'fila-sin-hora' : ''}">
         <td>
-          <div class="fw-semibold">${App.esc(c.fecha_inicio.substring(11, 16))}</div>
-          <div class="text-secondary" style="font-size:11px">
-            a ${App.esc(c.fecha_fin.substring(11, 16))}</div>
+          ${Number(c.sin_hora) === 1 ? `
+            <span class="chip-sin-hora">
+              <i class="bi bi-clock-history"></i> Sin hora
+            </span>
+            <div class="text-secondary" style="font-size:11px">
+              Falta ponerle hora</div>`
+          : `
+            <div class="fw-semibold">${App.esc(c.fecha_inicio.substring(11, 16))}</div>
+            <div class="text-secondary" style="font-size:11px">
+              a ${App.esc(c.fecha_fin.substring(11, 16))}</div>`}
         </td>
         <td>
           <a class="fw-semibold text-decoration-none"
@@ -156,7 +166,7 @@ function moduloAgenda() {
             <button type="button" class="btn-menu-fila" data-bs-toggle="dropdown"
                     aria-label="Acciones"><i class="bi bi-list fs-5"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">
-              ${Number(c.id_estado_cita) === 1 ? `
+              ${Number(c.id_estado_cita) === 1 && Number(c.sin_hora) !== 1 ? `
               <li><a class="dropdown-item" href="#" data-accion="cita-estado" data-estado="2">
                 <i class="bi bi-check2-circle me-2"></i>Confirmar</a></li>` : ''}
               ${[1, 2].includes(Number(c.id_estado_cita)) ? `
@@ -166,7 +176,9 @@ function moduloAgenda() {
               <li><a class="dropdown-item" href="#" data-accion="cita-estado" data-estado="4">
                 <i class="bi bi-clipboard2-check me-2"></i>Marcar atendida</a></li>` : ''}
               <li><a class="dropdown-item" href="#" data-accion="cita-editar">
-                <i class="bi bi-calendar-event me-2"></i>Reagendar</a></li>
+                ${Number(c.sin_hora) === 1
+                  ? '<i class="bi bi-clock me-2"></i>Ponerle hora'
+                  : '<i class="bi bi-calendar-event me-2"></i>Reagendar'}</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="#" data-accion="cita-estado" data-estado="6">
                 <i class="bi bi-person-x me-2"></i>No asistió</a></li>
@@ -242,6 +254,17 @@ function moduloAgenda() {
     document.getElementById('citaHora').value = '';
     document.getElementById('citaGuardar').disabled = true;
 
+    /* El interruptor se pone ANTES de pedir los espacios.
+
+       Abriendo una cita que esta sin hora, lo que se viene a hacer es
+       justamente ponersela: el interruptor arranca apagado para que la
+       rejilla de horarios este a la vista. Si arrancara encendido —"asi
+       estaba guardada"— habria que apagarlo a mano cada vez, que es el
+       unico camino por el que se entra a esta pantalla con una de
+       estas citas. */
+    document.getElementById('citaSinHora').checked = false;
+    aplicarSinHora();
+
     document.getElementById('tituloModalCita').textContent =
       cita ? 'Modificar cita' : 'Nueva cita';
 
@@ -264,15 +287,24 @@ function moduloAgenda() {
          nunca se habia guardado. */
       formCita.querySelector('[name="notas"]').value = cita.notas ?? '';
 
-      const min = (new Date(cita.fecha_fin.replace(' ', 'T'))
-                 - new Date(cita.fecha_inicio.replace(' ', 'T'))) / 60000;
-      document.getElementById('citaDuracion').value = String(min);
+      /* La duracion sale de la diferencia entre las dos fechas, pero
+         una cita sin hora las tiene iguales: daria cero, que no es
+         ninguna de las opciones del selector y lo dejaria en blanco.
+         Para esas vale el valor de arranque, media hora, que es lo que
+         se va a elegir en cuanto se le ponga hora. */
+      if (Number(cita.sin_hora) !== 1) {
+        const min = (new Date(cita.fecha_fin.replace(' ', 'T'))
+                   - new Date(cita.fecha_inicio.replace(' ', 'T'))) / 60000;
+        document.getElementById('citaDuracion').value = String(min);
+      }
     } else if (dentista.value) {
       document.getElementById('citaDentista').value = dentista.value;
     }
 
     modalCita.show();
-    cargarEspaciosModal(horaPreferida ?? cita?.fecha_inicio?.substring(11, 16));
+    cargarEspaciosModal(horaPreferida
+      ?? (Number(cita?.sin_hora) === 1
+            ? null : cita?.fecha_inicio?.substring(11, 16)));
   }
 
   async function cargarEspaciosModal(horaPreferida = null) {
@@ -331,11 +363,51 @@ function moduloAgenda() {
     revisarListo();
   }
 
-  function revisarListo() {
-    document.getElementById('citaGuardar').disabled =
-      !document.getElementById('citaHora').value
-      || !document.getElementById('citaPaciente').value;
+  /*
+     El interruptor de "sin hora", en un solo sitio.
+
+     Lo que cambia no es solo que se vea o no la rejilla: cambia que se
+     pide y que no. Con el encendido no hay horario que elegir ni
+     duracion que apartar, porque la cita no ocupa tiempo, y el boton
+     deja de decir "Agendar cita" —no se esta agendando nada— para
+     decir que lo que se aparta es el dia.
+
+     Y la hora que hubiera quedado elegida se borra. Sin esto, alguien
+     que elige las 10:30, se arrepiente y enciende el interruptor
+     mandaria las dos cosas: el servidor se queda con "sin hora" y la
+     pantalla habria ensenado otra cosa.
+  */
+  function aplicarSinHora() {
+    const sin = document.getElementById('citaSinHora').checked;
+
+    document.getElementById('citaEspacios').classList.toggle('d-none', sin);
+    document.getElementById('citaCajaDuracion').classList.toggle('d-none', sin);
+    document.getElementById('citaHoraRequerida').classList.toggle('d-none', sin);
+    document.getElementById('citaAvisoSinHora').classList.toggle('d-none', !sin);
+
+    if (sin) {
+      document.getElementById('citaHora').value = '';
+      document.querySelectorAll('#citaEspacios .espacio')
+        .forEach((e) => e.classList.remove('elegido'));
+    }
+
+    document.getElementById('citaGuardar').innerHTML = sin
+      ? '<i class="bi bi-calendar2-check me-1"></i> Apartar el día'
+      : '<i class="bi bi-check-lg me-1"></i> Agendar cita';
+
+    revisarListo();
   }
+
+  function revisarListo() {
+    const sin = document.getElementById('citaSinHora').checked;
+
+    document.getElementById('citaGuardar').disabled =
+      !document.getElementById('citaPaciente').value
+      || (!sin && !document.getElementById('citaHora').value);
+  }
+
+  document.getElementById('citaSinHora')
+    .addEventListener('change', aplicarSinHora);
 
   document.getElementById('citaEspacios').addEventListener('click', (ev) => {
     const bloque = ev.target.closest('.espacio.libre[data-hora]');
@@ -343,7 +415,12 @@ function moduloAgenda() {
   });
 
   ['citaFecha', 'citaDentista', 'citaDuracion'].forEach((id) => {
-    document.getElementById(id).addEventListener('change', () => cargarEspaciosModal());
+    document.getElementById(id).addEventListener('change', () => {
+      // Con el dia apartado no hay espacios que buscar: el viaje al
+      // servidor no serviria para nada y la rejilla esta escondida.
+      if (document.getElementById('citaSinHora').checked) return;
+      cargarEspaciosModal();
+    });
   });
 
   /* -------------------------------------------------------------------
@@ -403,7 +480,14 @@ function moduloAgenda() {
     try {
       const r = await App.api('consultas/cita_guardar.php', App.formADatos(formCita));
       modalCita.hide();
-      App.alerta.toast('Cita agendada. Falta confirmarla', 'info');
+      /* El texto lo manda el servidor.
+
+         Apartar un dia y agendar una hora no son la misma cosa y no se
+         avisan igual: uno dice que falta ponerle hora, el otro que
+         falta confirmar. Repetir el aviso aqui era tener dos verdades,
+         y la de la pantalla decia "Cita agendada" tambien cuando no se
+         habia agendado ninguna hora. */
+      App.alerta.toast(r.mensaje ?? 'Cita guardada', 'info');
 
       // Si la cita quedo en otro dia, se salta a ese dia.
       const dia = r.datos.fecha_inicio.substring(0, 10);
@@ -895,8 +979,30 @@ function moduloPlan() {
                <p class="intro">
                  Imprime los dos papeles, recoge las firmas y s&uacute;belos
                  escaneados desde el <b>Expediente electr&oacute;nico</b>.
-                 Los pendientes ya quedaron registrados.
+                 Los papeles por escanear ya quedaron registrados.
                </p>
+               ${/*
+                   Y los pendientes de PAGO, dichos aparte.
+
+                   El parrafo de arriba decia "los pendientes ya quedaron
+                   registrados" y hablaba de los papeles por escanear. Con
+                   los cargos naciendo al guardar el plan, "pendiente"
+                   significa dos cosas distintas en la misma pantalla, y
+                   la que importa en el mostrador es esta. Se dice con el
+                   numero: asi se nota si quedaron los que se capturaron.
+                 */''}
+               ${Number(datos.cargos?.creados) > 0 ? `
+                 <p class="intro">
+                   <i class="bi bi-cash-coin me-1"></i>
+                   Se registraron <b>${Number(datos.cargos.creados)}</b>
+                   concepto(s) como <b>pendientes de pago</b> del paciente.
+                 </p>` : ''}
+               ${Number(datos.cargos?.intocables) > 0 ? `
+                 <p class="intro">
+                   <i class="bi bi-lock me-1"></i>
+                   ${Number(datos.cargos.intocables)} concepto(s) no se
+                   modificaron porque ya tienen pagos aplicados.
+                 </p>` : ''}
                ${papeles.map(fila).join('')}
              </div>`,
       showConfirmButton: true,
@@ -1500,7 +1606,10 @@ function detalleConsulta() {
   }
 
   function llenar() {
-    ['motivo', 'padecimiento_actual', 'plan_indicaciones'].forEach((c) => {
+    // Solo el motivo: padecimiento_actual y plan_indicaciones salieron
+    // de la pantalla. Sus columnas siguen en la base con lo capturado
+    // antes, pero esta pantalla ya no las escribe ni las lee.
+    ['motivo'].forEach((c) => {
       const el = form.querySelector(`[name="${c}"]`);
       if (el && datos[c] != null) el.value = datos[c];
     });
@@ -2047,7 +2156,9 @@ function detalleConsulta() {
             </span>
 
             <div class="hz-cuerpo">
-              <div class="hz-texto">${App.esc(h.descripcion)}</div>
+              ${h.descripcion
+                ? `<div class="hz-texto">${App.esc(h.descripcion)}</div>`
+                : `<div class="hz-texto sin-texto">Sin descripci\u00f3n</div>`}
               <div class="hz-pie">
                 ${App.esc(App.fechaHora(h.fecha_registro))} · ${App.esc(h.autor)}
               </div>
@@ -2090,13 +2201,51 @@ function detalleConsulta() {
          </div>`;
   }
 
+  /*
+     El codigo con el que se nombra un hallazgo: CLIN_01, RADIO_03.
+
+     Es la misma regla que codigoHallazgo() en funciones.php, y tiene
+     que dar lo mismo: aqui se PROPONE al abrir el modal y alla se PONE
+     cuando el campo llega vacio. Si las dos contaran distinto, lo que
+     se ve al capturar y lo que queda guardado no coincidirian.
+
+     El numero sale del MAXIMO que ya exista, no de contar los
+     hallazgos: contando, borrar el CLIN_02 de tres haria que el
+     siguiente se llamara CLIN_03 otra vez, y dos hallazgos del mismo
+     dia tendrian el mismo nombre.
+  */
+  const PREFIJO_HALLAZGO = { RADIOGRAFICO: 'RADIO', CLINICO: 'CLIN' };
+
+  function prefijoHallazgo(tipo) {
+    return PREFIJO_HALLAZGO[String(tipo).toUpperCase()] ?? 'CLIN';
+  }
+
+  function codigoHallazgo(prefijo) {
+    let maximo = 0;
+
+    (datos.hallazgos ?? []).forEach((h) => {
+      // Anclado al principio: un hallazgo que se llame "DUELE AL
+      // MASTICAR CLIN_09" no debe correr la cuenta.
+      const m = String(h.descripcion ?? '').trim().toUpperCase()
+        .match(new RegExp(`^${prefijo}_(\\d+)`));
+      if (m) maximo = Math.max(maximo, Number(m[1]));
+    });
+
+    return `${prefijo}_${String(maximo + 1).padStart(2, '0')}`;
+  }
+
+  /** ¿Este texto es un codigo que propusimos nosotros? */
+  function esCodigoDeHallazgo(texto) {
+    return /^(CLIN|RADIO)_\d+$/.test(String(texto ?? '').trim().toUpperCase());
+  }
+
   /** Deja el modal listo. Sin hallazgo = alta; con hallazgo = edicion. */
   function abrirHallazgo(h = null) {
     document.getElementById('hzId').value = h ? h.id_hallazgo : '';
     document.getElementById('hzConsulta').value = idConsulta();
     document.getElementById('hzTitulo').textContent =
       h ? 'Editar hallazgo' : 'Nuevo hallazgo';
-    document.getElementById('hzDescripcion').value = h ? h.descripcion : '';
+    document.getElementById('hzDescripcion').value = h ? (h.descripcion ?? '') : '';
     document.getElementById('hzArchivos').value = '';
 
     elegirTipoHallazgo(h ? h.tipo : 'CLINICO');
@@ -2143,6 +2292,40 @@ function detalleConsulta() {
     document.querySelectorAll('#hzTipo .opcion-hallazgo').forEach((b) => {
       b.classList.toggle('activa', b.dataset.valor === valor);
     });
+
+    /*
+       El codigo solo se propone en el ALTA.
+
+       Un hallazgo guardado ya se llama como se llama, y su nombre viajo
+       al expediente como el nombre de sus imagenes. Renumerarlo al
+       abrirlo —o al cambiarle el tipo— dejaria el renglon del
+       expediente diciendo CLIN_02 y el hallazgo diciendo RADIO_01: dos
+       nombres para la misma cosa, que es peor que un nombre feo. Para
+       renombrarlo esta el campo, que se puede escribir.
+
+       La marca es hzId, que abrirHallazgo() llena ANTES de llamar aqui.
+    */
+    if (document.getElementById('hzId')?.value) return;
+
+    /*
+       Y no pisa lo que alguien escribio.
+
+       Se reescribe si el campo esta vacio o si lo que tiene es un
+       codigo nuestro: eso significa que nadie lo toco y que cambiar de
+       tipo tiene que cambiarlo. Con una descripcion de verdad se queda,
+       porque picar el tipo por error no puede borrar lo que se acabo de
+       dictar.
+
+       Es la misma regla que la propuesta del motivo de la consulta, y
+       por la misma razon: una propuesta que borra lo escrito deja de
+       ser una propuesta.
+    */
+    const campo = document.getElementById('hzDescripcion');
+    const texto = (campo?.value ?? '').trim();
+
+    if (campo && (texto === '' || esCodigoDeHallazgo(texto))) {
+      campo.value = codigoHallazgo(prefijoHallazgo(valor));
+    }
   }
 
   document.getElementById('hzImagenLista')?.addEventListener('click', async (ev) => {
@@ -2504,14 +2687,12 @@ function detalleConsulta() {
      ------------------------------------------------------------------- */
   const selPlan = document.getElementById('cnPlan');
   const campoMotivo = form.querySelector('[name="motivo"]');
-  const campoPadecimiento = form.querySelector('[name="padecimiento_actual"]');
 
-  /** Las propuestas de todos los planes, para saber si un texto es mio. */
+  /** Los motivos que propone cada plan, para saber si un texto es mio. */
   function propuestas() {
     return [...(selPlan?.options ?? [])]
       .filter((o) => o.value)
-      .map((o) => ({ motivo: o.dataset.motivo ?? '',
-                     padecimiento: o.dataset.padecimiento ?? '' }));
+      .map((o) => o.dataset.motivo ?? '');
   }
 
   /**
@@ -2526,16 +2707,15 @@ function detalleConsulta() {
     const opcion = selPlan?.selectedOptions?.[0];
     if (!opcion || !opcion.value) return;
 
-    const mias = propuestas();
+    // Solo el motivo. El padecimiento salio de la pantalla, y con el
+    // su propuesta: dejar aqui un querySelector de un campo que ya no
+    // existe habria dado null y reventado en el primer cambio de plan.
+    const mias   = propuestas();
+    const actual = campoMotivo.value.trim();
 
-    const pisable = (campo, nuevo, clave) => {
-      const actual = campo.value.trim();
-      const esMia  = mias.some((p) => p[clave] === actual);
-      if (actual === '' || esMia) campo.value = nuevo;
-    };
-
-    pisable(campoMotivo, opcion.dataset.motivo ?? '', 'motivo');
-    pisable(campoPadecimiento, opcion.dataset.padecimiento ?? '', 'padecimiento');
+    if (actual === '' || mias.includes(actual)) {
+      campoMotivo.value = opcion.dataset.motivo ?? '';
+    }
   }
 
   // Cambiar el plan a mano tambien reescribe la propuesta, pero solo
@@ -2670,7 +2850,10 @@ function vistaSemana() {
     document.getElementById('smSubtitulo').textContent =
       `${App.fecha(datos.lunes)} al ${App.fecha(datos.sabado)}`;
     document.getElementById('smResumen').innerHTML =
-      `${datos.citas} cita(s) esta semana`;
+      `${datos.citas} cita(s) esta semana`
+      + (datos.sin_hora_total
+          ? ` · <b style="color:var(--alerta)">${datos.sin_hora_total} `
+            + `sin hora</b>` : '');
 
     let html = '<table class="semana"><thead><tr><th class="hora"></th>';
 
@@ -2681,6 +2864,39 @@ function vistaSemana() {
                </th>`;
     });
     html += '</tr></thead><tbody>';
+
+    /*
+       La banda de las citas sin hora.
+
+       Va en el primer renglon del cuerpo, arriba de todas las horas,
+       porque es lo que hay que repartir ANTES de ponerse a mirar
+       huecos. En la rejilla no caben: su hora es las 00:00 y el
+       consultorio abre a las nueve, asi que no habria renglon donde
+       ponerlas.
+
+       El renglon entero se omite cuando la semana no tiene ninguna. Una
+       banda vacia con el rotulo "Sin hora" seria un renglon de tabla
+       que no dice nada y que corre la rejilla hacia abajo todos los
+       dias del anio para el caso raro.
+    */
+    if (datos.sin_hora_total) {
+      html += '<tr class="renglon-sin-hora">'
+            + '<td class="hora">Sin<br>hora</td>';
+
+      datos.sin_hora.forEach((delDia) => {
+        html += '<td class="celda-sin-hora">'
+          + delDia.map((ci) => `
+              <div class="pildora-sin-hora" data-cita="${ci.id_cita}"
+                   title="${App.esc(ci.paciente)} · falta ponerle hora"
+                   style="--color:${App.esc(ci.color ?? '#9333a8')}">
+                <i class="bi bi-clock-history"></i>
+                <span>${App.esc(ci.paciente)}</span>
+              </div>`).join('')
+          + '</td>';
+      });
+
+      html += '</tr>';
+    }
 
     // Las celdas que una cita larga ya ocupo se saltan: la tarjeta se
     // estira con rowspan y no debe haber celda debajo.
@@ -2781,7 +2997,11 @@ function vistaSemana() {
   let arrastrando = null;
 
   caja.addEventListener('dragstart', (ev) => {
-    const bloque = ev.target.closest('[data-cita]');
+    // Solo los bloques de la rejilla, no las pildoras de la banda: a
+    // una cita sin hora no se le puede "conservar la duracion" al
+    // soltarla porque no tiene ninguna, y lo que hay que hacer con
+    // ella es abrirla y ponerle hora.
+    const bloque = ev.target.closest('.cita-bloque[data-cita]');
     if (!bloque) return;
 
     arrastrando = Number(bloque.dataset.cita);
@@ -2899,6 +3119,14 @@ function vistaSemana() {
   });
 
   function buscarCita(id) {
+    // Tambien en la banda de las sin hora: el detalle se abre picandolas
+    // igual que cualquier otra, y sin esto el clic no encontraria nada y
+    // no pasaria nada en pantalla.
+    for (const delDia of (datos.sin_hora ?? [])) {
+      const hallada = delDia.find((c) => Number(c.id_cita) === id);
+      if (hallada) return hallada;
+    }
+
     for (const fila of datos.rejilla) {
       for (const celda of fila.celdas) {
         if (celda.tipo === 'cita' && Number(celda.cita.id_cita) === id) {

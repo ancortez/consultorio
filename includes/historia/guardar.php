@@ -75,7 +75,7 @@ $campos = [
     'experiencia_previa'      => 'bool',
     'recibio_prevencion'      => 'bool',
     'usa_pasta_dental'        => 'bool',
-    'cepillados_dia'          => 'num',
+    'cepillados_dia'          => 'txt',
     'otro_higiene'            => 'bool',
     'otro_higiene_detalle'    => 'txt',
 
@@ -131,9 +131,6 @@ foreach ($campos as $campo => $tipo) {
 // ---------------------------------------------------------------------
 if ($valores['peso_kg'] !== null && ($valores['peso_kg'] <= 0 || $valores['peso_kg'] > 200)) {
     $errores['peso_kg'] = 'El peso no parece correcto.';
-}
-if ($valores['cepillados_dia'] !== null && $valores['cepillados_dia'] > 10) {
-    $errores['cepillados_dia'] = 'Revisa el numero de cepillados.';
 }
 // La frecuencia viene de una lista cerrada, pero el valor llega por
 // POST y cualquiera puede mandar otra cosa. Se valida contra la lista.

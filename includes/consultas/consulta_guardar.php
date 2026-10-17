@@ -18,8 +18,22 @@ $idDentista   = paramInt('id_usuario_dentista');
 $fechaHora    = trim((string) param('fecha_hora', date('Y-m-d H:i')));
 
 $motivo       = limpiarEspacios(paramMayus('motivo'));
-$padecimiento = paramTexto('padecimiento_actual');
-$indicaciones = paramTexto('plan_indicaciones');
+/*
+   Octubre de 2026: dos campos mas dejan de llegar de la pantalla.
+
+     padecimiento_actual        se repetia con el motivo. En la
+                                practica se escribia lo mismo dos
+                                veces, o se dejaba vacio.
+     plan_indicaciones          lo que se hizo quedo repartido donde
+                                de verdad vive: los hallazgos de la
+                                exploracion y las notas de evolucion,
+                                que ademas se pueden leer una por una
+                                en la siguiente cita.
+
+   Las columnas siguen en la base con lo ya capturado y se siguen
+   leyendo e imprimiendo; simplemente ya no se escriben desde aqui.
+   Es el mismo trato que se les dio a exploracion y diagnostico.
+*/
 
 // Octubre 2026. Tres campos dejaron de llegar de la pantalla:
 //
@@ -105,8 +119,7 @@ if ($idCita !== null) {
 $campos = [
     ':cita' => $idCita,
     ':d'    => $idDentista, ':f'  => $fechaHora,
-    ':mo'   => $motivo,     ':pa' => $padecimiento,
-    ':pl'   => $indicaciones,
+    ':mo'   => $motivo,
     ':plan' => $idPlan,
 ];
 
@@ -130,8 +143,7 @@ if ($idConsulta) {
         'UPDATE consulta
             SET id_usuario_dentista = :d, fecha_hora = :f,
                 id_plan_tratamiento = :plan, id_cita = :cita,
-                motivo = :mo, padecimiento_actual = :pa,
-                plan_indicaciones = :pl
+                motivo = :mo
           WHERE id_consulta = :c',
         $campos + [':c' => $idConsulta]
     );
@@ -145,9 +157,8 @@ if ($idConsulta) {
     Conexion::consulta(
         'INSERT INTO consulta
             (id_registro_paciente, folio, id_plan_tratamiento, id_cita,
-             id_usuario_dentista, fecha_hora, motivo, padecimiento_actual,
-             plan_indicaciones)
-         VALUES (:r, :fo, :plan, :cita, :d, :f, :mo, :pa, :pl)',
+             id_usuario_dentista, fecha_hora, motivo)
+         VALUES (:r, :fo, :plan, :cita, :d, :f, :mo)',
         $campos + [':r' => $idExpediente, ':fo' => $folio]
     );
 

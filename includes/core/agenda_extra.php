@@ -186,12 +186,38 @@ final class AgendaExtra
      * horas seguiria apareciendo el dia de la cita, cuando ya no tiene
      * ningun sentido hacerlo.
      */
+    /*
+       Las citas SIN HORA tambien llevan recordatorio.
+
+       Al principio las deje fuera, porque el mensaje de siempre dice
+       "lo esperamos el jueves a las 10:30" y de una cita apartada para
+       el dia no sale esa frase. La doctora lo pidio al reves, y tiene
+       razon: una cita a seis semanas es justo la que el paciente
+       olvida, y el aviso de "el jueves viene, le decimos la hora en
+       cuanto la tengamos" sirve para las dos cosas —que aparte el dia
+       y que conteste si ya no puede—. Dejarla sin aviso era dejar sin
+       aviso precisamente a la que mas falta hace.
+
+       Dos cosas no se pueden hacer con ellas, y las dos estan
+       resueltas aparte:
+
+         - prometer una hora. Llevan su propia plantilla, sin {hora},
+           y la etiqueta {hora} se sustituye por "por confirmar" si
+           alguien la deja escrita. Ver mensaje().
+
+         - medir las horas que faltan contra las 00:00. La referencia
+           es la APERTURA del consultorio de ese dia, no la
+           medianoche: con las 00:00 el aviso de 24 horas saldria
+           nueve horas antes de lo que toca, de madrugada, y el de 48
+           el dia equivocado.
+    */
     public static function pendientes(?int $idDentista = null): array
     {
         $reglas = self::reglas();
         if (!$reglas) { return []; }
 
-        $sql = 'SELECT c.id_cita, c.fecha_inicio, c.motivo, c.id_estado_cita,
+        $sql = 'SELECT c.id_cita, c.fecha_inicio, c.sin_hora, c.motivo,
+                       c.id_estado_cita,
                        ec.nombre_estado,
                        vp.id_registro_paciente, vp.nombre_completo AS paciente,
                        vp.telefono, vp.edad,
@@ -219,7 +245,7 @@ final class AgendaExtra
 
         foreach ($citas as $c) {
             $hechos = array_filter(explode(',', (string) ($c['hechos'] ?? '')));
-            $faltan = strtotime((string) $c['fecha_inicio']) - $ahora;
+            $faltan = self::momentoDeReferencia($c) - $ahora;
             $horas  = $faltan / 3600;
 
             foreach ($reglas as $i => $r) {
@@ -243,6 +269,31 @@ final class AgendaExtra
         }
 
         return $lista;
+    }
+
+    /**
+     * El momento contra el que se miden las horas que faltan.
+     *
+     * Con hora, la hora de la cita. Sin hora, la APERTURA del
+     * consultorio de ese dia.
+     *
+     * Las dos fechas de una cita sin hora estan a las 00:00, que es un
+     * marcador y no un horario. Midiendo contra ellas, el aviso de 24
+     * horas saldria a medianoche del dia anterior —nueve horas antes de
+     * que el consultorio abra— y el de 48 caeria en el dia equivocado.
+     * La apertura es lo mas cercano a "cuando va a venir" que se puede
+     * saber de una cita a la que todavia no se le ha puesto hora.
+     */
+    public static function momentoDeReferencia(array $cita): int
+    {
+        $inicio = (string) $cita['fecha_inicio'];
+
+        if ((int) ($cita['sin_hora'] ?? 0) !== 1) {
+            return (int) strtotime($inicio);
+        }
+
+        return (int) strtotime(
+            substr($inicio, 0, 10) . sprintf(' %02d:00:00', Agenda::HORA_INICIO));
     }
 
     /** Deja constancia de que el recordatorio se hizo. */
@@ -283,6 +334,27 @@ final class AgendaExtra
         . "Si necesita cambiarla, responda a este mensaje. Gracias.";
 
     /**
+     * La plantilla de las citas apartadas para el dia, sin hora.
+     *
+     * Es una SEGUNDA plantilla y no la misma con la hora en blanco: el
+     * mensaje tiene que decir otra cosa. "Le recordamos la cita el
+     * jueves a las ___" deja al paciente sin saber si tiene que venir y
+     * a que hora; lo que hace falta decirle es que el dia esta apartado
+     * y que el horario se le confirma despues. Y de paso le da la
+     * oportunidad de avisar si ya no puede ese dia, que es para lo que
+     * sirve avisar con seis semanas.
+     *
+     * Tambien se puede cambiar desde Configuracion, igual que la otra.
+     */
+    public const PLANTILLA_SIN_HORA_POR_OMISION =
+        "Hola, le escribimos de {consultorio}.\n\n"
+        . "Le recordamos que {paciente} tiene cita el {fecha}"
+        . " con {dentista}. Todavia no tenemos la hora asignada:"
+        . " se la confirmamos unos dias antes.\n\n"
+        . "Si ese dia ya no le funciona, responda a este mensaje."
+        . " Gracias.";
+
+    /**
      * Las etiquetas que se pueden usar, con lo que significan.
      *
      * Esta lista es la unica fuente: la usa el armado del mensaje, los
@@ -311,20 +383,37 @@ final class AgendaExtra
      */
     public static function mensaje(array $cita, string $consultorio): string
     {
+        $sinHora = (int) ($cita['sin_hora'] ?? 0) === 1;
+
         $plantilla = (string) parametro(
-            'recordatorio_mensaje', self::PLANTILLA_POR_OMISION);
+            $sinHora ? 'recordatorio_mensaje_sin_hora' : 'recordatorio_mensaje',
+            $sinHora ? self::PLANTILLA_SIN_HORA_POR_OMISION
+                     : self::PLANTILLA_POR_OMISION);
 
         // Una plantilla vaciada por error dejaria al paciente con un
         // mensaje en blanco. Se cae de regreso a la de siempre.
         if (trim($plantilla) === '') {
-            $plantilla = self::PLANTILLA_POR_OMISION;
+            $plantilla = $sinHora ? self::PLANTILLA_SIN_HORA_POR_OMISION
+                                  : self::PLANTILLA_POR_OMISION;
         }
 
         return self::sustituir($plantilla, [
             'paciente_completo' => (string) $cita['paciente'],
             'paciente'    => trim(explode(' ', (string) $cita['paciente'])[0] ?? ''),
             'fecha'       => fechaLarga((string) $cita['fecha_inicio']),
-            'hora'        => date('g:i a', strtotime((string) $cita['fecha_inicio'])),
+            /*
+               Sin hora, la etiqueta {hora} dice "por confirmar".
+
+               La plantilla de las citas sin hora no la lleva, pero la
+               doctora puede editar las plantillas desde Configuracion y
+               nada le impide escribirla ahi. Sustituyendola por la hora
+               cruda, el mensaje diria "a las 12:00 am": una cita a
+               medianoche, mandada al paciente por WhatsApp. Esto es lo
+               que lo cierra, y por eso vive aqui y no en la plantilla.
+            */
+            'hora'        => $sinHora
+                ? 'por confirmar'
+                : date('g:i a', strtotime((string) $cita['fecha_inicio'])),
             'dentista'    => (string) $cita['dentista'],
             'consultorio' => $consultorio,
         ]);

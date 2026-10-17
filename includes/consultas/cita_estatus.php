@@ -14,7 +14,8 @@ if (!$idCita || !$idEstado) {
 }
 
 $cita = Conexion::uno(
-    'SELECT id_usuario_dentista, id_estado_cita FROM cita WHERE id_cita = :c',
+    'SELECT id_usuario_dentista, id_estado_cita, sin_hora
+       FROM cita WHERE id_cita = :c',
     [':c' => $idCita]
 );
 if ($cita === null) {
@@ -24,6 +25,25 @@ if ($cita === null) {
 // Un dentista no puede tocar las citas de otro.
 if (!Agenda::puedeAgendarPara((int) $cita['id_usuario_dentista'])) {
     Respuesta::error('No puedes modificar citas de otro dentista.', 403);
+}
+
+/*
+   Una cita sin hora no se puede CONFIRMAR.
+
+   Confirmar es la llamada al paciente: "lo esperamos el jueves a las
+   diez y media". De una cita apartada para el dia no sale esa frase,
+   porque la hora todavia no existe. Dejar que se confirme terminaria en
+   un paciente que llega cuando se le ocurra, con el sillon ocupado.
+
+   Los demas estatus si pasan: cancelar una cita sin hora es
+   perfectamente valido, y marcar que no asistio tambien.
+*/
+const ESTADO_CONFIRMADA = 2;
+
+if ($idEstado === ESTADO_CONFIRMADA && (int) $cita['sin_hora'] === 1) {
+    Respuesta::error(
+        'Esta cita todavia no tiene hora. Ponle la hora con Modificar '
+        . 'antes de confirmarsela al paciente.');
 }
 
 $sql = 'UPDATE cita SET id_estado_cita = :e';

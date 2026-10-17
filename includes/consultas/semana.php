@@ -36,7 +36,7 @@ $citas = Conexion::todos(
     // puede abrir el detalle de una cita desde la vista de semana, y
     // sin estos campos el detalle saldria a medias o habria que pedir
     // la cita otra vez al servidor con un viaje de ida y vuelta.
-    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.motivo, c.notas,
+    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.sin_hora, c.motivo, c.notas,
             c.id_estado_cita, ec.nombre_estado, ec.color,
             c.id_registro_paciente, c.id_usuario_dentista, c.id_sala,
             vp.nombre_completo AS paciente, vp.telefono, vp.edad,
@@ -55,6 +55,30 @@ $citas = Conexion::todos(
       ORDER BY c.fecha_inicio',
     [':d' => $idDentista, ':l' => $lunes, ':s' => $sabado]
 );
+
+/*
+   Las citas sin hora salen de la rejilla y van a su propia banda.
+
+   En la rejilla no caben: su hora es las 00:00, que no es un renglon de
+   la tabla —el consultorio abre a las nueve—, asi que simplemente no
+   apareceria ninguna. Y si se forzara a entrar en algun renglon
+   estaria mintiendo: diria que ese nino viene a esa hora.
+
+   La banda va arriba de la rejilla, en la columna de su dia. Es el
+   recordatorio de lo que falta repartir, justo donde se reparte.
+*/
+$sinHoraPorDia = array_fill_keys($dias, []);
+$conHora       = [];
+
+foreach ($citas as $c) {
+    $dia = substr((string) $c['fecha_inicio'], 0, 10);
+
+    if ((int) $c['sin_hora'] === 1 && isset($sinHoraPorDia[$dia])) {
+        $sinHoraPorDia[$dia][] = $c;
+        continue;
+    }
+    $conHora[] = $c;
+}
 
 $bloqueos = AgendaExtra::bloqueos($lunes, $sabado, $idDentista);
 
@@ -109,7 +133,7 @@ for ($min = $hIni * 60; $min < $hFin * 60; $min += $bloque) {
         $aqui = null;
         $sigue = false;
 
-        foreach ($citas as $c) {
+        foreach ($conHora as $c) {
             if (!str_starts_with((string) $c['fecha_inicio'], $dia)) { continue; }
 
             $ci = strtotime((string) $c['fecha_inicio']);
@@ -164,6 +188,11 @@ Respuesta::ok([
         'hoy'    => $d === date('Y-m-d'),
     ], $dias),
     'rejilla'  => $rejilla,
+    // Una lista por dia, en el mismo orden que 'dias': asi la pantalla
+    // la recorre junto con las columnas sin tener que buscar por fecha.
+    'sin_hora' => array_values(array_map(
+        static fn($dia) => $sinHoraPorDia[$dia], $dias)),
+    'sin_hora_total' => array_sum(array_map('count', $sinHoraPorDia)),
     'bloqueos' => $bloqueos,
     'citas'    => count($citas),
 ]);

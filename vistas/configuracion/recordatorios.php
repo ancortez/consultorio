@@ -8,9 +8,17 @@
  */
 $reglas = AgendaExtra::reglas();
 
-// El texto guardado, o el de origen si nunca se ha tocado.
+// Los dos textos guardados, o los de origen si nunca se han tocado.
+//
+// Son DOS porque una cita con hora y una apartada para el dia no se
+// anuncian igual: "le recordamos la cita el jueves a las 10:30" no se
+// puede decir de una cita a la que todavia no se le ha puesto hora, y
+// dejar la hora en blanco deja al paciente sin saber si tiene que venir.
 $mensajeRec = (string) parametro(
     'recordatorio_mensaje', AgendaExtra::PLANTILLA_POR_OMISION);
+
+$mensajeSinHora = (string) parametro(
+    'recordatorio_mensaje_sin_hora', AgendaExtra::PLANTILLA_SIN_HORA_POR_OMISION);
 
 $etiquetas  = AgendaExtra::etiquetas();
 // El mismo origen que usa el tablero de inicio al armar el mensaje de
@@ -31,6 +39,20 @@ $muestra = [
     'dentista'          => 'DRA. ADRIANA LOPEZ RUELAS',
     'consultorio'       => $consultorio,
 ];
+
+/*
+   La muestra de la cita SIN HORA cambia dos cosas.
+
+   La fecha se va a seis semanas, que es cuando se aparta un dia sin
+   hora de verdad —a dos dias nadie lo hace—, y {hora} dice "por
+   confirmar", exactamente lo que sustituye AgendaExtra::mensaje(). Si
+   aqui dijera "10:30 am", la vista previa estaria ensayando un mensaje
+   que el sistema no manda nunca, y alguien escribiria la etiqueta
+   creyendo que funciona.
+*/
+$muestraSinHora = $muestra;
+$muestraSinHora['fecha'] = fechaLarga(date('Y-m-d', strtotime('+42 days')));
+$muestraSinHora['hora']  = 'por confirmar';
 ?>
 <div class="row g-3">
     <div class="col-auto" style="width:250px">
@@ -124,6 +146,29 @@ $muestra = [
                                  tenerlos despues del texto obliga a
                                  bajar la vista cada vez que hace falta
                                  una etiqueta. */ ?>
+                        <?php /* Las dos plantillas, una a la vez.
+
+                                 Apiladas en la misma tarjeta serian dos
+                                 cuadros grandes con dos vistas previas,
+                                 y la tarjeta mide lo que mide. Con el
+                                 selector se edita la que toca y se ve su
+                                 propia vista previa, que es como se
+                                 revisa un mensaje: leyendolo completo,
+                                 no comparandolo con el de al lado. */ ?>
+                        <div class="pestanias-mensaje mb-2" id="recQueMensaje">
+                            <button type="button" class="chip-mensaje activo"
+                                    data-cual="con">
+                                <i class="bi bi-clock me-1"></i>Citas con hora
+                            </button>
+                            <button type="button" class="chip-mensaje"
+                                    data-cual="sin">
+                                <i class="bi bi-calendar2-week me-1"></i>D&iacute;a
+                                apartado sin hora
+                            </button>
+                        </div>
+
+                        <div class="form-text mb-2" id="recQueMensajeAyuda"></div>
+
                         <label class="form-label">Mensaje</label>
                         <div class="etiquetas-mensaje mb-2">
                             <?php foreach ($etiquetas as $marca => $queEs): ?>
@@ -182,4 +227,21 @@ window.REGLAS_RECORDATORIO = <?= json_encode($reglas, JSON_UNESCAPED_UNICODE) ?>
    en cuanto alguien tocara una tecla, y pareceria que el mensaje se
    descompuso. */
 window.MUESTRA_RECORDATORIO = <?= json_encode($muestra, JSON_UNESCAPED_UNICODE) ?>;
+
+/* Las dos plantillas y la muestra de cada una. El navegador cambia de
+   una a otra sin pedirle nada al servidor: son dos textos cortos y ya
+   estan aqui. */
+window.MENSAJES_RECORDATORIO = <?= json_encode([
+    'con' => [
+        'texto'   => $mensajeRec,
+        'muestra' => $muestra,
+        'ayuda'   => 'Se manda cuando la cita ya tiene hora.',
+    ],
+    'sin' => [
+        'texto'   => $mensajeSinHora,
+        'muestra' => $muestraSinHora,
+        'ayuda'   => 'Se manda cuando solo se aparto el dia. No prometa una '
+                   . 'hora: la etiqueta {hora} saldra como "por confirmar".',
+    ],
+], JSON_UNESCAPED_UNICODE) ?>;
 </script>

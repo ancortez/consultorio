@@ -43,14 +43,20 @@
           </div>
           <input type="hidden" name="tipo" id="hzTipoValor" value="CLINICO">
 
-          <label class="form-label" for="hzDescripcion">
-            Descripci&oacute;n <span class="req">*</span>
-          </label>
+          <?php /* Ya no dice "(opcional)".
+
+                   Decirlo era correcto y sobraba: el campo llega con su
+                   codigo puesto —CLIN_01, RADIO_01— asi que no hay nada
+                   que dejar en blanco. Lo que se hace es dejarlo como
+                   viene o escribir encima. */ ?>
+          <label class="form-label" for="hzDescripcion">Descripci&oacute;n</label>
           <textarea class="form-control" name="descripcion" id="hzDescripcion"
                     rows="3" maxlength="1000"
-                    placeholder="UN SOLO HALLAZGO. EJEMPLO: CARIES OCLUSAL EN &Oacute;RGANO DENTARIO 46"></textarea>
+                    placeholder="CARIES OCLUSAL EN &Oacute;RGANO DENTARIO 46"></textarea>
           <div class="form-text mb-3">
             Uno por hallazgo. Si observaste tres cosas, agrega tres.
+            Viene con su c&oacute;digo puesto seg&uacute;n d&oacute;nde lo
+            viste; escribe encima si quieres describirlo.
           </div>
 
           <?php /* Las imagenes son opcionales y se suben aqui mismo.

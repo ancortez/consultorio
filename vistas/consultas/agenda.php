@@ -213,7 +213,7 @@ $pacientePrevio = paramInt('paciente')
               <input type="date" class="form-control" name="fecha" id="citaFecha"
                      min="<?= date('Y-m-d') ?>" required>
             </div>
-            <div class="col-3">
+            <div class="col-3" id="citaCajaDuracion">
               <label class="form-label">Duraci&oacute;n</label>
               <select class="form-select" name="duracion_min" id="citaDuracion">
                 <option value="30">30 minutos</option>
@@ -223,12 +223,48 @@ $pacientePrevio = paramInt('paciente')
               </select>
             </div>
 
+            <?php /* El interruptor de "sin hora".
+
+                     Los pacientes de seguimiento se citan a seis semanas,
+                     y ese dia la agenda todavia no existe: elegir una hora
+                     solo para poder guardar aparta un sillon que no hace
+                     falta y le promete al paciente un horario que casi
+                     seguro va a cambiar. Lo que hace el consultorio de
+                     verdad es apuntar el dia y repartir las horas cuando
+                     la fecha se acerca.
+
+                     Va aqui, pegado al horario, porque es lo que decide
+                     si hay que elegir horario o no. Puesto arriba junto a
+                     la fecha no se relacionaria con nada. */ ?>
             <div class="col-12">
-              <label class="form-label">Horario <span class="req">*</span></label>
-              <div class="rejilla-espacios" id="citaEspacios">
+              <div class="d-flex align-items-center justify-content-between
+                          flex-wrap gap-2">
+                <label class="form-label mb-0">
+                  Horario <span class="req" id="citaHoraRequerida">*</span>
+                </label>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox"
+                         name="sin_hora" value="1" id="citaSinHora"
+                         style="cursor:pointer">
+                  <label class="form-check-label small" for="citaSinHora"
+                         style="cursor:pointer">
+                    Apartar solo el d&iacute;a, la hora se pone despu&eacute;s
+                  </label>
+                </div>
+              </div>
+
+              <div class="rejilla-espacios mt-2" id="citaEspacios">
                 <div class="text-secondary small">
                   Elige dentista y fecha para ver los espacios libres.
                 </div>
+              </div>
+
+              <div class="aviso-vinculado mt-2 d-none" id="citaAvisoSinHora">
+                <i class="bi bi-calendar2-week"></i>
+                <div>El d&iacute;a queda apartado sin ocupar ning&uacute;n
+                     horario. Aparece arriba de la agenda de ese d&iacute;a
+                     hasta que se le ponga hora, y no se puede confirmar con
+                     el paciente mientras no la tenga.</div>
               </div>
             </div>
 

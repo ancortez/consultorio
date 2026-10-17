@@ -77,6 +77,29 @@ function montar({ idConsulta = '', preguntarPlan = false } = {}) {
   const { window } = dom;
   const doc = window.document;
 
+  /*
+     El arranque se dispara UNA vez.
+
+     Los modulos se enganchan en el DOMContentLoaded, y jsdom dispara
+     ese evento por su cuenta un instante despues de construir el
+     documento —cuando los escuchas ya estan puestos—. Despachandolo
+     tambien a mano, cada modulo se enganchaba DOS veces: los escuchas
+     quedaban duplicados y cualquier cosa que alterne —un interruptor,
+     el sentido de un orden— se invertia y se volvia a invertir, con lo
+     que la pantalla se quedaba igual. El fallo parecia del codigo que
+     se estaba probando, que estaba bien.
+
+     Asi que los escuchas de DOMContentLoaded se interceptan: se guardan
+     aqui en vez de registrarse, y arrancar() los corre. El evento que
+     dispara jsdom despues no encuentra a nadie.
+  */
+  const alArrancar = [];
+  const registrarDeVerdad = doc.addEventListener.bind(doc);
+  doc.addEventListener = (tipo, fn, opciones) => {
+    if (tipo === 'DOMContentLoaded') { alArrancar.push(fn); return undefined; }
+    return registrarDeVerdad(tipo, fn, opciones);
+  };
+
   // Bootstrap de mentira: abrir, cerrar y poder preguntar si esta abierto.
   const cajas = new Map();
   window.bootstrap = {
@@ -128,12 +151,14 @@ function montar({ idConsulta = '', preguntarPlan = false } = {}) {
     '1RA CITA PLAN DE TRATAMIENTO PT-008', 'ORTODONCIA INTERCEPTIVA'],
    ['9', 'PT-012 — RESINAS EN CUATRO ORGANOS',
     '3RA CITA PLAN DE TRATAMIENTO PT-012', 'RESINAS EN CUATRO ORGANOS'],
-  ].forEach(([valor, texto, motivo, padecimiento]) => {
+  ].forEach(([valor, texto, motivo]) => {
     const o = doc.createElement('option');
     o.value = valor;
     o.textContent = texto;
+    // Solo data-motivo: data-padecimiento se quito de la vista, y
+    // ponerlo aqui haria que el arnes trabajara con una pantalla que ya
+    // no existe —justo lo contrario de para lo que sirve—.
     o.dataset.motivo = motivo;
-    o.dataset.padecimiento = padecimiento;
     sel.appendChild(o);
   });
 
@@ -172,7 +197,7 @@ function montar({ idConsulta = '', preguntarPlan = false } = {}) {
   return {
     window, doc,
     $: (s) => doc.querySelector(s),
-    arrancar: () => doc.dispatchEvent(new window.Event('DOMContentLoaded')),
+    arrancar: () => alArrancar.forEach((fn) => fn()),
     clic(el, queEra) {
       if (!el) {
         fallos.push(`no se encontro ${queEra || 'el elemento'} para picarlo`);
@@ -196,8 +221,6 @@ function consultaGuardada(extra = {}) {
       id_usuario_dentista: 3,
       id_plan_tratamiento: 7,
       motivo: '1RA CITA PLAN DE TRATAMIENTO PT-008',
-      padecimiento_actual: 'ORTODONCIA INTERCEPTIVA',
-      plan_indicaciones: 'SE COLOCO EL APARATO',
       cerrada: 0,
       paciente: 'JUAN PEREZ LOPEZ',
       edad: 9,
@@ -231,17 +254,22 @@ console.log('Consulta nueva');
   comprobar('y ofrece los dos planes vivos',
     doc.querySelectorAll('#pcPlanes [data-plan]').length, 2);
 
-  // Lo que no sirve todavia esta difuminado y apagado, no solo apagado.
-  //
-  // Son DOS: la exploracion y la columna de anexos. Eran tres hasta que
-  // las notas de evolucion se mudaron dentro de los anexos; anidar una
-  // zona dentro de otra difuminaba dos veces —el filtro y la opacidad
-  // se multiplican— y la tarjeta se veia mas apagada que sus vecinas.
+  /* Lo que no sirve todavia esta difuminado y apagado, no solo apagado.
+
+     Son TRES: la exploracion, las notas de evolucion y la columna de
+     anexos. Fueron dos durante unos dias, cuando las notas vivian
+     dentro de los anexos; el 16 de octubre de 2026 salieron de ahi a su
+     propia columna, a todo el alto, y volvieron a ser una zona por su
+     cuenta.
+
+     Lo que importa no es el numero sino que ninguna quede DENTRO de
+     otra: el filtro y la opacidad se multiplican, y una zona anidada se
+     ve mas apagada que sus vecinas —parece estropeada, no deshabilitada—. */
   const zonas = [...doc.querySelectorAll('.zona-sin-consulta')];
-  comprobar('hay dos zonas inservibles antes de guardar', zonas.length, 2);
+  comprobar('hay tres zonas inservibles antes de guardar', zonas.length, 3);
   comprobar('y ninguna esta anidada dentro de otra',
     zonas.some((z) => z.parentElement?.closest('.zona-sin-consulta')), false);
-  comprobar('las tres se ven difuminadas',
+  comprobar('todas se ven difuminadas',
     zonas.every((z) => z.classList.contains('difuminada')), true);
   comprobar('y ninguna recibe clics ni tabulador',
     zonas.every((z) => z.inert === true), true);
@@ -249,8 +277,16 @@ console.log('Consulta nueva');
     doc.getElementById('cnNuevoHallazgo').disabled, true);
   comprobar('y el de anexar un estudio tambien',
     doc.getElementById('cnOtroDocumento').disabled, true);
-  comprobar('las notas quedaron en la columna de anexos',
-    !!doc.getElementById('cnNotas').closest('#cnAnexos'), true);
+  /* Las notas salieron de los anexos: ahora son la columna derecha.
+
+     Se comprueban las dos mitades del cambio —que esten fuera de los
+     anexos y que haya UNA sola— porque la mudanza se hizo copiando la
+     tarjeta, y una copia que se quede atras deja dos cajas de texto
+     distintas guardando el mismo campo. */
+  comprobar('las notas ya no viven dentro de los anexos',
+    !!doc.getElementById('cnNotas').closest('#cnAnexos'), false);
+  comprobar('y hay una sola caja de notas',
+    doc.querySelectorAll('#cnNotas').length, 1);
 
   // El Guardar, abajo: pegado al ultimo campo que se escribe, y el
   // unico sitio vivo de la pantalla.
@@ -266,15 +302,30 @@ console.log('Consulta nueva');
   comprobar('y con los controles a la vista',
     doc.getElementById('cnFechaHora').classList.contains('d-none'), false);
 
-  // Elegir un plan propone el motivo y el padecimiento.
+  // Elegir un plan propone el motivo. (El padecimiento actual se quito
+  // de la pantalla el 16 de octubre de 2026, y con el su propuesta.)
   clic(doc.querySelector('#pcPlanes [data-plan="7"]'), 'el primer plan');
   comprobar('elegir el plan cierra la pregunta',
     abierto('modalPlanConsulta'), false);
   comprobar('y lo deja seleccionado', doc.getElementById('cnPlan').value, '7');
   comprobar('propone el motivo con el ordinal y el folio',
     $('[name="motivo"]').value, '1RA CITA PLAN DE TRATAMIENTO PT-008');
-  comprobar('y el padecimiento con la descripcion del plan',
-    $('[name="padecimiento_actual"]').value, 'ORTODONCIA INTERCEPTIVA');
+  /*
+     Y los dos campos que se quitaron no vuelven por la puerta de atras.
+
+     proponerDelPlan() tenia un querySelector del campo de padecimiento.
+     Quitando el campo de la vista, ese querySelector devuelve null y la
+     asignacion revienta DENTRO del manejador del cambio de plan: la
+     pantalla se dibuja entera y elegir un plan deja de hacer nada. Es
+     la misma falla silenciosa que ya aparecio dos veces en este
+     proyecto, asi que se comprueba que ni los campos ni su propuesta
+     siguen ahi.
+  */
+  comprobar('el padecimiento actual ya no esta en la pantalla',
+    $('[name="padecimiento_actual"]'), null);
+  comprobar('el tratamiento realizado tampoco',
+    $('[name="plan_indicaciones"]'), null);
+  comprobar('elegir el plan no revento nada', window.__rotos, []);
 
   // Cambiar de plan reescribe la propuesta: lo que hay es mio.
   doc.getElementById('cnPlan').value = '9';

@@ -20,11 +20,25 @@ corresponde PRIMERA VEZ en el renglon de la ultima visita. Una regla de
 doce casos escrita a mano se equivoca en uno y nadie lo nota, porque hay
 que imprimir doce historias distintas para verlo.
 
-Lo que de verdad se prueba aqui es el caso contrario: que un hueco de
-VERDAD siga saliendo vacio. Rellenar un "alergico: SI" al que le falta
-el detalle con un "NINGUNA" no taparia un hueco, firmaria una
-contradiccion. Eso es lo que hay que no hacer, y lo que nadie va a
-descubrir mirando el codigo.
+Lo que de verdad se prueba aqui es el caso contrario: lo que sale
+cuando la respuesta SI pedia detalle y no se dio ninguno.
+
+Hasta el 16 de octubre de 2026 eso salia en blanco, y el razonamiento
+era que rellenarlo con "NINGUNA" no taparia un hueco sino que firmaria
+una contradiccion —la hoja diria que si es alergico y que no tiene
+ninguna alergia—.
+
+Ese razonamiento sigue siendo cierto para "NINGUNA" y deja de aplicar
+para el texto nuevo: desde esa fecha sale "NO ESPECIFICA", que no se
+contradice con nada porque dice exactamente lo que paso. El cambio vino
+con el otro: los doce detalles pasaron a ser opcionales, asi que el caso
+"respuesta si, detalle vacio" dejo de ser un error de captura y paso a
+ser un estado normal del expediente. Y deja la hoja mejor que antes: un
+renglon en blanco se lee como "no se pregunto" y se puede llenar a mano
+despues de la firma.
+
+El unico blanco que queda es cuando la pregunta madre no se contesto.
+Ahi no hay nada que decir.
 
 No hay PHP en esta maquina: la tabla se lee del propio archivo PHP y la
 regla se porta tal cual.
@@ -69,6 +83,12 @@ ESPERADA = {
 }
 
 
+# Escrito a mano, igual que la tabla: si saliera del PHP esta prueba no
+# comprobaria nada. Abajo se compara contra el PHP y contra el
+# JavaScript, que son los dos sitios donde tiene que decir lo mismo.
+SIN_ESPECIFICAR = 'NO ESPECIFICA'
+
+
 # ---- Puerto literal de HistoriaClinica ----
 def pide_complemento(cuando, valor):
     valor = (valor or '').strip()
@@ -91,7 +111,8 @@ def complemento_impreso(hc, campo):
     if respuesta is None or str(respuesta).strip() == '':
         return ''
 
-    return '' if pide_complemento(cuando, str(respuesta)) else relleno
+    return (SIN_ESPECIFICAR if pide_complemento(cuando, str(respuesta))
+            else relleno)
 
 
 # =====================================================================
@@ -147,12 +168,19 @@ for campo, (depende, cuando, relleno) in ESPERADA.items():
 #  3. Un hueco de verdad se queda vacio
 # =====================================================================
 print()
-print('Un hueco NO se tapa')
+print('Un hueco dice NO ESPECIFICA, y no se tapa con "NINGUNA"')
 
-# Esto es lo mas importante del archivo. "Alergico: SI" sin decir a que
-# es un dato que falta, y rellenarlo con "NINGUNA" convertiria un hueco
-# en una contradiccion firmada: la hoja diria que si es alergico y que
-# no tiene ninguna alergia.
+# Esto es lo mas importante del archivo, y es lo que cambio en octubre
+# de 2026.
+#
+# "Alergico: SI" sin decir a que es un detalle que falta. Rellenarlo con
+# "NINGUNA" seria una contradiccion firmada: la hoja diria que si es
+# alergico y que no tiene ninguna alergia. Eso sigue prohibido.
+#
+# Lo que si se escribe es "NO ESPECIFICA", que no contradice nada. Y lo
+# que NO puede volver a pasar es que el renglon salga en blanco: un
+# blanco en una hoja firmada se lee como "no se pregunto" y se puede
+# llenar a mano despues de la firma.
 PIDE = {
     'primera_visita_dentista': '0',
     'complicaciones_parto':    '1',
@@ -170,8 +198,14 @@ PIDE = {
 
 for campo, (depende, cuando, relleno) in ESPERADA.items():
     hc = {depende: PIDE[depende], campo: None}
-    comprobar(f'{depende} = {PIDE[depende]!r} sin detalle deja el renglon vacio',
-              complemento_impreso(hc, campo), '')
+    obtenido = complemento_impreso(hc, campo)
+
+    comprobar(f'{depende} = {PIDE[depende]!r} sin detalle imprime NO ESPECIFICA',
+              obtenido, SIN_ESPECIFICAR)
+    # Y explicitamente no el relleno de la respuesta contraria, que es
+    # el error que firmaria una contradiccion.
+    if obtenido == relleno:
+        FALLOS.append(f'{campo}: un detalle que falta se tapa con {relleno!r}')
 
 # =====================================================================
 #  4. Lo capturado manda siempre
@@ -234,6 +268,36 @@ comprobar('los doce complementos aparecen en la hoja',
 # el renglon vuelve a salir en blanco cuando la respuesta es NO.
 sinRellenar = [c for c in ESPERADA if f"$hc['{c}']" in impr]
 comprobar('ninguno se pinta sin pasar por el relleno', sinRellenar, [])
+
+# =====================================================================
+#  7. El PHP y el JavaScript dicen lo mismo
+# =====================================================================
+print()
+print('El texto por omision, igual en los dos lados')
+
+# La pantalla y la hoja impresa no pueden contestar distinto a la misma
+# pregunta. Si la capsula dijera "SIN DATO" y la hoja "NO ESPECIFICA",
+# el expediente firmado no coincidiria con lo que se vio al capturar, y
+# el que lo note va a ser un auditor, no yo.
+comprobar('el PHP define el texto por omision',
+          f"SIN_ESPECIFICAR = '{SIN_ESPECIFICAR}'" in php, True)
+
+js = (RAIZ / 'assets/js/historia.js').read_text(encoding='utf-8')
+comprobar('el JavaScript define el mismo texto',
+          f"SIN_ESPECIFICAR = '{SIN_ESPECIFICAR}'" in js, True)
+
+# Y complementoImpreso tiene que USAR la constante. Que exista y no se
+# use dejaria el renglon en blanco con la constante ahi de adorno.
+impreso = php[php.index('function complementoImpreso'):]
+comprobar('complementoImpreso devuelve la constante',
+          'self::SIN_ESPECIFICAR' in impreso, True)
+
+# El metodo que bloqueaba el guardado no puede volver: era lo que
+# obligaba a inventar un detalle o a cambiar el "si" por un "no".
+comprobar('complementosQueFaltan ya no existe',
+          'function complementosQueFaltan' in php, False)
+comprobar('y el JavaScript tampoco lo reimplementa',
+          'function respuestasQueFaltan' in js, False)
 
 print()
 if FALLOS:

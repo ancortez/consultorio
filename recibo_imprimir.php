@@ -70,8 +70,23 @@ $formas = Conexion::todos(
    hecho —"esto es lo que quedo cubierto hoy"— y lo que cambia es de
    donde salio el dinero.
 */
-$aplicaciones = Conexion::todos(
-    'SELECT pa.monto, c.descripcion, c.fecha,
+/*
+   Lo que se cubrio hoy, un renglon por concepto.
+
+   Se AGRUPA por cargo. Antes salia un renglon por cada aplicacion, y
+   un cobro con saldo a favor parte el cargo en dos: la ficha mostraba
+   "CONSULTA Y DIAGNOSTICO $100" y debajo "CONSULTA Y DIAGNOSTICO (con
+   saldo a favor) $500", como si fueran dos consultas de precios
+   raros. Quien lee la ficha no tiene por que saber que por dentro un
+   cargo se cubre a pedazos.
+
+   Ahora el concepto sale una vez con lo que de verdad cuesta, y el
+   saldo a favor baja a su propio renglon en negativo. Es como se lee
+   cualquier nota: lo que se llevo, lo que se descuenta, lo que se
+   paga.
+*/
+$filas = Conexion::todos(
+    'SELECT pa.monto, pa.id_cargo, c.descripcion, c.fecha,
             (pa.aplicada_en_pago IS NOT NULL) AS de_saldo_a_favor
        FROM pago_aplicacion pa
        JOIN cargo c ON c.id_cargo = pa.id_cargo
@@ -80,26 +95,32 @@ $aplicaciones = Conexion::todos(
     [':p' => $idPago, ':en' => $idPago]
 );
 
-// Cuanto de lo cubierto hoy salio del saldo a favor. Es el renglon
-// negativo de la ficha y lo que hace que los numeros cuadren: lo
-// cubierto menos el saldo aplicado tiene que dar lo recibido.
-$aFavorAplicado = 0.0;
+$aplicaciones   = [];   // un renglon por concepto, con su importe entero
+$aFavorAplicado = 0.0;  // lo que se descuenta, en un solo renglon
 $totalCubierto  = 0.0;
-foreach ($aplicaciones as $a) {
-    $totalCubierto += (float) $a['monto'];
-    if ((int) $a['de_saldo_a_favor'] === 1) {
-        $aFavorAplicado += (float) $a['monto'];
+
+foreach ($filas as $f) {
+    $monto = (float) $f['monto'];
+    $totalCubierto += $monto;
+
+    if ((int) $f['de_saldo_a_favor'] === 1) {
+        $aFavorAplicado += $monto;
     }
+
+    $id = (int) $f['id_cargo'];
+    if (!isset($aplicaciones[$id])) {
+        $aplicaciones[$id] = [
+            'descripcion' => $f['descripcion'],
+            'fecha'       => $f['fecha'],
+            'monto'       => 0.0,
+        ];
+    }
+    $aplicaciones[$id]['monto'] += $monto;
 }
+
+$aplicaciones   = array_values($aplicaciones);
 $totalCubierto  = round($totalCubierto, 2);
 $aFavorAplicado = round($aFavorAplicado, 2);
-
-// Saldo despues del cobro: es la pregunta que hace el tutor al recibir
-// el papel, asi que viene contestada de fabrica.
-$saldo = Conexion::uno(
-    'SELECT saldo FROM v_paciente_saldo WHERE id_registro_paciente = :r',
-    [':r' => $pago['id_registro_paciente']]
-);
 
 $negocio = Conexion::uno(
     'SELECT c.nombre_comercial, c.telefono, c.rfc,
@@ -200,24 +221,10 @@ $cancelado = (int) $pago['estatus'] === 0;
     .letra { font-size: 7.5pt; color: #8a7a90; margin-top: .12cm;
              text-transform: uppercase; }
 
-    /* El renglon que salio del saldo a favor va marcado en el propio
-       concepto: sin la marca, la ficha dice que se cubrieron 1,000 y
-       que se recibieron 600, y el hueco de 400 queda sin explicar. */
-    .desde-favor {
-        font-size: 6.5pt; text-transform: uppercase; letter-spacing: .04em;
-        background: #eaf6ee; color: #1d6b48;
-        border-radius: 3px; padding: .02cm .15cm; margin-left: .15cm;
-        white-space: nowrap;
-    }
-
-    /* El cuadre: lo cubierto, menos el saldo aplicado. Lo que queda es
-       lo que de verdad entro hoy, que es el total de abajo. */
-    .cuadre { margin-top: .25cm; font-size: 8.5pt; }
-    .cuadre > div {
-        display: flex; justify-content: space-between;
-        border-bottom: 1px dotted var(--linea); padding: .05cm 0;
-    }
-    .cuadre .menos b { color: #1d6b48; }
+    /* El unico renglon de la tabla que RESTA.
+       En verde y con el importe en negativo: leerlo como un cargo mas
+       seria entender lo contrario de lo que dice. */
+    .renglon-favor td { color: #1d6b48; font-weight: 600; }
 
     .saldo {
         display: flex; justify-content: space-between;
@@ -336,48 +343,41 @@ $cancelado = (int) $pago['estatus'] === 0;
         <?php endif; ?>
 
         <?php if ($aplicaciones): ?>
+        <?php /* Concepto, fecha, importe. Y el saldo a favor abajo, en
+                 negativo, como un renglon mas de la misma tabla.
+
+                 Estaba en una tabla aparte titulada "Se aplico a" con
+                 un bloque de cuadre debajo. Eran tres piezas para
+                 contar una resta, y el tutor que recibe el papel no
+                 tiene por que recomponerla: aqui se lee de arriba
+                 abajo y el ultimo renglon es lo que entrego. */ ?>
         <table>
             <thead><tr>
-                <th>Se aplic&oacute; a</th>
+                <th>Concepto</th>
                 <th style="width:2.4cm">Fecha</th>
                 <th style="width:2.6cm" class="der">Importe</th>
             </tr></thead>
             <tbody>
             <?php foreach ($aplicaciones as $a): ?>
                 <tr>
-                    <td>
-                        <?= e($a['descripcion']) ?>
-                        <?php if ((int) $a['de_saldo_a_favor'] === 1): ?>
-                            <span class="desde-favor">con saldo a favor</span>
-                        <?php endif; ?>
-                    </td>
+                    <td><?= e($a['descripcion']) ?></td>
                     <td><?= e(fecha($a['fecha'])) ?></td>
                     <td class="der"><?= e(money($a['monto'])) ?></td>
                 </tr>
             <?php endforeach; ?>
+
+            <?php if ($aFavorAplicado > 0.009): ?>
+                <?php /* En verde y con el signo delante: es lo unico de
+                         la tabla que resta, y leerlo como un cargo mas
+                         seria justo lo contrario de lo que dice. */ ?>
+                <tr class="renglon-favor">
+                    <td>Saldo a favor aplicado</td>
+                    <td><?= e(fecha($pago['fecha_hora'])) ?></td>
+                    <td class="der">&minus;<?= e(money($aFavorAplicado)) ?></td>
+                </tr>
+            <?php endif; ?>
             </tbody>
         </table>
-
-        <?php /* El cuadre, solo cuando hubo saldo a favor de por medio.
-
-                 Sin esto, la ficha de un cobro con anticipo aplicado no
-                 se sostiene sola: dice que se cubrieron 1,000 y que se
-                 recibieron 600, y entre las dos cifras hay un hueco de
-                 400 que el papel no explica. Puesto como renglon
-                 NEGATIVO, el recibo se lee de arriba abajo y cierra;
-                 es la diferencia entre un comprobante y un volante. */ ?>
-        <?php if ($aFavorAplicado > 0.009): ?>
-        <div class="cuadre">
-            <div>
-                <span>Total cubierto</span>
-                <b><?= e(money($totalCubierto)) ?></b>
-            </div>
-            <div class="menos">
-                <span>Saldo a favor aplicado</span>
-                <b>&minus;<?= e(money($aFavorAplicado)) ?></b>
-            </div>
-        </div>
-        <?php endif; ?>
         <?php else: ?>
             <div class="letra" style="margin-top:.3cm">
                 Anticipo. Se aplicar&aacute; a los pr&oacute;ximos cargos.

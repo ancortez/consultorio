@@ -24,7 +24,7 @@ $soloMisCitas = $usuarioSesion['es_dentista']
     && (int) $usuarioSesion['id_rol'] !== 1
     && !Auth::puede('consultas.agenda');
 
-$sqlCitas = 'SELECT c.id_cita, c.fecha_inicio, c.motivo,
+$sqlCitas = 'SELECT c.id_cita, c.fecha_inicio, c.sin_hora, c.motivo,
             ec.nombre_estado, ec.color,
             vp.nombre_completo, vp.id_registro_paciente, vp.num_expediente,
             u.nombre_completo AS dentista
@@ -41,7 +41,9 @@ if ($soloMisCitas) {
     $paramsCitas[':yo'] = Auth::id();
 }
 
-$sqlCitas .= ' ORDER BY c.fecha_inicio';
+// Las sin hora arriba: son las que hay que repartir, y si fueran
+// ordenadas por su 00:00 quedarian mezcladas con nada.
+$sqlCitas .= ' ORDER BY c.sin_hora DESC, c.fecha_inicio';
 
 $citasHoy = Conexion::todos($sqlCitas, $paramsCitas);
 
@@ -134,7 +136,7 @@ foreach ($aFavor as $f) { $totalAFavor += (float) $f['favor']; }
  * Se listan desde hoy hacia adelante: confirmar una cita de ayer no
  * sirve de nada.
  */
-$sqlPorConfirmar = 'SELECT c.id_cita, c.fecha_inicio, c.motivo, c.notas,
+$sqlPorConfirmar = 'SELECT c.id_cita, c.fecha_inicio, c.sin_hora, c.motivo, c.notas,
             vp.nombre_completo, vp.telefono, vp.id_registro_paciente,
             u.nombre_completo AS dentista
        FROM cita c
@@ -343,7 +345,7 @@ $entrada = static function () use (&$escalon, $esperaCortinilla): string {
                         </tr>
                     <?php else: foreach ($citasHoy as $c): ?>
                         <tr>
-                            <td class="fw-semibold"><?= e(fecha($c['fecha_inicio'], 'H:i')) ?></td>
+                            <td class="fw-semibold"><?= e(horaCita($c)) ?></td>
                             <td>
                                 <a href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $c['id_registro_paciente'] ?>"
                                    class="text-decoration-none fw-semibold">
@@ -491,7 +493,7 @@ $entrada = static function () use (&$escalon, $esperaCortinilla): string {
                 <div class="cita-pendiente" data-cita="<?= (int) $pc['id_cita'] ?>">
                     <div class="cuando">
                         <b><?= e(fecha($pc['fecha_inicio'], 'd/m')) ?></b>
-                        <?= e(fecha($pc['fecha_inicio'], 'H:i')) ?>
+                        <?= e(horaCita($pc)) ?>
                     </div>
                     <div class="flex-grow-1" style="min-width:0">
                         <a class="fw-semibold text-decoration-none d-block text-truncate"
@@ -517,11 +519,27 @@ $entrada = static function () use (&$escalon, $esperaCortinilla): string {
                         <?php endif; ?>
                     </div>
                     <div class="d-flex gap-1">
+                        <?php /* Sin hora no hay nada que confirmar: la
+                                 llamada al paciente es "lo esperamos a
+                                 las diez y media", y esa frase todavia
+                                 no existe. En lugar del visto va el
+                                 atajo a la agenda de ese dia con la
+                                 cita abierta, que es donde se le pone
+                                 la hora —lo que de verdad hace falta
+                                 antes de llamar—. */ ?>
+                        <?php if ((int) ($pc['sin_hora'] ?? 0) === 1): ?>
+                        <a class="btn btn-sm btn-outline-morado"
+                           title="Ponerle hora"
+                           href="<?= URL_BASE ?>/index.php?modulo=consultas&vista=agenda&fecha=<?= e(fecha($pc['fecha_inicio'], 'Y-m-d')) ?>&cita=<?= (int) $pc['id_cita'] ?>">
+                            <i class="bi bi-clock"></i>
+                        </a>
+                        <?php else: ?>
                         <button type="button" class="btn btn-sm btn-morado"
                                 data-confirmar="<?= (int) $pc['id_cita'] ?>"
                                 title="Confirmar cita">
                             <i class="bi bi-check-lg"></i>
                         </button>
+                        <?php endif; ?>
                         <button type="button" class="btn btn-sm btn-light text-danger"
                                 data-cancelar="<?= (int) $pc['id_cita'] ?>"
                                 title="Cancelar cita">
@@ -588,8 +606,14 @@ $entrada = static function () use (&$escalon, $esperaCortinilla): string {
                                    href="<?= URL_BASE ?>/index.php?modulo=paciente&vista=detalle_paciente&id=<?= (int) $r['id_registro_paciente'] ?>">
                                     <?= e($r['paciente']) ?>
                                 </a>
+                                <?php /* Con cuandoCita y no fechaHora: una
+                                         cita apartada para el dia esta a
+                                         las 00:00, y aqui se leeria
+                                         "27/11/2026 00:00" justo al lado
+                                         del boton que manda el mensaje al
+                                         paciente. */ ?>
                                 <div class="text-secondary" style="font-size:11px">
-                                    <?= e(fechaHora($r['fecha_inicio'])) ?>
+                                    <?= e(cuandoCita($r)) ?>
                                     &middot; <?= e($r['dentista']) ?>
                                 </div>
                                 <div style="font-size:10.5px">

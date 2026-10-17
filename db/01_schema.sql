@@ -514,7 +514,12 @@ CREATE TABLE historia_clinica (
   experiencia_previa   TINYINT UNSIGNED NULL,
   recibio_prevencion   TINYINT UNSIGNED NULL,
   usa_pasta_dental     TINYINT UNSIGNED NULL,
-  cepillados_dia       TINYINT UNSIGNED NULL,
+  -- En palabras, no un numero. Lo que contesta el tutor es "en la
+  -- maniana y en la noche" o "solo cuando se acuerda", y de eso un
+  -- entero se queda con la mitad: un "1" no distingue "uno al dia,
+  -- siempre" de "uno, cuando se acuerda", que para decidir si hay que
+  -- insistir con la higiene es justo la diferencia.
+  cepillados_dia       VARCHAR(100) NULL,
   otro_higiene         TINYINT UNSIGNED NULL,
   otro_higiene_detalle VARCHAR(255) NULL,
 
@@ -739,6 +744,20 @@ CREATE TABLE cita (
   id_procedimiento     INT UNSIGNED NULL,
   fecha_inicio         DATETIME NOT NULL,
   fecha_fin            DATETIME NOT NULL,
+  -- Cita apartada para el dia, sin hora todavia.
+  --
+  -- El de ortodoncia se cita a seis semanas y en ese momento nadie sabe
+  -- como va a quedar esa agenda. Elegir una hora solo para poder
+  -- guardar aparta un sillon que no hace falta y le promete al paciente
+  -- un horario que va a cambiar.
+  --
+  -- Con sin_hora = 1 las dos fechas quedan a las 00:00 del dia: la cita
+  -- no ocupa ningun rango, asi que no choca con nada sin necesidad de
+  -- excepciones en la comprobacion de empalmes. El dato que manda es
+  -- esta columna y no las horas: deducirlo de "las dos fechas son
+  -- iguales" se romperia el dia que algo mas guarde una cita de cero
+  -- minutos.
+  sin_hora             TINYINT UNSIGNED NOT NULL DEFAULT 0,
   motivo               VARCHAR(255) NULL,
   notas                TEXT NULL,
   recordatorio_enviado TINYINT UNSIGNED NOT NULL DEFAULT 0,
@@ -1037,6 +1056,19 @@ CREATE TABLE odontograma (
   observaciones        TEXT NULL,
   PRIMARY KEY (id_odontograma),
   KEY ix_odo_expediente (id_registro_paciente, fecha),
+  -- Un solo odontograma "actual" por paciente.
+  --
+  -- Sobre una EXPRESION y no sobre las dos columnas: asi acota el
+  -- 'actual' a uno y deja libres los demas tipos, por si algun dia se
+  -- guarda la historia por fechas. En MySQL los NULL no chocan entre
+  -- si, asi que los otros tipos —que dan NULL aqui— no se limitan.
+  --
+  -- Sin esta llave, dos pestanias abiertas a la vez pueden crear dos
+  -- odontogramas del mismo paciente —las dos consultan, las dos no
+  -- encuentran, las dos insertan— y la mitad de las marcas acabaria en
+  -- uno y la mitad en el otro: dientes que se despintan solos.
+  UNIQUE KEY uq_odo_actual
+    ((IF(tipo = 'actual', id_registro_paciente, NULL))),
   CONSTRAINT fk_odo_expediente FOREIGN KEY (id_registro_paciente)
     REFERENCES registro_paciente (id_registro_paciente),
   CONSTRAINT fk_odo_consulta FOREIGN KEY (id_consulta)
@@ -1590,6 +1622,11 @@ SELECT
   p.rfc,
   p.foto,
   p.estatus,
+  -- La fecha de alta es la APERTURA del expediente, no el instante en
+  -- que se creo el renglon: un paciente de 2019 que se paso a Nanai la
+  -- semana pasada tiene fecha_registro de la semana pasada, y ordenando
+  -- por ella saldria como el mas nuevo del consultorio.
+  rp.fecha_apertura AS fecha_alta,
   (SELECT cp.valor_contacto FROM contacto_persona cp
      JOIN medio_contacto mc ON mc.id_medio_contacto = cp.id_medio_contacto
     WHERE cp.id_persona = p.id_persona AND cp.estatus = 1

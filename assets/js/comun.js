@@ -1362,10 +1362,18 @@ const DetalleCita = (() => {
     chip.style.background = `${c.color ?? '#999'}1f`;
     chip.style.color = c.color ?? '#999';
 
+    /* El "cuando" de una cita sin hora no lleva hora.
+
+       Las dos fechas estan a las 00:00, asi que la linea de siempre
+       saldria "27/11/2026 · 00:00 a 00:00". Eso no es un dato
+       incompleto, es un dato falso: se lee como un horario. */
     const inicio = String(c.fecha_inicio);
-    document.getElementById('dcCuando').textContent =
-      `${App.fecha(inicio.substring(0, 10))} · ${inicio.substring(11, 16)}`
-      + (c.fecha_fin ? ` a ${String(c.fecha_fin).substring(11, 16)}` : '');
+    const sinHora = Number(c.sin_hora) === 1;
+
+    document.getElementById('dcCuando').textContent = sinHora
+      ? `${App.fecha(inicio.substring(0, 10))} · todavía sin hora`
+      : `${App.fecha(inicio.substring(0, 10))} · ${inicio.substring(11, 16)}`
+        + (c.fecha_fin ? ` a ${String(c.fecha_fin).substring(11, 16)}` : '');
 
     document.getElementById('dcDentista').textContent =
       (c.dentista ?? '') + (c.nombre_sala ? ` · ${c.nombre_sala}` : '');
@@ -1384,18 +1392,39 @@ const DetalleCita = (() => {
 
   function pintarAcciones() {
     const caja2 = document.getElementById('dcAcciones');
-    const puede = SIGUIENTES[Number(actual.id_estado_cita)] ?? [];
+    const sinHora = Number(actual.sin_hora) === 1;
+
+    /* Sin hora no se ofrece Confirmar, y se dice por que.
+
+       El servidor tambien lo rechaza —ahi es donde cuenta—, pero
+       ofrecer un boton que va a contestar con un error es hacer picar
+       para enterarse. Los demas pasos siguen tal cual: una cita
+       apartada para el dia se cancela igual que cualquier otra, y
+       marcar que no asistio tambien vale. */
+    const todos = SIGUIENTES[Number(actual.id_estado_cita)] ?? [];
+    const puede = todos.filter(([id]) => !(sinHora && id === 2));
+
+    /* El aviso sale solo cuando se quito el boton de Confirmar.
+
+       En una cita cancelada o ya atendida no habia boton que quitar, y
+       decirle a alguien que le ponga hora a una cita cancelada es
+       mandarlo a hacer algo que no sirve. */
+    const avisoSinHora = puede.length !== todos.length ? `
+      <div class="dc-cerrada">
+        Esta cita todavía no tiene hora. Ponle la hora con
+        <b>Modificar</b> antes de confirmársela al paciente.
+      </div>` : '';
 
     if (!alCambiar || !puede.length) {
-      caja2.innerHTML = puede.length ? '' : `
+      caja2.innerHTML = avisoSinHora + (puede.length ? '' : `
         <div class="dc-cerrada">
           Esta cita ya no cambia de estatus. Usa <b>Modificar</b> si hay
           que corregir algo.
-        </div>`;
+        </div>`);
       return;
     }
 
-    caja2.innerHTML = puede.map(([id, texto, icono]) => `
+    caja2.innerHTML = avisoSinHora + puede.map(([id, texto, icono]) => `
       <button type="button" class="btn btn-sm ${
         id === 5 ? 'btn-outline-danger' : 'btn-outline-morado'}"
               data-estatus="${id}">

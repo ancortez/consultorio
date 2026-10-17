@@ -364,9 +364,18 @@ function casillas(array $lista, string $titulo): string
                         </div>
                         <div class="col-6"><?= siNo('usa_pasta_dental', '&iquest;Usa pasta dental?') ?></div>
                         <div class="col-6">
+                            <?php /* En palabras, no un numero.
+
+                                     El tutor no contesta "2": contesta
+                                     "en la maniana y en la noche" o
+                                     "solo cuando se acuerda". Pidiendo
+                                     un entero, quien captura elige uno
+                                     y el dato queda mas limpio y menos
+                                     cierto. */ ?>
                             <label class="form-label">Cepillados al d&iacute;a</label>
-                            <input type="number" class="form-control" name="cepillados_dia"
-                                   min="0" max="10">
+                            <input type="text" class="form-control" name="cepillados_dia"
+                                   maxlength="100"
+                                   placeholder="EN LA MANIANA Y EN LA NOCHE">
                         </div>
                         <div class="col-5">
                             <?= siNo('otro_higiene', '&iquest;Usa otro elemento de higiene?') ?>
@@ -496,13 +505,37 @@ function casillas(array $lista, string $titulo): string
         <label class="form-label" id="pxEtiqueta" for="pxValor"></label>
         <input type="text" class="form-control" id="pxValor" maxlength="255">
         <div class="form-text" id="pxAyuda"></div>
+
+        <?php /* El aviso de que es opcional, fijo en la ventana.
+
+                 Sin el, dejar el cuadro vacio parece un error: la
+                 ventana se abrio sola al contestar "si" y no hay nada
+                 que diga que se puede cerrar sin escribir. El tutor que
+                 no se acuerda del detalle existe, y antes de este aviso
+                 la salida era inventarlo o cambiar el "si" por un "no".
+
+                 Dice tambien que es lo que va a quedar escrito, porque
+                 el renglon no se queda en blanco: un blanco en una hoja
+                 firmada se lee como "no se pregunto" y se puede llenar
+                 a mano despues de la firma. */ ?>
+        <div class="aviso-opcional mt-2">
+          <i class="bi bi-info-circle"></i>
+          <span>Este detalle es <b>opcional</b>. Si lo dejas vac&iacute;o
+                quedar&aacute; como <b>NO ESPECIFICA</b> y la respuesta
+                anterior se conserva.</span>
+        </div>
       </div>
       <div class="modal-footer">
-        <?php /* "Cancelar" y no "Cerrar": cerrar sin contestar DESHACE la
-                 respuesta que abrio esta ventana, y el boton tiene que
-                 decir lo que hace. */ ?>
+        <?php /* "Cerrar" y ya no "Cancelar".
+
+                 Decia Cancelar porque cerrar sin contestar DESHACIA la
+                 respuesta que abrio la ventana: el "si" volvia a como
+                 estaba. Eso dejo de pasar al volverse opcional el
+                 detalle —el "si" se queda y el complemento sale como NO
+                 ESPECIFICA—, asi que el boton ya no cancela nada y
+                 llamarlo Cancelar seria mentir sobre lo que hace. */ ?>
         <button type="button" class="btn btn-light" data-bs-dismiss="modal">
-          Cancelar
+          Cerrar
         </button>
         <button type="button" class="btn btn-morado" id="pxGuardar">
           <i class="bi bi-check-lg me-1"></i> Guardar

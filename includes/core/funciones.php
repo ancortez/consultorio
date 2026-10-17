@@ -45,6 +45,89 @@ function fechaHora(?string $valor): string
     return fecha($valor, 'd/m/Y H:i');
 }
 
+/*
+   El "cuando" de una cita, que no siempre tiene hora.
+
+   Una cita apartada para el dia se guarda a las 00:00. Pasada por
+   fechaHora() sale "27/11/2026 00:00", y eso es peor que no decir
+   nada: parece un horario, y de hecho parece el peor horario posible.
+   Alguien que lo lee de pasada entiende que ese nino viene a
+   medianoche.
+
+   Estas dos funciones son el unico sitio donde se decide como se
+   escribe eso. Son cuatro pantallas las que lo ensenian —inicio dos
+   veces, la ficha del paciente dos— y repartir el "if" por las cuatro
+   acabaria con una diciendo una cosa y otra diciendo otra.
+
+   El arreglo de la cita se pasa completo, no la fecha sola: la hora no
+   se puede juzgar sin saber si la cita la tiene, y eso vive en otra
+   columna.
+*/
+function horaCita(array $cita): string
+{
+    return (int) ($cita['sin_hora'] ?? 0) === 1
+        ? 'Sin hora'
+        : fecha($cita['fecha_inicio'] ?? null, 'H:i');
+}
+
+function cuandoCita(array $cita): string
+{
+    $dia = fecha($cita['fecha_inicio'] ?? null);
+
+    return (int) ($cita['sin_hora'] ?? 0) === 1
+        ? "$dia · sin hora"
+        : trim("$dia " . fecha($cita['fecha_inicio'] ?? null, 'H:i'));
+}
+
+/*
+   El codigo con el que se nombra un hallazgo: CLIN_01, RADIO_03.
+
+   Lo pidio la doctora asi. El sentido es que la exploracion se dicta
+   —"clinico, foto; radiografico, foto"— y escribir una descripcion por
+   cada cosa con el paciente en el sillon no se hace: lo que se hacia
+   era dejarla en blanco, y entonces el expediente tenia una lista de
+   hallazgos sin nombre que nadie podia leer despues. Un codigo corto se
+   pone solo, distingue uno de otro y sirve para referirse a el en voz
+   alta: "la del CLIN_02".
+
+   El numero sale del MAXIMO que ya exista, no de contar los hallazgos.
+   Contando, borrar el CLIN_02 de tres hallazgos haria que el siguiente
+   volviera a llamarse CLIN_03 —que ya existe— y dos hallazgos
+   distintos del mismo dia tendrian el mismo nombre. Con el maximo eso
+   no puede pasar: los numeros no se reciclan.
+
+   Son dos funciones puras —sin base de datos— a proposito: la pantalla
+   propone el codigo y el servidor lo pone cuando el campo llega vacio,
+   y las dos tienen que dar lo mismo. Asi la regla se puede correr con
+   datos y comparar contra la copia del JavaScript.
+*/
+function prefijoHallazgo(string $tipo): string
+{
+    return mayus($tipo) === 'RADIOGRAFICO' ? 'RADIO' : 'CLIN';
+}
+
+/**
+ * @param string[] $descripciones las de los hallazgos que ya existen
+ */
+function codigoHallazgo(string $prefijo, array $descripciones): string
+{
+    $maximo = 0;
+
+    foreach ($descripciones as $d) {
+        // Ancladas al principio y con el guion bajo: un hallazgo que se
+        // llame "DUELE AL MASTICAR CLIN_09" no debe correr la cuenta.
+        if (preg_match('/^' . preg_quote($prefijo, '/') . '_(\d+)/',
+                mayus(trim((string) $d)), $m)) {
+            $maximo = max($maximo, (int) $m[1]);
+        }
+    }
+
+    // Dos digitos hasta el 99, y de ahi en adelante los que hagan
+    // falta: un consultorio no llega a cien hallazgos en una consulta,
+    // pero truncar seria crear el duplicado que esto viene a evitar.
+    return $prefijo . '_' . str_pad((string) ($maximo + 1), 2, '0', STR_PAD_LEFT);
+}
+
 /** Edad en anios a partir de la fecha de nacimiento. */
 function edad(?string $fechaNacim): ?int
 {

@@ -132,7 +132,7 @@ $domPre = $domicilios[0] ?? null;
 // estado: cancelada y no-asistio son informacion clinica y de agenda
 // que hay que poder ver, no filas que esconder.
 $citas = Conexion::todos(
-    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.motivo, c.notas,
+    'SELECT c.id_cita, c.fecha_inicio, c.fecha_fin, c.sin_hora, c.motivo, c.notas,
             c.id_estado_cita, c.id_usuario_dentista, c.id_sala,
             ec.nombre_estado, ec.color, u.nombre_completo AS dentista,
             s.nombre_sala
@@ -456,6 +456,21 @@ $colorPlan = [1 => 'plan-propuesto', 2 => 'plan-aceptado', 3 => 'plan-proceso',
                                   id="avisoTabHistoria">!</span>
                         </button>
                     </li>
+                    <?php /* El odontograma va ANTES del expediente.
+
+                             El orden de las pestanias es el de la
+                             consulta: quien es el paciente, que le ha
+                             pasado, como esta su boca hoy, y al final
+                             los papeles. El expediente es el archivo
+                             muerto; el odontograma se mira con el
+                             paciente enfrente. */ ?>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab"
+                                data-bs-target="#tab-odontograma" type="button"
+                                id="btnTabOdontograma">
+                            <i class="bi bi-database-fill-gear me-1"></i> Odontograma
+                        </button>
+                    </li>
                     <li class="nav-item">
                         <button class="nav-link" data-bs-toggle="tab"
                                 data-bs-target="#tab-expediente" type="button"
@@ -690,6 +705,10 @@ $colorPlan = [1 => 'plan-propuesto', 2 => 'plan-aceptado', 3 => 'plan-proceso',
 
                 <div class="tab-pane fade" id="tab-historia">
                     <?php require __DIR__ . '/_tab_historia.php'; ?>
+                </div>
+
+                <div class="tab-pane fade" id="tab-odontograma">
+                    <?php require __DIR__ . '/_tab_odontograma.php'; ?>
                 </div>
 
                 <div class="tab-pane fade" id="tab-expediente">
@@ -939,7 +958,7 @@ $colorPlan = [1 => 'plan-propuesto', 2 => 'plan-aceptado', 3 => 'plan-proceso',
                         <button type="button" class="renglon-ficha"
                                 data-cita-ficha='<?= e(json_encode($ci, JSON_UNESCAPED_UNICODE)) ?>'>
                             <div style="min-width:0">
-                                <div class="rf-titulo"><?= e(fechaHora($ci['fecha_inicio'])) ?></div>
+                                <div class="rf-titulo"><?= e(cuandoCita($ci)) ?></div>
                                 <div class="rf-sub"><?= e($ci['dentista']) ?></div>
                                 <?php if ($ci['motivo']): ?>
                                 <div class="rf-sub"><?= e($ci['motivo']) ?></div>
@@ -1026,7 +1045,7 @@ $colorPlan = [1 => 'plan-propuesto', 2 => 'plan-aceptado', 3 => 'plan-proceso',
           <tbody>
             <?php foreach ($citas as $ci): ?>
             <tr>
-              <td class="fw-semibold"><?= e(fechaHora($ci['fecha_inicio'])) ?></td>
+              <td class="fw-semibold"><?= e(cuandoCita($ci)) ?></td>
               <td>
                 <?= e($ci['motivo'] ?: '-') ?>
                 <?php if (!empty($ci['notas'])): ?>

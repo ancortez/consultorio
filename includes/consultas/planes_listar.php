@@ -14,6 +14,7 @@ endpoint('consultas.ver');
 
 $idExpediente = paramInt('id_registro_paciente');
 $abiertos     = param('abiertos') === '1';
+$estado       = paramInt('estado');
 $q            = trim((string) param('q', ''));
 
 if (!$idExpediente && !$abiertos) {
@@ -28,7 +29,25 @@ if ($idExpediente) {
     $params[':r']     = $idExpediente;
 }
 
-if ($abiertos) {
+/*
+   El estatus pedido manda sobre "los vigentes".
+
+   La pantalla trae por omision los planes vivos —propuestos, aceptados
+   y en proceso—, que es la lista de trabajo. Pero pidiendo uno
+   concreto se trae ese, aunque no este vivo: los CANCELADOS se
+   consultan justo cuando alguien pregunta por que un paciente no
+   siguio, y mandarlo al expediente de cada paciente a buscarlos uno
+   por uno no contesta esa pregunta.
+
+   El filtro se hace aqui y no en la pantalla. Antes el estatus se
+   aplicaba sobre lo que ya habia llegado, asi que no podia ensenar
+   nada que la consulta no hubiera traido: un filtro que solo puede
+   quitar de la lista no puede ofrecer los cancelados.
+*/
+if ($estado) {
+    $where[]      = 'pt.id_estado_plan = :e';
+    $params[':e'] = $estado;
+} elseif ($abiertos) {
     // 1 Propuesto | 2 Aceptado | 3 En proceso
     $where[] = 'pt.id_estado_plan IN (1, 2, 3)';
 }

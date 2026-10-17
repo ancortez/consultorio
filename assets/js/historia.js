@@ -142,11 +142,6 @@ const Historia = (() => {
   function elegir(grupo, valor, porPersona = false) {
     const oculto = grupo.querySelector('input[type="hidden"]');
 
-    // Lo que valia ANTES, por si hay que deshacer: si la respuesta abre
-    // una pregunta extra y la ventana se cierra sin contestar, hay que
-    // poder volver aqui.
-    if (oculto.name) valorPrevio.set(oculto.name, oculto.value);
-
     grupo.querySelectorAll('.opcion-sino').forEach((b) => {
       b.classList.toggle('activa', b.dataset.valor === String(valor));
     });
@@ -157,11 +152,29 @@ const Historia = (() => {
     // escuchan. Lo que ya no hace es abrir ventanas.
     oculto.dispatchEvent(new Event('change', { bubbles: true }));
 
-    // Se repinta SIEMPRE —para limpiar la respuesta de un "si" que
-    // acaba de pasar a "no"— pero solo se pregunta si fue una persona,
-    // y solo por el bloque que depende de ESTE campo.
+    /*
+       Se repinta, y ya. Nadie pregunta nada.
+
+       Hasta el 17 de octubre de 2026 esto abria la ventanita del
+       complemento cuando la respuesta la acababa de dar una persona.
+       La doctora pidio que no: contestar doce preguntas de si/no se
+       hace de corrido, y una ventana que salta en medio rompe el
+       ritmo —hay que leerla, cerrarla y volver a encontrar donde se
+       iba—. Peor cuando el complemento es opcional, que lo son los
+       doce: la ventana interrumpia para pedir algo que se puede no
+       contestar.
+
+       Lo que sale en su lugar es la capsula con NO ESPECIFICA, que se
+       pica cuando se quiera escribir el detalle. El dato queda a la
+       vista y el camino para llenarlo tambien; lo que se va es la
+       interrupcion.
+
+       porPersona se conserva en la firma a proposito: lo mandan los
+       dos sitios que llaman a elegir() y lo sigue usando quien
+       distingue "lo contesto alguien" de "lo relleno el codigo".
+    */
     const caja = document.querySelector(`[data-depende="${oculto.name}"]`);
-    if (caja) atender(caja, porPersona);
+    if (caja) atender(caja);
   }
 
   function engancharGrupos() {
@@ -234,13 +247,54 @@ const Historia = (() => {
     return caja ? bootstrap.Modal.getOrCreateInstance(caja) : null;
   }
 
-  // Lo que valia cada selector antes del ultimo cambio, para poder
-  // deshacerlo.
-  const valorPrevio = new Map();
+  /*
+     Lo que se ensenia cuando el complemento no se contesto.
+
+     Los doce complementos son OPCIONALES desde el 16 de octubre de
+     2026. Antes eran obligatorios: un "¿alergico? SI" sin decir a que
+     no dejaba avanzar, y el bloque de la pregunta se marcaba en
+     amarillo.
+
+     La doctora pidio quitar esa traba, y tiene razon de consultorio: el
+     tutor muchas veces no sabe el detalle en ese momento —"si tuvo
+     complicaciones en el parto, pero no me acuerdo de que"— y el
+     sistema estaba obligando a elegir entre inventar un detalle o
+     contestar "no" a una pregunta cuya respuesta es "si". Las dos
+     salidas ensucian el expediente; la segunda, encima, borra un
+     antecedente clinico.
+
+     Lo que NO cambia es que el renglon nunca sale en blanco. Un blanco
+     en una hoja firmada no dice "no se especifico": dice "no se
+     pregunto", y se puede llenar a mano despues de la firma. Asi que lo
+     que se guarda sigue siendo vacio —para poder distinguir despues— y
+     lo que se ve y se imprime es este texto.
+
+     Tiene que decir lo mismo que HistoriaClinica::SIN_ESPECIFICAR en
+     PHP: la pantalla y la hoja impresa no pueden contestar distinto a
+     la misma pregunta.
+  */
+  const SIN_ESPECIFICAR = 'NO ESPECIFICA';
+
+  /*
+     Aqui vivia valorPrevio, un Map con lo que valia cada selector antes
+     del ultimo cambio.
+
+     Servia para deshacer: si una respuesta abria su pregunta extra y la
+     ventana se cerraba sin contestar, el selector volvia a su valor
+     anterior. Al volverse opcional el detalle ya no hay nada que
+     deshacer, y el Map se quedo escribiendose sin que nadie lo leyera
+     —con su escucha de 'focus' incluida, puesta ahi solo para
+     alimentarlo—.
+
+     Se quita en vez de dejarlo: un dato que se mantiene al dia y que
+     nadie usa es lo que el siguiente va a creer que esta vivo.
+  */
 
   // A que bloque corresponde la ventana que esta abierta.
+  //
+  // Habia tambien una bandera 'contestada', que alCerrarVentana miraba
+  // para saber si deshacer la respuesta. Se fue con el deshacer.
   let preguntaEnCurso = null;
-  let contestada = false;
 
   /**
    * El trozo de pantalla donde va la respuesta de un bloque.
@@ -291,7 +345,6 @@ const Historia = (() => {
     if (!campo || !ventana) return;
 
     preguntaEnCurso = caja;
-    contestada = false;
 
     const disparador = document.querySelector(
       `[name="${caja.dataset.depende}"]`);
@@ -316,7 +369,18 @@ const Historia = (() => {
     marco.addEventListener('hidden.bs.modal', alCerrarVentana, { once: true });
   }
 
-  /** Pinta la respuesta bajo el selector, o la quita. */
+  /**
+   * Pinta la respuesta bajo el selector, o la quita.
+   *
+   * La capsula aparece en cuanto la pregunta PIDE complemento, con o
+   * sin texto. Sin texto dice "NO ESPECIFICA" y se ve mas apagada.
+   *
+   * Que aparezca vacia es lo importante: es el recordatorio de que ahi
+   * hay un dato que se puede llenar, y el camino para llenarlo —se pica
+   * y se abre la ventana—. Sin capsula, un complemento sin contestar
+   * seria invisible y nadie volveria a el; con la capsula, quien
+   * pregunta despues "¿a que era alergico?" tiene donde escribirlo.
+   */
   function pintarRespuesta(caja) {
     const campo = caja.querySelector('input, textarea');
     const texto = (campo?.value ?? '').trim();
@@ -324,9 +388,14 @@ const Historia = (() => {
     const bloque = bloqueDelDisparador(caja.dataset.depende);
     if (!bloque) return;
 
+    const control = document.querySelector(`[name="${caja.dataset.depende}"]`);
+    const aplica = control !== null && toca(caja, (control.value ?? '').trim());
+
     let chip = bloque.querySelector('.respuesta-extra');
 
-    if (!texto) { chip?.remove(); return; }
+    // Sin texto Y sin aplicar no hay nada que ensenar: la pregunta ni
+    // siquiera pide complemento.
+    if (!texto && !aplica) { chip?.remove(); return; }
 
     if (!chip) {
       chip = document.createElement('button');
@@ -339,34 +408,11 @@ const Historia = (() => {
     }
 
     chip.innerHTML = '<i class="bi bi-pencil"></i>';
-    chip.append(texto);
-    chip.title = 'Modificar esta respuesta';
-  }
-
-  /**
-   * Marca en amarillo lo que esta a medias.
-   *
-   * Una respuesta que PIDE complemento y no lo tiene es el peor estado
-   * posible: parece capturada. Pasa casi siempre con el prellenado, que
-   * contesta varias preguntas de golpe sin poder saber el detalle, y
-   * hasta ahora la unica senial era que el boton de siguiente no
-   * avanzaba —sin decir por cual de las doce—.
-   *
-   * El amarillo va sobre el bloque de la pregunta, no sobre el campo
-   * escondido: lo que hay que mirar para arreglarlo es la pregunta.
-   */
-  function marcarSiFalta(caja) {
-    const bloque = bloqueDelDisparador(caja.dataset.depende);
-    if (!bloque) return;
-
-    const control = document.querySelector(`[name="${caja.dataset.depende}"]`);
-    const campo = caja.querySelector('input, textarea');
-
-    const falta = control !== null
-      && toca(caja, (control.value ?? '').trim())
-      && !(campo?.value ?? '').trim();
-
-    bloque.classList.toggle('falta-complemento', falta);
+    chip.append(texto || SIN_ESPECIFICAR);
+    chip.classList.toggle('sin-especificar', !texto);
+    chip.title = texto
+      ? 'Modificar esta respuesta'
+      : 'Este detalle es opcional. Picalo para escribirlo.';
   }
 
   /*
@@ -381,14 +427,15 @@ const Historia = (() => {
     const campo = preguntaEnCurso.querySelector('input, textarea');
     const valor = document.getElementById('pxValor').value.trim();
 
-    if (!valor) {
-      // Guardar en blanco es lo mismo que cancelar, y decirlo es mejor
-      // que cerrar sin mas y que la respuesta se deshaga sin aviso.
-      App.alerta.error('Escribe la respuesta',
-        'Si no la tienes, usa Cancelar: la pregunta anterior se deshace.');
-      return;
-    }
+    /*
+       Guardar en blanco esta permitido.
 
+       Antes se rechazaba con un aviso, porque guardar en blanco
+       equivalia a cancelar y la respuesta de arriba se deshacia. Ya no:
+       el detalle es opcional, el "si" se queda y el complemento se
+       ensenia como NO ESPECIFICA. Rechazarlo ahora obligaria a inventar
+       un detalle para poder cerrar la ventana.
+    */
     /*
        A mayusculas con toUpperCase() y no con App.aMayusculas().
 
@@ -403,62 +450,42 @@ const Historia = (() => {
        del cuadro.
     */
     campo.value = valor.toUpperCase();
-    contestada = true;
     pintarRespuesta(preguntaEnCurso);
-    marcarSiFalta(preguntaEnCurso);
     modalPregunta()?.hide();
   });
 
   /**
-   * Se cerro la ventana: si no se contesto, se deshace la respuesta.
+   * Se cerro la ventana sin pasar por Guardar.
    *
-   * Se engancha al ABRIR y con {once}, no una sola vez al cargar el
-   * archivo: la historia clinica se inyecta cuando se abre su pestania,
-   * asi que al evaluarse este modulo la ventana todavia no existe y el
-   * escucha se habria quedado sin colgar de ningun sitio. El sintoma
-   * seria de los peores: cerrar sin contestar dejaria el "si" a medias
-   * en silencio.
+   * Hasta octubre de 2026 esto DESHACIA la respuesta: el "si" volvia a
+   * como estaba antes y el complemento se limpiaba, porque un "si" sin
+   * su detalle era un dato a medias que no se queria guardar.
+   *
+   * Ahora el detalle es opcional, asi que no hay nada que deshacer: el
+   * "si" es una respuesta completa por si sola y el complemento sale
+   * como NO ESPECIFICA. Deshacerlo seria lo contrario de lo que se
+   * pidio —borrar un antecedente clinico por no saber un detalle—.
+   *
+   * Lo unico que queda es pintar: la capsula tiene que aparecer con su
+   * "NO ESPECIFICA" para que se vea que ahi hay un dato que se puede
+   * llenar despues.
    */
   function alCerrarVentana() {
     const caja = preguntaEnCurso;
     preguntaEnCurso = null;
-    if (!caja || contestada) return;
+    if (!caja) return;
 
-    const nombre = caja.dataset.depende;
-    const disparador = document.querySelector(`[name="${nombre}"]`);
-    if (!disparador) return;
-
-    const antes = valorPrevio.get(nombre) ?? '';
-    const grupo = disparador.closest('.grupo-sino');
-
-    if (grupo) {
-      elegir(grupo, antes === '' ? null : antes);
-    } else {
-      // Un desplegable se deshace poniendole el valor de antes. Esta
-      // rama faltaba: al cerrar la ventana de "momentos de azucar" sin
-      // contestar, la frecuencia se quedaba elegida sin su detalle, que
-      // es exactamente el "si a medias" que esto viene a evitar.
-      disparador.value = antes;
-    }
-
-    caja.querySelector('input, textarea').value = '';
     pintarRespuesta(caja);
-    marcarSiFalta(caja);
   }
 
   /**
-   * Pone al dia UN bloque.
+   * Pone al dia UN bloque: esconde el almacen y pinta la capsula.
    *
-   * @param {boolean} preguntar abrir la ventana si falta la respuesta
-   *
-   * Se separo del recorrido completo a proposito. Antes todo pasaba por
-   * una sola funcion que miraba los doce bloques y, si le decian que
-   * preguntara, preguntaba por cualquiera que encontrara vacio. Eso
-   * convertia cualquier cambio en el formulario —escribir una fecha,
-   * salir de un campo— en una ronda de interrogatorio por preguntas que
-   * nadie habia tocado.
+   * Tenia un parametro "preguntar" que abria la ventanita cuando el
+   * complemento faltaba. Se fue con la apertura automatica: ahora la
+   * ventana la abre solo quien pica la capsula.
    */
-  function atender(caja, preguntar = false) {
+  function atender(caja) {
     const control = document.querySelector(`[name="${caja.dataset.depende}"]`);
     if (!control) return;
 
@@ -475,47 +502,15 @@ const Historia = (() => {
       // expediente diria dos cosas contradictorias.
       if (campo) campo.value = '';
       pintarRespuesta(caja);
-      marcarSiFalta(caja);
-      return;
-    }
-
-    if (preguntar && campo && !campo.value.trim() && !preguntaEnCurso) {
-      abrirPregunta(caja);
       return;
     }
 
     pintarRespuesta(caja);
-    marcarSiFalta(caja);
   }
 
   /** Los doce, sin preguntar nada: al cargar y al prellenar. */
   function aplicarDependencias() {
     document.querySelectorAll('[data-depende]').forEach((caja) => atender(caja));
-  }
-
-  /**
-   * Las respuestas que faltan: aplican pero estan en blanco.
-   *
-   * Pasa cuando se prellena —el prellenado contesta "si" a varias
-   * preguntas sin poder saber el detalle— y tambien si alguien cierra
-   * la ventana con la cruz del navegador. Sirve para no dejar avanzar
-   * con un "si" a medias, que es un dato que parece capturado y no lo
-   * esta.
-   */
-  function respuestasQueFaltan() {
-    const faltan = [];
-    document.querySelectorAll('[data-depende]').forEach((caja) => {
-      const control = document.querySelector(
-        `[name="${caja.dataset.depende}"]`);
-      if (!control) return;
-
-      const campo = caja.querySelector('input, textarea');
-      if (!toca(caja, (control.value ?? '').trim())) return;
-      if (campo && campo.value.trim()) return;
-
-      faltan.push(caja);
-    });
-    return faltan;
   }
 
   function engancharDependencias() {
@@ -546,34 +541,24 @@ const Historia = (() => {
       ?.addEventListener('change', () => aplicarDependencias());
 
     /*
-       Los desplegables SI preguntan, y hay que colgarlo aqui.
+       Los desplegables necesitan su propio escucha.
 
        "Momentos de azucar" no es un grupo de botones sino un <select>,
-       asi que nunca pasa por elegir() —que es quien abre la ventanita
-       cuando contesta una persona—. Resultado: se elegia la frecuencia,
-       no se preguntaba por los alimentos, y la respuesta tampoco se
-       veia. La pregunta estaba en el formulario y no habia forma de
-       llegar a ella.
+       asi que no pasa por elegir() y el 'change' del formulario de
+       arriba repinta los doce bloques pero no se entera de cual se
+       toco. Con esto, elegir una frecuencia pinta su capsula en el
+       momento.
 
-       Con un <select> si se puede usar 'change' sin el problema de
-       antes: el navegador NO lo lanza cuando el codigo asigna .value,
-       y a diferencia de un campo de texto tampoco salta al perder el
-       foco. Asi que aqui 'change' significa de verdad "alguien
-       eligio".
-
-       El valor anterior se apunta al enfocar, que es siempre antes de
-       cambiarlo. Hace falta para poder deshacer si la ventana se
-       cierra sin contestar.
+       Preguntaba —abria la ventanita— hasta el 17 de octubre de 2026.
+       Ya no: ver el comentario de elegir(). Lo que queda es repintar,
+       igual que los grupos de si/no.
     */
     document.querySelectorAll('[data-depende]').forEach((caja) => {
       const nombre = caja.dataset.depende;
       const control = document.querySelector(`[name="${nombre}"]`);
       if (!control || control.tagName !== 'SELECT') return;
 
-      control.addEventListener('focus', () => {
-        valorPrevio.set(nombre, control.value);
-      });
-      control.addEventListener('change', () => atender(caja, true));
+      control.addEventListener('change', () => atender(caja));
     });
 
     aplicarDependencias();
@@ -667,12 +652,11 @@ const Historia = (() => {
 
        Eso es lo que hacia que al abrir una historia ya guardada la
        respuesta de "momentos de azucar" no apareciera por ningun lado,
-       aunque estuviera guardada. Y tambien por que no se veia en
-       amarillo lo que estaba a medias: el recorrido que lo marca no
-       habia vuelto a pasar.
+       aunque estuviera guardada.
 
-       Sin preguntar nada (sin el true): abrir un expediente viejo no
-       puede lanzar doce ventanas en cadena.
+       Ya no hace falta cuidar que esto no pregunte: desde el 17 de
+       octubre de 2026 nada abre la ventanita sola. Lo unico que hace
+       este recorrido es pintar las capsulas.
     */
     aplicarDependencias();
 
@@ -852,39 +836,24 @@ const Historia = (() => {
         }
 
         /*
-           Lo que SI se exige: que ninguna respuesta quede a medias.
+           Y nada mas.
 
-           El prellenado contesta "si" a varias preguntas de golpe
-           —lactancia materna, dieta completa— pero no puede saber el
-           detalle: hasta cuando, por que. Dejar pasar ese "si" sin su
-           complemento guarda un dato que parece capturado y no lo esta,
-           y nadie vuelve a revisarlo porque a simple vista esta
-           contestado.
+           Aqui se exigia que ningun complemento quedara a medias: un
+           "¿alergico? SI" sin decir a que no dejaba pasar de paso, se
+           llevaba la vista hasta la pregunta y abria su ventana.
 
-           Solo se mira el paso en el que se esta: estorbar con una
-           pregunta de la pagina siguiente seria pedir que adivinen
-           donde esta el problema.
+           Se quito el 16 de octubre de 2026. La doctora lo pidio y la
+           razon es de consultorio: el tutor muchas veces no sabe el
+           detalle en ese momento, y la traba lo dejaba elegir entre
+           inventarlo o cambiar el "si" por un "no". La segunda salida es
+           la peor de todas —borra un antecedente clinico para poder
+           avanzar— y es la que uno elige con el paciente esperando.
+
+           El dato no se pierde de vista: el complemento vacio se ensenia
+           como una capsula que dice NO ESPECIFICA, se pica y se llena
+           cuando se sepa, y en la hoja impresa sale ese mismo texto en
+           vez de un renglon en blanco.
         */
-        const seccion = document.querySelectorAll('#formHistoria .paso')[indice];
-        const pendiente = respuestasQueFaltan()
-          .find((caja) => seccion?.contains(caja));
-
-        if (pendiente) {
-          const quien = document.querySelector(
-            `[name="${pendiente.dataset.depende}"]`)?.closest('.grupo-sino');
-
-          // Se lleva la vista hasta la pregunta y se abre su ventana:
-          // decir "falta algo" sin ensenar donde es media ayuda.
-          quien?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          setTimeout(() => abrirPregunta(pendiente), 350);
-
-          const titulo = quien?.parentElement
-            ?.querySelector('.form-label')?.textContent?.trim();
-          return titulo
-            ? `Falta el detalle de "${titulo}".`
-            : 'Falta completar una respuesta.';
-        }
-
         return true;
       },
     });
